@@ -1,0 +1,39 @@
+[package]
+name = "clover-api"
+version = "0.1.0"
+edition = "2021"
+authors = ["Clover Books"]
+description = "High-performance Rust API for Clover Books"
+
+[dependencies]
+# Web framework
+axum = { version = "0.7", features = ["macros"] }
+tokio = { version = "1.35", features = ["full"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Auth
+jsonwebtoken = "9.2"
+bcrypt = "0.15"
+
+# Database (optional - can add later)
+# sqlx = { version = "0.7", features = ["runtime-tokio", "postgres"] }
+
+# Utils
+uuid = { version = "1.6", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+dotenvy = "0.15"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# HTTP client for Django proxy
+reqwest = { version = "0.11", features = ["json"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"

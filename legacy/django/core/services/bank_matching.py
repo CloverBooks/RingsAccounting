@@ -53,6 +53,9 @@ class MatchingConfig:
     DATE_LOOKBACK_DAYS: int = 90   # Look back 90 days for stale invoices/expenses
     DATE_LOOKAHEAD_DAYS: int = 20  # Look ahead 20 days for date entry errors
     
+    # QBO parity: Extended 180-day lookback for older transactions
+    EXTENDED_DATE_LOOKBACK_DAYS: int = 180  # QBO-style extended lookback
+    
     # Legacy compatibility (used by some tests)
     DATE_TOLERANCE_DAYS: int = 90  # Default to lookback for backward compat
     
@@ -61,12 +64,16 @@ class MatchingConfig:
     CONFIDENCE_TIER2: Decimal = Decimal("0.95")  # Reference parsing
     CONFIDENCE_TIER3_SINGLE: Decimal = Decimal("0.80")  # Single amount+date match
     CONFIDENCE_TIER3_AMBIGUOUS: Decimal = Decimal("0.50")  # Multiple candidates
+    CONFIDENCE_TIER4_BATCH_DEPOSIT: Decimal = Decimal("0.70")  # Batch deposit matching
     
     # Result limits
     DEFAULT_MAX_CANDIDATES: int = 5
     
     # Amount matching tolerance
     AMOUNT_TOLERANCE: Decimal = Decimal("0.01")  # 1 cent
+    
+    # Duplicate detection
+    DUPLICATE_DESCRIPTION_SIMILARITY: float = 0.85  # Min similarity for duplicate
 
 
 class BankMatchingEngine:
@@ -185,10 +192,16 @@ class BankMatchingEngine:
     @staticmethod
     def find_matches(
         bank_transaction: BankTransaction,
-        limit: Optional[int] = None
+        limit: Optional[int] = None,
+        extended_lookback: bool = False
     ) -> List[Dict[str, Any]]:
         """
         Find potential matches (Rules or Journal Entries).
+        
+        Args:
+            bank_transaction: The bank transaction to match
+            limit: Maximum number of candidates to return
+            extended_lookback: If True, use 180-day window (QBO parity)
         """
         if limit is None:
             limit = MatchingConfig.DEFAULT_MAX_CANDIDATES
@@ -218,8 +231,12 @@ class BankMatchingEngine:
         candidates.extend(tier_transfer)
 
         # Tier 3: Amount + date heuristic
-        tier3 = BankMatchingEngine._tier3_amount_date_match(bank_transaction, business)
+        tier3 = BankMatchingEngine._tier3_amount_date_match(bank_transaction, business, extended_lookback=extended_lookback)
         candidates.extend(tier3)
+
+        # Tier 4: Batch deposit matching (QBO parity: undeposited funds)
+        tier4 = BankMatchingEngine._tier4_batch_deposit_match(bank_transaction, business)
+        candidates.extend(tier4)
 
         # Deduplicate and sort
         seen = set()
@@ -449,18 +466,21 @@ class BankMatchingEngine:
         return candidates
 
     @staticmethod
-    def _tier3_amount_date_match(tx: BankTransaction, business) -> List[Dict[str, Any]]:
+    def _tier3_amount_date_match(tx: BankTransaction, business, extended_lookback: bool = False) -> List[Dict[str, Any]]:
         """
         Tier 3: Match by amount + date proximity.
         
         Uses asymmetric date window (QBO-style):
-        - Lookback 90 days for stale invoices/expenses that were paid late
+        - Lookback 90 days (or 180 days with extended_lookback) for stale invoices/expenses
         - Lookahead 20 days for minor date entry errors
         """
         amount_abs = abs(tx.amount)
 
+        # QBO parity: Use extended lookback if requested
+        lookback_days = MatchingConfig.EXTENDED_DATE_LOOKBACK_DAYS if extended_lookback else MatchingConfig.DATE_LOOKBACK_DAYS
+        
         # Find journal entries with matching amount within asymmetric date window
-        date_start = tx.date - timedelta(days=MatchingConfig.DATE_LOOKBACK_DAYS)
+        date_start = tx.date - timedelta(days=lookback_days)
         date_end = tx.date + timedelta(days=MatchingConfig.DATE_LOOKAHEAD_DAYS)
 
         # Get all journal entries in the date range
@@ -562,3 +582,143 @@ class BankMatchingEngine:
                     })
         
         return candidates
+
+    @staticmethod
+    def _tier4_batch_deposit_match(tx: BankTransaction, business) -> List[Dict[str, Any]]:
+        """
+        Tier 4: Batch deposit matching (QBO parity: undeposited funds).
+        
+        Matches a single bank deposit against multiple open invoices 
+        whose combined total matches the deposit amount.
+        
+        Example: $5,000 deposit = Invoice A ($2,000) + Invoice B ($3,000)
+        """
+        candidates = []
+        
+        # Only applies to deposits (positive amounts)
+        if tx.amount <= 0:
+            return candidates
+            
+        deposit_amount = Decimal(str(abs(tx.amount)))
+        
+        # Look for unpaid invoices within date range
+        date_cutoff = tx.date - timedelta(days=MatchingConfig.DATE_LOOKBACK_DAYS)
+        
+        unpaid_invoices = Invoice.objects.filter(
+            business=business,
+            status__in=['SENT', 'PARTIAL'],
+            issue_date__gte=date_cutoff,
+        ).order_by('issue_date')
+        
+        if not unpaid_invoices.exists():
+            return candidates
+            
+        # Try to find combinations that sum to deposit amount
+        # Simple greedy approach for now; could be improved with dynamic programming
+        running_total = Decimal("0.00")
+        matched_invoices = []
+        
+        for invoice in unpaid_invoices:
+            invoice_balance = invoice.balance or invoice.grand_total or Decimal("0.00")
+            if running_total + invoice_balance <= deposit_amount + MatchingConfig.AMOUNT_TOLERANCE:
+                running_total += invoice_balance
+                matched_invoices.append(invoice)
+                
+            if abs(running_total - deposit_amount) < MatchingConfig.AMOUNT_TOLERANCE:
+                break
+                
+        # If we found a matching combination
+        if matched_invoices and abs(running_total - deposit_amount) < MatchingConfig.AMOUNT_TOLERANCE:
+            invoice_ids = [inv.id for inv in matched_invoices]
+            invoice_numbers = [inv.invoice_number for inv in matched_invoices]
+            
+            candidates.append({
+                "batch_invoices": matched_invoices,
+                "invoice_ids": invoice_ids,
+                "confidence": MatchingConfig.CONFIDENCE_TIER4_BATCH_DEPOSIT,
+                "match_type": "BATCH_DEPOSIT",
+                "reason": f"Batch deposit: {len(matched_invoices)} invoices ({', '.join(invoice_numbers[:3])}{'...' if len(invoice_numbers) > 3 else ''}) totaling ${running_total}",
+            })
+            
+        return candidates
+
+    @staticmethod
+    def detect_duplicates(
+        business,
+        transactions: List[Dict],
+        bank_account_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        QBO parity: Detect duplicate transactions before import.
+        
+        Checks if incoming transactions already exist in the database based on:
+        - Amount (exact match)
+        - Date (same day)
+        - Description similarity
+        
+        Args:
+            business: The business to check against
+            transactions: List of dicts with 'amount', 'date', 'description'
+            bank_account_id: Optional filter by bank account
+        
+        Returns:
+            List of duplicate info dicts with index, existing_transaction_id, match_reason
+        """
+        import hashlib
+        
+        duplicates = []
+        
+        for idx, tx in enumerate(transactions):
+            amount = Decimal(str(tx.get('amount', 0)))
+            date_str = tx.get('date', '')
+            description = tx.get('description', '')
+            
+            # Parse date
+            from datetime import datetime as dt
+            if isinstance(date_str, str):
+                try:
+                    tx_date = dt.strptime(date_str, '%Y-%m-%d').date()
+                except ValueError:
+                    continue
+            else:
+                tx_date = date_str
+            
+            # Build filter for existing transactions
+            filters = {
+                'bank_account__business': business,
+                'date': tx_date,
+            }
+            if bank_account_id:
+                filters['bank_account_id'] = bank_account_id
+                
+            # Check for exact amount match on same date
+            existing = BankTransaction.objects.filter(
+                **filters
+            ).exclude(
+                status='EXCLUDED'
+            )
+            
+            for existing_tx in existing:
+                # Exact amount match
+                if abs(Decimal(str(existing_tx.amount)) - amount) < MatchingConfig.AMOUNT_TOLERANCE:
+                    # Check description similarity using simple hash comparison
+                    existing_desc_hash = hashlib.md5(existing_tx.description.lower().strip().encode()).hexdigest()[:8]
+                    new_desc_hash = hashlib.md5(description.lower().strip().encode()).hexdigest()[:8]
+                    
+                    if existing_desc_hash == new_desc_hash:
+                        duplicates.append({
+                            'index': idx,
+                            'existing_transaction_id': existing_tx.id,
+                            'match_reason': f"Exact duplicate: amount ${amount}, date {tx_date}, same description",
+                        })
+                        break
+                    else:
+                        # Amount and date match but different description - possible duplicate
+                        duplicates.append({
+                            'index': idx,
+                            'existing_transaction_id': existing_tx.id,
+                            'match_reason': f"Possible duplicate: amount ${amount}, date {tx_date}, similar transaction exists",
+                        })
+                        break
+        
+        return duplicates

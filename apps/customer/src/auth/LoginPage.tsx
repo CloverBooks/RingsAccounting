@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+
+const GOOGLE_LOGIN_ENABLED = true; // Toggle Google OAuth
 
 const ErrorStack: React.FC<{ errors?: string[] }> = ({ errors }) => {
   if (!errors || errors.length === 0) {
@@ -39,7 +41,7 @@ const CashCard: React.FC = () => (
     <div className="flex items-center justify-between">
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-500">
-          Today’s cash position
+          Today's cash position
         </p>
         <p className="mt-2 text-3xl font-semibold text-slate-900">$124,830</p>
       </div>
@@ -73,11 +75,20 @@ const CashCard: React.FC = () => (
   </div>
 );
 
+const GoogleIcon: React.FC = () => (
+  <svg className="h-5 w-5" viewBox="0 0 24 24">
+    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+  </svg>
+);
+
 const CloverBooksLoginPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { auth, login } = useAuth();
-  const [email, setEmail] = useState("demo@cloverbooks.local");
+  const [usernameOrEmail, setUsernameOrEmail] = useState("demo@cloverbooks.local");
   const [password, setPassword] = useState("changeme");
   const [errors, setErrors] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -95,7 +106,7 @@ const CloverBooksLoginPage: React.FC = () => {
     setErrors([]);
     setLoading(true);
     try {
-      await login(email, password);
+      await login(usernameOrEmail, password);
       navigate(redirectPath, { replace: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Invalid credentials";
@@ -103,6 +114,11 @@ const CloverBooksLoginPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleGoogleLogin = () => {
+    // Redirect to backend Google OAuth endpoint
+    window.location.href = "/api/auth/google/login";
   };
 
   return (
@@ -124,7 +140,7 @@ const CloverBooksLoginPage: React.FC = () => {
             <div className="space-y-2">
               <h1 className="text-3xl font-semibold tracking-tight text-slate-900">Sign in</h1>
               <p className="text-sm text-slate-500">
-                Use your email and password to unlock cash, ledgers, and banking in one place.
+                Use your email or username to unlock cash, ledgers, and banking in one place.
               </p>
             </div>
           </header>
@@ -133,14 +149,15 @@ const CloverBooksLoginPage: React.FC = () => {
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-2 text-sm">
-              <label className="font-medium text-slate-700" htmlFor="login_email">
-                Email
+              <label className="font-medium text-slate-700" htmlFor="login_username">
+                Email or username
               </label>
               <input
-                id="login_email"
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
+                id="login_username"
+                type="text"
+                autoComplete="username"
+                value={usernameOrEmail}
+                onChange={(event) => setUsernameOrEmail(event.target.value)}
                 className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 placeholder:text-slate-400 focus:border-slate-400 focus:bg-white focus:outline-none"
                 placeholder="you@studio.com"
                 required
@@ -156,6 +173,7 @@ const CloverBooksLoginPage: React.FC = () => {
               <input
                 id="login_password"
                 type="password"
+                autoComplete="current-password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 placeholder:text-slate-400 focus:border-slate-400 focus:bg-white focus:outline-none"
@@ -166,6 +184,7 @@ const CloverBooksLoginPage: React.FC = () => {
             <label className="flex items-center gap-2 text-xs text-slate-600">
               <input
                 type="checkbox"
+                name="remember"
                 className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900/30"
               />
               Keep me signed in
@@ -178,26 +197,76 @@ const CloverBooksLoginPage: React.FC = () => {
               {loading ? "Signing in…" : "Sign in"}
             </button>
 
+            {/* Google OAuth */}
+            {GOOGLE_LOGIN_ENABLED && (
+              <>
+                <div className="relative py-4">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-slate-200" />
+                  </div>
+                  <div className="relative flex justify-center text-xs">
+                    <span className="bg-white px-3 text-slate-400">Or continue with</span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleGoogleLogin}
+                  className="inline-flex w-full items-center justify-center gap-2.5 rounded-full border border-slate-200 bg-white py-3 text-sm font-medium text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50"
+                >
+                  <GoogleIcon />
+                  Continue with Google
+                </button>
+              </>
+            )}
+
             <p className="text-center text-xs text-slate-500">
-              Demo credentials are prefilled from the backend seed user.
+              New to Clover Books?{" "}
+              <Link to="/signup" className="font-semibold text-slate-900 hover:underline">
+                Create an account
+              </Link>
             </p>
           </form>
         </section>
 
-        <aside className="space-y-6">
-          <div className="rounded-[28px] border border-white/60 bg-white/80 p-6 shadow-[0_30px_80px_rgba(15,23,42,0.08)]">
-            <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Control tower snapshot</p>
-            <p className="mt-3 text-xl font-semibold text-slate-900">AI companion ready</p>
-            <p className="mt-2 text-sm text-slate-500">
-              Your ledgers, banking feeds, and companion insights are synced to the latest refresh window.
-            </p>
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <InsightBar label="Receipts" value="92%" accent="text-emerald-600" />
-              <InsightBar label="Banking" value="88%" accent="text-sky-600" />
-            </div>
+        {/* Dark themed sidebar with schedule panel (from Bible) */}
+        <section className="hidden flex-col gap-6 rounded-[32px] border border-slate-100 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-8 text-white lg:flex">
+          <div className="flex items-center justify-between text-xs text-slate-200">
+            <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-3 py-1">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              Live banking sync
+            </span>
+            <span>Owner view</span>
           </div>
           <CashCard />
-        </aside>
+          <div className="rounded-[28px] border border-white/20 bg-white/10 p-6 backdrop-blur">
+            <p className="text-[11px] uppercase tracking-[0.3em] text-slate-200">Schedule</p>
+            <div className="mt-4 space-y-3 text-sm">
+              <div className="flex items-center justify-between">
+                <span>Bank feed review</span>
+                <span className="rounded-full border border-white/30 px-3 py-1 text-[11px]">
+                  9:30 AM
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Owner update</span>
+                <span className="rounded-full border border-white/30 px-3 py-1 text-[11px]">
+                  11:00 AM
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Quiet close</span>
+                <span className="rounded-full border border-white/30 px-3 py-1 text-[11px]">
+                  4:00 PM
+                </span>
+              </div>
+            </div>
+            <p className="mt-6 text-xs text-slate-200">
+              Sign in once. Clover Books keeps cash, revenue, and expenses aligned without tab
+              juggling or exports.
+            </p>
+          </div>
+        </section>
       </div>
     </div>
   );

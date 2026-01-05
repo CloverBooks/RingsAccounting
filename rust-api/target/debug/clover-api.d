@@ -1,0 +1,1 @@
+/Users/wherethefuckthefunction/Desktop/Project\ Clover/rust-api/target/debug/clover-api: /Users/wherethefuckthefunction/Desktop/Project\ Clover/rust-api/src/main.rs /Users/wherethefuckthefunction/Desktop/Project\ Clover/rust-api/src/routes/auth.rs /Users/wherethefuckthefunction/Desktop/Project\ Clover/rust-api/src/routes/mod.rs
