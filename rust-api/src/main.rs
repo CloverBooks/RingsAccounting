@@ -1,19 +1,27 @@
-//! Clover Books - High-Performance Rust API
+//! Clover Books - 100% Rust API
 //!
-//! Fast async API built with Axum for authentication, banking, and core business logic.
-//! Proxies to Django backend for complex accounting operations.
+//! Native Rust API with no Django dependencies.
+//! All endpoints read directly from the SQLite database.
 
 use axum::{
     routing::{get, post},
     Router,
 };
+use sqlx::SqlitePool;
 use std::net::SocketAddr;
-use std::sync::Arc;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{CorsLayer, AllowOrigin};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use axum::http::{HeaderValue, Method, header};
 
+mod db;
 mod routes;
+
+/// Application state shared across all routes
+#[derive(Clone)]
+pub struct AppState {
+    pub db: SqlitePool,
+}
 
 #[tokio::main]
 async fn main() {
@@ -29,46 +37,139 @@ async fn main() {
     // Load environment variables
     dotenvy::dotenv().ok();
 
-    // Configure CORS for frontend
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    // Initialize database connection pool
+    let db_pool = match db::DbPool::new().await {
+        Ok(pool) => {
+            tracing::info!("✅ Database connected successfully");
+            pool
+        }
+        Err(e) => {
+            tracing::error!("❌ Failed to connect to database: {}", e);
+            panic!("Database connection required: {}", e);
+        }
+    };
 
-    // Shared state for banking routes
-    let banking_state = Arc::new(routes::banking::BankingState::default());
+    // Configure CORS - SECURITY: Only allow specific origins
+    let allowed_origins: Vec<HeaderValue> = std::env::var("CORS_ALLOWED_ORIGINS")
+        .unwrap_or_else(|_| "http://localhost:5173,http://localhost:3000".to_string())
+        .split(',')
+        .filter_map(|s| s.trim().parse().ok())
+        .collect();
+    
+    let cors = if allowed_origins.is_empty() {
+        tracing::warn!("⚠️  No valid CORS origins configured, using localhost defaults");
+        CorsLayer::new()
+            .allow_origin("http://localhost:5173".parse::<HeaderValue>().unwrap())
+            .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::PATCH])
+            .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::ACCEPT])
+            .allow_credentials(true)
+    } else {
+        tracing::info!("✅ CORS configured for {} origin(s)", allowed_origins.len());
+        CorsLayer::new()
+            .allow_origin(AllowOrigin::list(allowed_origins))
+            .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::PATCH])
+            .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::ACCEPT])
+            .allow_credentials(true)
+    };
 
-    // Build router
+    // Shared application state (no more http_client - 100% native)
+    let app_state = AppState {
+        db: db_pool.pool.clone(),
+    };
+
+    // Build router - 100% native Rust
     let app = Router::new()
         // Health check
         .route("/health", get(|| async { "OK" }))
-        // Auth routes
+        // Auth routes (native DB)
         .route("/api/auth/login", post(routes::auth::login))
         .route("/api/auth/signup", post(routes::auth::signup))
         .route("/api/auth/me", get(routes::auth::me))
         .route("/api/auth/logout", post(routes::auth::logout))
         .route("/api/auth/config", get(routes::auth::config))
-        // Banking routes (proxy to Django)
-        .route("/api/banking/health", get(routes::banking::health))
-        .route(
-            "/api/banking/find-matches",
-            post(routes::banking::find_matches),
-        )
-        .route(
-            "/api/banking/confirm-match",
-            post(routes::banking::confirm_match),
-        )
-        .route("/api/banking/allocate", post(routes::banking::allocate))
-        .route(
-            "/api/banking/progress/:account_id",
-            get(routes::banking::get_progress),
-        )
-        .route(
-            "/api/banking/check-duplicates",
-            post(routes::banking::check_duplicates),
-        )
-        // Add shared state for banking
-        .with_state(banking_state)
+        .route("/api/auth/google/login", get(routes::auth::google_login))
+        .route("/api/auth/google/callback", get(routes::auth::google_callback))
+        // Banking routes (NATIVE - no Django!)
+        .route("/api/banking/health", get(routes::matching::health))
+        .route("/api/banking/find-matches", post(routes::matching::find_matches))
+        .route("/api/banking/confirm-match", post(routes::matching::confirm_match))
+        .route("/api/banking/allocate", post(routes::matching::allocate))
+        .route("/api/banking/progress/:account_id", get(routes::matching::get_progress))
+        .route("/api/banking/check-duplicates", post(routes::matching::check_duplicates))
+        // Core APIs (native DB)
+        .route("/api/dashboard", get(routes::dashboard::dashboard))
+        .route("/api/invoices", get(routes::dashboard::list_invoices))
+        .route("/api/invoices/list/", get(routes::dashboard::list_invoices)) // Django-style alias
+        .route("/api/expenses", get(routes::dashboard::list_expenses))
+        .route("/api/expenses/list/", get(routes::dashboard::list_expenses_full)) // Full list for Expenses page
+        .route("/api/customers", get(routes::dashboard::list_customers_full))
+        .route("/api/customers/list/", get(routes::dashboard::list_customers_full)) // Django-style alias
+        .route("/api/products/list/", get(routes::dashboard::list_products)) // Products endpoint
+        .route("/api/suppliers", get(routes::dashboard::list_suppliers))
+        .route("/api/suppliers/list/", get(routes::dashboard::list_suppliers_full)) // Full list for Suppliers page
+        .route("/api/categories/list/", get(routes::dashboard::list_categories)) // Categories endpoint
+        .route("/api/banking/overview/", get(routes::dashboard::banking_overview)) // Banking overview
+        .route("/api/banking/feed/transactions/", get(routes::dashboard::list_feed_transactions)) // Banking feed transactions
+        .route("/api/banking/feed/transactions/:id/exclude/", post(routes::dashboard::exclude_feed_transaction))
+        .route("/api/banking/feed/transactions/:id/categorize/", post(routes::dashboard::categorize_feed_transaction))
+        .route("/api/bank-accounts", get(routes::dashboard::list_bank_accounts))
+        .route("/api/bank-accounts/:id/transactions", get(routes::dashboard::list_bank_transactions))
+        // AI Companion APIs (native DB)
+        .route("/api/companion/issues", get(routes::companion::list_issues))
+        .route("/api/companion/issues/:id/dismiss", post(routes::companion::dismiss_issue))
+        .route("/api/companion/issues/:id/snooze", post(routes::companion::snooze_issue))
+        .route("/api/companion/issues/:id/resolve", post(routes::companion::resolve_issue))
+        .route("/api/companion/audits", get(routes::companion::list_audits))
+        .route("/api/companion/audits/:id/approve", post(routes::companion::approve_audit))
+        .route("/api/companion/audits/:id/reject", post(routes::companion::reject_audit))
+        .route("/api/companion/radar", get(routes::companion::radar))
+        // Companion v2 API (for Control Tower)
+        .route("/api/companion/v2/shadow-events/", get(routes::companion::list_shadow_events))
+        .route("/api/companion/v2/shadow-events/:id/apply/", post(routes::companion::apply_shadow_event))
+        .route("/api/companion/v2/shadow-events/:id/reject/", post(routes::companion::reject_shadow_event))
+        // Agentic Invoice AI APIs
+        .route("/api/agentic/invoices/runs", get(routes::agentic::list_runs))
+        .route("/api/agentic/invoices/run/:id", get(routes::agentic::get_run))
+        .route("/api/agentic/invoices/run", post(routes::agentic::create_run))
+        .route("/api/agentic/invoices/:id/approve", post(routes::agentic::approve_invoice))
+        .route("/api/agentic/invoices/:id/discard", post(routes::agentic::discard_invoice))
+        // Agentic Receipts AI APIs
+        .route("/api/agentic/receipts/runs", get(routes::agentic::list_receipt_runs))
+        .route("/api/agentic/receipts/run/:id", get(routes::agentic::get_receipt_run))
+        .route("/api/agentic/receipts/run", post(routes::agentic::create_receipt_run))
+        .route("/api/agentic/receipts/:id/approve", post(routes::agentic::approve_receipt))
+        .route("/api/agentic/receipts/:id/discard", post(routes::agentic::discard_receipt))
+        // Agentic Companion APIs (for Control Tower)
+        .route("/api/agentic/companion/summary", get(routes::agentic::companion_summary))
+        .route("/api/agentic/companion/issues", get(routes::agentic::companion_issues))
+        // Reconciliation APIs
+        .route("/api/reconciliation/accounts/", get(routes::reconciliation::list_accounts))
+        .route("/api/reconciliation/accounts/:id/periods/", get(routes::reconciliation::list_periods))
+        .route("/api/reconciliation/session/", get(routes::reconciliation::get_session))
+        .route("/api/reconciliation/matches/", get(routes::reconciliation::get_matches))
+        .route("/api/reconciliation/confirm-match/", post(routes::reconciliation::confirm_match))
+        .route("/api/reconciliation/add-as-new/", post(routes::reconciliation::add_as_new))
+        .route("/api/reconciliation/session/:id/exclude/", post(routes::reconciliation::exclude_transaction))
+        .route("/api/reconciliation/session/:id/unmatch/", post(routes::reconciliation::unmatch_transaction))
+        .route("/api/reconciliation/session/:id/set_statement_balance/", post(routes::reconciliation::set_statement_balance))
+        .route("/api/reconciliation/sessions/:id/complete/", post(routes::reconciliation::complete_session))
+        .route("/api/reconciliation/sessions/:id/reopen/", post(routes::reconciliation::reopen_session))
+        .route("/api/reconciliation/sessions/:id/delete/", post(routes::reconciliation::delete_session))
+        .route("/api/reconciliation/create-adjustment/", post(routes::reconciliation::create_adjustment))
+        // Tax Guardian APIs
+        .route("/api/tax/periods/", get(routes::tax::list_periods))
+        .route("/api/tax/periods/:period_key/", get(routes::tax::get_snapshot))
+        .route("/api/tax/periods/:period_key/anomalies/", get(routes::tax::list_anomalies))
+        .route("/api/tax/periods/:period_key/refresh/", post(routes::tax::refresh_period))
+        .route("/api/tax/periods/:period_key/status/", post(routes::tax::update_status))
+        .route("/api/tax/periods/:period_key/anomalies/:anomaly_id/", axum::routing::patch(routes::tax::update_anomaly))
+        .route("/api/tax/periods/:period_key/llm-enrich/", post(routes::tax::llm_enrich))
+        .route("/api/tax/periods/:period_key/reset/", post(routes::tax::reset_period))
+        .route("/api/tax/periods/:period_key/payments/", post(routes::tax::create_payment))
+        .route("/api/tax/periods/:period_key/payments/:payment_id/", axum::routing::patch(routes::tax::update_payment))
+        .route("/api/tax/periods/:period_key/payments/:payment_id/delete/", post(routes::tax::delete_payment))
+        // Add shared state for all routes
+        .with_state(app_state)
         // Add middleware
         .layer(cors)
         .layer(TraceLayer::new_for_http());
@@ -76,7 +177,12 @@ async fn main() {
     // Start server
     let addr = SocketAddr::from(([0, 0, 0, 0], 3001));
     tracing::info!("🚀 Clover API starting on http://{}", addr);
-    tracing::info!("📊 Banking routes: /api/banking/*");
+    tracing::info!("🦀 100% Native Rust - No Django Dependencies");
+    tracing::info!("🔐 Auth: /api/auth/*");
+    tracing::info!("💰 Banking: /api/banking/* (native matching engine)");
+    tracing::info!("📋 Core: /api/dashboard, invoices, expenses, customers, suppliers");
+    tracing::info!("🤖 Companion: /api/companion/*");
+    tracing::info!("🗄️ Database: SQLite");
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();

@@ -74,8 +74,20 @@ type RequestOptions = {
 
 let accessToken: string | null = null;
 
+// Check localStorage for token on load (for Google OAuth)
+const storedToken = typeof localStorage !== 'undefined' ? localStorage.getItem('auth_token') : null;
+if (storedToken) {
+  accessToken = storedToken;
+}
+
 export const setAccessToken = (token: string | null) => {
   accessToken = token;
+  if (token) {
+    localStorage.setItem('auth_token', token);
+  } else {
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('user');
+  }
 };
 
 export const getAccessToken = () => accessToken;
@@ -111,10 +123,10 @@ const apiJson = async <T>(path: string, options: RequestOptions = {}): Promise<T
   return data as T;
 };
 
-export const fetchHealth = () => apiJson<HealthResponse>("/healthz");
+export const fetchHealth = () => apiJson<HealthResponse>("/api/healthz");
 
 export const login = (email: string, password: string) =>
-  apiJson<TokenResponse>("/auth/login", {
+  apiJson<TokenResponse>("/api/auth/login", {
     method: "POST",
     body: { email, password },
     auth: false,
@@ -123,15 +135,56 @@ export const login = (email: string, password: string) =>
     return data;
   });
 
-export const refresh = () =>
-  apiJson<TokenResponse>("/auth/refresh", { method: "POST", auth: false }).then((data) => {
-    setAccessToken(data.access_token);
-    return data;
-  });
+export const refresh = async (): Promise<TokenResponse> => {
+  // First check localStorage for stored user from Google OAuth
+  const storedUser = localStorage.getItem('user');
+  const storedToken = localStorage.getItem('auth_token');
+
+  if (storedUser && storedToken) {
+    try {
+      const user = JSON.parse(storedUser);
+      accessToken = storedToken;
+      return {
+        access_token: storedToken,
+        token_type: "bearer",
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.first_name,
+          lastName: user.last_name,
+          first_name: user.first_name,
+          last_name: user.last_name,
+        }
+      };
+    } catch {
+      // Fall through to API call
+    }
+  }
+
+  // Try to refresh via API (if we have a token)
+  if (accessToken) {
+    try {
+      const data = await apiJson<{ ok: boolean; user: User }>("/api/auth/me", { method: "GET" });
+      if (data.user) {
+        return {
+          access_token: accessToken,
+          token_type: "bearer",
+          user: data.user,
+        };
+      }
+    } catch {
+      // Token invalid, clear it
+      setAccessToken(null);
+    }
+  }
+
+  throw new Error("Not authenticated");
+};
 
 export const logout = () =>
-  apiJson<{ ok: boolean }>("/auth/logout", { method: "POST", auth: false }).finally(() => {
+  apiJson<{ ok: boolean }>("/api/auth/logout", { method: "POST", auth: false }).finally(() => {
     setAccessToken(null);
   });
 
-export const fetchMe = () => apiJson<AuthResponse>("/me");
+export const fetchMe = () => apiJson<AuthResponse>("/api/auth/me");
+
