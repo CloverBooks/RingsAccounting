@@ -117,6 +117,7 @@ async fn main() {
         .route("/api/customers", get(routes::dashboard::list_customers_full))
         .route("/api/customers/list/", get(routes::dashboard::list_customers_full)) // Legacy alias
         .route("/api/products/list/", get(routes::dashboard::list_products)) // Products endpoint
+        .route("/api/products/create/", post(routes::dashboard::create_product)) // Create product
         .route("/api/suppliers", get(routes::dashboard::list_suppliers))
         .route("/api/suppliers/list/", get(routes::dashboard::list_suppliers_full)) // Full list for Suppliers page
         .route("/api/categories/list/", get(routes::dashboard::list_categories)) // Categories endpoint

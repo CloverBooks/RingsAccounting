@@ -839,6 +839,73 @@ pub struct ProductListQuery {
 }
 
 // ============================================================================
+// Create Product API
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct CreateProductRequest {
+    pub name: String,
+    pub sku: Option<String>,
+    pub price: Option<f64>,
+    pub description: Option<String>,
+    pub kind: Option<String>, // "product" or "service"
+}
+
+/// POST /api/products/create/
+pub async fn create_product(
+    State(state): State<AppState>,
+    Json(body): Json<CreateProductRequest>,
+) -> impl IntoResponse {
+    // Default to business_id 1 (demo mode - in production, extract from JWT)
+    let business_id = 1i64;
+    
+    tracing::info!("Creating product for business_id={}: {:?}", business_id, body.name);
+    
+    // Generate SKU if not provided
+    let sku = body.sku.unwrap_or_else(|| {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        format!("ITEM-{}", timestamp)
+    });
+    
+    let result = sqlx::query(
+        "INSERT INTO core_item (business_id, name, sku, description, price, is_active, created_at, updated_at) 
+         VALUES (?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))"
+    )
+    .bind(business_id)
+    .bind(&body.name)
+    .bind(&sku)
+    .bind(&body.description)
+    .bind(body.price.unwrap_or(0.0))
+    .execute(&state.db)
+    .await;
+    
+    match result {
+        Ok(r) => {
+            let item_id = r.last_insert_rowid();
+            tracing::info!("Created product id={} for business_id={}", item_id, business_id);
+            (StatusCode::CREATED, Json(serde_json::json!({
+                "ok": true,
+                "id": item_id,
+                "name": body.name,
+                "sku": sku,
+                "message": "Product created successfully"
+            })))
+        }
+        Err(e) => {
+            tracing::error!("Failed to create product: {:?}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "ok": false,
+                "error": format!("Failed to create product: {}", e)
+            })))
+        }
+    }
+}
+
+
+// ============================================================================
 // Banking Overview API
 // ============================================================================
 

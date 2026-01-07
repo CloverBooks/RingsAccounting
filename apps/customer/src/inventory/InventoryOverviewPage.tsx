@@ -1,5 +1,7 @@
-import React, { useMemo, useState } from "react";
-import { Search, Plus, Package2, AlertTriangle, Warehouse, ArrowUpRight, Filter } from "lucide-react";
+import React, { useMemo, useState, useCallback } from "react";
+import { Search, Plus, Package2, AlertTriangle, Warehouse, ArrowUpRight, Filter, X } from "lucide-react";
+import { ReceiveStockSheet, AdjustStockSheet } from "./InventoryMovementSheets";
+import type { InventoryLocation } from "./api";
 
 // NOTE:
 // - TailwindCSS assumed to be available.
@@ -223,6 +225,10 @@ const InventoryPage: React.FC = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<InventoryStatus | "all">("all");
+  const [receiveSheetOpen, setReceiveSheetOpen] = useState(false);
+  const [adjustSheetOpen, setAdjustSheetOpen] = useState(false);
+  const [savedViewsOpen, setSavedViewsOpen] = useState(false);
+  const [movementLogOpen, setMovementLogOpen] = useState(false);
 
   const selectedItem = useMemo(
     () => data?.items.find((i) => i.id === selectedId) ?? data?.items[0] ?? null,
@@ -245,6 +251,26 @@ const InventoryPage: React.FC = () => {
     });
   }, [data, search, statusFilter]);
 
+  // Mock locations for demo - in production, this would come from API
+  const mockLocations: InventoryLocation[] = useMemo(() => [
+    { id: 1, workspace: 1, name: "Main Warehouse", code: "MAIN", location_type: "warehouse", parent: null, created_at: "", updated_at: "" },
+    { id: 2, workspace: 1, name: "Retail Outlet", code: "OUTLET", location_type: "retail", parent: null, created_at: "", updated_at: "" },
+    { id: 3, workspace: 1, name: "Online Fulfillment", code: "ONLINE", location_type: "virtual", parent: null, created_at: "", updated_at: "" },
+  ], []);
+
+  const handleReceiveStock = useCallback(() => {
+    setReceiveSheetOpen(true);
+  }, []);
+
+  const handleAdjustStock = useCallback(() => {
+    setAdjustSheetOpen(true);
+  }, []);
+
+  const handleSheetComplete = useCallback(() => {
+    // In production, this would refetch data
+    console.log("Sheet action completed - would refresh data");
+  }, []);
+
   return (
     <div className="min-h-screen bg-[#f5f7fb] px-4 pb-10 pt-6 md:px-8 lg:px-12">
       {/* Page header */}
@@ -262,11 +288,17 @@ const InventoryPage: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <button className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-700 shadow-sm hover:border-slate-300 hover:bg-slate-50">
+          <button
+            onClick={() => setSavedViewsOpen(true)}
+            className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-700 shadow-sm hover:border-slate-300 hover:bg-slate-50 transition-colors"
+          >
             <Filter className="h-3.5 w-3.5" />
             Saved views
           </button>
-          <button className="inline-flex items-center gap-2 rounded-full border border-slate-900/90 bg-slate-900 px-4 py-2 text-xs font-medium text-slate-50 shadow-[0_14px_40px_rgba(15,23,42,0.45)] hover:bg-black">
+          <button
+            onClick={handleReceiveStock}
+            className="inline-flex items-center gap-2 rounded-full border border-slate-900/90 bg-slate-900 px-4 py-2 text-xs font-medium text-slate-50 shadow-[0_14px_40px_rgba(15,23,42,0.45)] hover:bg-black transition-colors"
+          >
             <Plus className="h-3.5 w-3.5" />
             Receive stock
           </button>
@@ -565,13 +597,22 @@ const InventoryPage: React.FC = () => {
               </div>
 
               <div className="mt-2 flex flex-wrap gap-2">
-                <button className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50">
+                <button
+                  onClick={handleReceiveStock}
+                  className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50 transition-colors"
+                >
                   <Plus className="h-3 w-3" /> Receive
                 </button>
-                <button className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50">
+                <button
+                  onClick={handleAdjustStock}
+                  className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50 transition-colors"
+                >
                   Adjust
                 </button>
-                <button className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50">
+                <button
+                  onClick={() => setMovementLogOpen(true)}
+                  className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50 transition-colors"
+                >
                   Movement log
                 </button>
               </div>
@@ -588,6 +629,99 @@ const InventoryPage: React.FC = () => {
           )}
         </aside>
       </section>
+
+      {/* Receive Stock Sheet */}
+      <ReceiveStockSheet
+        open={receiveSheetOpen}
+        onOpenChange={setReceiveSheetOpen}
+        workspaceId={1}
+        itemId={selectedItem ? parseInt(selectedItem.id, 10) : 0}
+        locations={mockLocations}
+        defaultLocationId={mockLocations[0]?.id || null}
+        onCompleted={handleSheetComplete}
+      />
+
+      {/* Adjust Stock Sheet */}
+      <AdjustStockSheet
+        open={adjustSheetOpen}
+        onOpenChange={setAdjustSheetOpen}
+        workspaceId={1}
+        itemId={selectedItem ? parseInt(selectedItem.id, 10) : 0}
+        locations={mockLocations}
+        defaultLocationId={mockLocations[0]?.id || null}
+        onCompleted={handleSheetComplete}
+      />
+
+      {/* Saved Views Modal */}
+      {savedViewsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="fixed inset-0 bg-black/50" onClick={() => setSavedViewsOpen(false)} />
+          <div className="relative z-50 w-full max-w-md rounded-2xl border bg-white p-6 shadow-lg">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Saved Views</h3>
+              <button
+                onClick={() => setSavedViewsOpen(false)}
+                className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-2">
+              <button className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 text-sm text-slate-700 transition-colors">
+                All Items
+              </button>
+              <button className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 text-sm text-slate-700 transition-colors">
+                Low Stock Items
+              </button>
+              <button className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 text-sm text-slate-700 transition-colors">
+                Out of Stock
+              </button>
+              <button className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 text-sm text-slate-700 transition-colors">
+                Recent Movements
+              </button>
+            </div>
+            <p className="mt-4 text-xs text-slate-400">More saved views coming soon.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Movement Log Modal */}
+      {movementLogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="fixed inset-0 bg-black/50" onClick={() => setMovementLogOpen(false)} />
+          <div className="relative z-50 w-full max-w-2xl rounded-2xl border bg-white p-6 shadow-lg">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Movement Log</h3>
+              <button
+                onClick={() => setMovementLogOpen(false)}
+                className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            {selectedItem ? (
+              <div className="space-y-3">
+                <p className="text-sm text-slate-600">
+                  Movement history for <strong>{selectedItem.name}</strong>
+                </p>
+                <div className="border rounded-lg divide-y">
+                  <div className="px-4 py-3 flex justify-between text-sm">
+                    <span className="text-slate-500">Last movement</span>
+                    <span className="text-slate-900">{selectedItem.lastMovement}</span>
+                  </div>
+                  <div className="px-4 py-3 flex justify-between text-sm">
+                    <span className="text-slate-500">Current on-hand</span>
+                    <span className="text-slate-900">{selectedItem.onHand.toLocaleString()} units</span>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400">Full movement history will be available in a future update.</p>
+              </div>
+            ) : (
+              <p className="text-sm text-slate-500">Select an item to view its movement log.</p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
