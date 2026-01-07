@@ -1,7 +1,7 @@
 //! Authentication routes for Clover Books API
 //! 
 //! Handles login, signup, session management, and JWT tokens.
-//! Reads from Django's SQLite database for real user authentication.
+//! Reads from the SQLite database for real user authentication.
 
 use axum::{
     extract::{Json, State},
@@ -138,12 +138,12 @@ struct BusinessRow {
 }
 
 // ============================================================================
-// Password Verification (Django PBKDF2-SHA256)
+// Password Verification (Legacy PBKDF2-SHA256)
 // ============================================================================
 
-/// Verify Django PBKDF2 password hash
-/// Django format: pbkdf2_sha256$iterations$salt$hash
-fn verify_django_password(password: &str, hash: &str) -> bool {
+/// Verify legacy PBKDF2 password hash
+/// Legacy format: pbkdf2_sha256$iterations$salt$hash
+fn verify_legacy_password(password: &str, hash: &str) -> bool {
     let parts: Vec<&str> = hash.split('$').collect();
     if parts.len() != 4 {
         return false;
@@ -184,7 +184,7 @@ fn verify_django_password(password: &str, hash: &str) -> bool {
 
 /// POST /api/auth/login
 /// 
-/// Authenticate user with email/password against Django's database.
+/// Authenticate user with email/password against the existing database.
 pub async fn login(
     State(state): State<AppState>,
     Json(payload): Json<LoginRequest>,
@@ -242,8 +242,8 @@ pub async fn login(
         );
     }
     
-    // Verify password against Django hash
-    if !verify_django_password(&payload.password, &user_row.password) {
+    // Verify password against legacy hash
+    if !verify_legacy_password(&payload.password, &user_row.password) {
         tracing::warn!("Invalid password for: {}", payload.email);
         return (
             StatusCode::UNAUTHORIZED,
@@ -345,15 +345,15 @@ pub async fn signup(
         );
     }
 
-    // TODO: Create user in database with Django-compatible password hash
-    // For now, return error indicating signup should be done via Django
+    // TODO: Create user in database with legacy-compatible password hash
+    // For now, return error indicating signup should be done via the existing web app
     (
         StatusCode::NOT_IMPLEMENTED,
         Json(AuthResponse {
             ok: false,
             token: None,
             user: None,
-            error: Some("Signup not yet implemented in Rust API. Please use Django.".to_string()),
+            error: Some("Signup not yet implemented in Rust API. Please use the existing web app.".to_string()),
         }),
     )
 }
@@ -464,7 +464,29 @@ pub async fn google_login() -> impl IntoResponse {
     // Check for Google OAuth configuration
     let client_id = std::env::var("GOOGLE_CLIENT_ID").ok();
     
-    let html = if client_id.is_none() {
+    let html = if let Some(client_id) = client_id {
+        // Build Google OAuth URL and show redirect page
+        let redirect_uri = std::env::var("GOOGLE_REDIRECT_URI")
+            .unwrap_or_else(|_| "http://localhost:3001/api/auth/google/callback".to_string());
+        
+        let oauth_url = format!(
+            "https://accounts.google.com/o/oauth2/v2/auth?client_id={}&redirect_uri={}&response_type=code&scope=email%20profile&access_type=offline",
+            client_id,
+            urlencoding::encode(&redirect_uri)
+        );
+        
+        format!(r#"<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="refresh" content="0;url={}">
+    <title>Redirecting to Google...</title>
+</head>
+<body>
+    <p>Redirecting to Google...</p>
+    <p>If not redirected, <a href="{}">click here</a>.</p>
+</body>
+</html>"#, oauth_url, oauth_url)
+    } else {
         // Return HTML page with error message
         r#"<!DOCTYPE html>
 <html>
@@ -490,29 +512,6 @@ pub async fn google_login() -> impl IntoResponse {
     </div>
 </body>
 </html>"#.to_string()
-    } else {
-        // Build Google OAuth URL and show redirect page
-        let client_id = client_id.unwrap();
-        let redirect_uri = std::env::var("GOOGLE_REDIRECT_URI")
-            .unwrap_or_else(|_| "http://localhost:3001/api/auth/google/callback".to_string());
-        
-        let oauth_url = format!(
-            "https://accounts.google.com/o/oauth2/v2/auth?client_id={}&redirect_uri={}&response_type=code&scope=email%20profile&access_type=offline",
-            client_id,
-            urlencoding::encode(&redirect_uri)
-        );
-        
-        format!(r#"<!DOCTYPE html>
-<html>
-<head>
-    <meta http-equiv="refresh" content="0;url={}">
-    <title>Redirecting to Google...</title>
-</head>
-<body>
-    <p>Redirecting to Google...</p>
-    <p>If not redirected, <a href="{}">click here</a>.</p>
-</body>
-</html>"#, oauth_url, oauth_url)
     };
     
     (
@@ -702,12 +701,14 @@ pub async fn google_callback(
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct GoogleCallbackParams {
     pub code: Option<String>,
     pub error: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct GoogleTokenResponse {
     access_token: String,
     #[serde(default)]
@@ -719,6 +720,7 @@ struct GoogleTokenResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct GoogleUserInfo {
     id: String,
     email: String,
@@ -771,12 +773,12 @@ fn error_html(message: &str) -> (StatusCode, [(&'static str, &'static str); 1], 
 mod tests {
     use super::*;
 
-    /// Test that a valid Django PBKDF2-SHA256 password hash is verified correctly.
+    /// Test that a valid legacy PBKDF2-SHA256 password hash is verified correctly.
     /// 
-    /// This hash is generated by Django for password "test123" with known salt.
+    /// This hash is generated by the legacy system for password "test123" with known salt.
     #[test]
-    fn test_verify_django_password_valid() {
-        // Django password hash format: pbkdf2_sha256$iterations$salt$hash
+    fn test_verify_legacy_password_valid() {
+        // Legacy password hash format: pbkdf2_sha256$iterations$salt$hash
         // Generated a test hash for password "test123"
         let password = "test123";
         
@@ -796,17 +798,17 @@ mod tests {
             &mut derived_key,
         );
         let hash_b64 = STANDARD.encode(&derived_key);
-        let django_hash = format!("pbkdf2_sha256${}${}${}", iterations, salt, hash_b64);
+        let legacy_hash = format!("pbkdf2_sha256${}${}${}", iterations, salt, hash_b64);
         
         assert!(
-            verify_django_password(password, &django_hash),
+            verify_legacy_password(password, &legacy_hash),
             "Valid password should be verified successfully"
         );
     }
 
     /// Test that an invalid password is rejected.
     #[test]
-    fn test_verify_django_password_invalid() {
+    fn test_verify_legacy_password_invalid() {
         // Create a valid hash for "correct_password"
         use sha2::Sha256;
         use hmac::Hmac;
@@ -826,33 +828,33 @@ mod tests {
             &mut derived_key,
         );
         let hash_b64 = STANDARD.encode(&derived_key);
-        let django_hash = format!("pbkdf2_sha256${}${}${}", iterations, salt, hash_b64);
+        let legacy_hash = format!("pbkdf2_sha256${}${}${}", iterations, salt, hash_b64);
         
         assert!(
-            !verify_django_password(wrong_password, &django_hash),
+            !verify_legacy_password(wrong_password, &legacy_hash),
             "Wrong password should be rejected"
         );
     }
 
     /// Test that malformed hash formats are rejected.
     #[test]
-    fn test_verify_django_password_malformed() {
+    fn test_verify_legacy_password_malformed() {
         let password = "anypassword";
         
         // Too few parts
-        assert!(!verify_django_password(password, "pbkdf2_sha256$100000"));
+        assert!(!verify_legacy_password(password, "pbkdf2_sha256$100000"));
         
         // Empty hash
-        assert!(!verify_django_password(password, ""));
+        assert!(!verify_legacy_password(password, ""));
         
         // Wrong algorithm
-        assert!(!verify_django_password(password, "argon2$100000$salt$hash"));
+        assert!(!verify_legacy_password(password, "argon2$100000$salt$hash"));
         
         // Invalid iteration count
-        assert!(!verify_django_password(password, "pbkdf2_sha256$invalid$salt$hash"));
+        assert!(!verify_legacy_password(password, "pbkdf2_sha256$invalid$salt$hash"));
         
         // Zero iterations
-        assert!(!verify_django_password(password, "pbkdf2_sha256$0$salt$hash"));
+        assert!(!verify_legacy_password(password, "pbkdf2_sha256$0$salt$hash"));
     }
 
     /// Test AuthConfig serialization
@@ -906,5 +908,3 @@ mod tests {
         assert!(json.contains("\"business_id\":456"));
     }
 }
-
-

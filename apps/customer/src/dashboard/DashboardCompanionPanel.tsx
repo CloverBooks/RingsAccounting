@@ -252,8 +252,8 @@ export function DashboardCompanionPanel(props: DashboardCompanionPanelProps) {
     const summaryHint = "Stay on top of reconciliation for best results.";
 
     return (
-        <section className="relative rounded-[2.5rem] bg-gradient-to-br from-white via-slate-50 to-slate-100 p-1 ring-1 ring-slate-200/60 shadow-[0_0_60px_-15px_rgba(99,102,241,0.25),0_0_30px_-10px_rgba(59,130,246,0.15)] font-sans">
-            <div className="relative z-10 rounded-[2.2rem] border border-white/60 bg-white/90 px-6 py-6 sm:px-8 sm:py-8">
+        <section className="chromeGlowCard font-sans">
+            <div className="chromeGlowCard__inner px-6 py-6 sm:px-8 sm:py-8">
                 <div className="flex flex-col gap-8">
 
                     {/* Header */}

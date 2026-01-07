@@ -14,6 +14,9 @@ use axum::{
 use serde::Serialize;
 
 use crate::AppState;
+use crate::companion_autonomy::store as autonomy_store;
+use axum::http::HeaderMap;
+use chrono::TimeZone;
 
 // ============================================================================
 // Invoice AI Types
@@ -217,10 +220,17 @@ pub async fn discard_receipt(
 /// GET /api/agentic/companion/summary
 /// Returns comprehensive AI companion summary for the Control Tower
 pub async fn companion_summary(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
     tracing::info!("Getting companion summary");
     
+    let business_id = crate::routes::auth::extract_claims_from_header(&headers)
+        .ok()
+        .and_then(|claims| claims.business_id)
+        .unwrap_or(1);
+    let engine_snapshot_meta = fetch_engine_snapshot_meta(&state.db, business_id).await;
+
     // Return comprehensive mock data that matches the frontend expected structure
     (StatusCode::OK, Json(serde_json::json!({
         "ai_companion_enabled": true,
@@ -298,8 +308,59 @@ pub async fn companion_summary(
             "net_tax": 0,
             "jurisdictions": [],
             "anomaly_counts": { "low": 0, "medium": 0, "high": 0 }
-        }
+        },
+        "engine_snapshot_meta": engine_snapshot_meta
     })))
+}
+
+async fn fetch_engine_snapshot_meta(
+    pool: &sqlx::SqlitePool,
+    business_id: i64,
+) -> Option<serde_json::Value> {
+    let snapshot = autonomy_store::latest_queue_snapshot(pool, business_id)
+        .await
+        .ok()
+        .flatten()?;
+
+    let stale = is_queue_snapshot_stale(&snapshot.generated_at, snapshot.stale_after_seconds);
+    let payload: serde_json::Value = serde_json::from_str(&snapshot.snapshot_json).unwrap_or_default();
+    let queued_total = payload
+        .get("job_totals")
+        .and_then(|v| v.get("queued"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let blocked_total = payload
+        .get("job_totals")
+        .and_then(|v| v.get("blocked"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let breaker_events = payload
+        .get("stats")
+        .and_then(|v| v.get("breaker_events_last_day"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let mode = payload
+        .get("mode")
+        .and_then(|v| v.as_str())
+        .unwrap_or("suggest_only");
+
+    Some(serde_json::json!({
+        "generated_at": snapshot.generated_at,
+        "stale": stale,
+        "queued_total": queued_total,
+        "blocked_total": blocked_total,
+        "mode": mode,
+        "breakers_ok": breaker_events == 0
+    }))
+}
+
+fn is_queue_snapshot_stale(generated_at: &str, stale_after_seconds: i64) -> bool {
+    if let Ok(parsed) = chrono::NaiveDateTime::parse_from_str(generated_at, "%Y-%m-%d %H:%M:%S") {
+        let generated = chrono::Utc.from_utc_datetime(&parsed);
+        let age_seconds = (chrono::Utc::now() - generated).num_seconds();
+        return age_seconds > stale_after_seconds;
+    }
+    false
 }
 
 /// GET /api/agentic/companion/issues

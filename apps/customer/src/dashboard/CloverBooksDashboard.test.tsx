@@ -56,12 +56,12 @@ describe("CloverBooksDashboard Tax Guardian card", () => {
     expect(screen.getByText(/Tax Guardian/i)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText(/Period/i)).toBeInTheDocument());
 
-    expect(screen.getByText(/Attention/i)).toBeInTheDocument();
+    expect(screen.getByText("Attention")).toBeInTheDocument();
     expect(screen.getByText(/2 anomalies need review/i)).toBeInTheDocument();
     expect(screen.getByText(/Due Jan 30/i)).toBeInTheDocument();
 
     const link = screen.getByRole("link", { name: /^View$/i });
-    expect(link).toHaveAttribute("href", "/ai-companion/tax?period=2025-12");
+    expect(link).toHaveAttribute("href", "/companion/tax?period=2025-12");
   });
 
   it("shows inline retry on error", async () => {

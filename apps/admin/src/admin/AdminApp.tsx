@@ -21,6 +21,7 @@ import { SupportSection } from "./SupportSection";
 import { ApprovalsSection } from "./ApprovalsSection";
 import { OverviewSection } from "./OverviewSection";
 import { EmployeesSection } from "./EmployeesSection";
+import { AutonomySection } from "./AutonomySection";
 import { Card, SimpleTable, StatusPill, cn } from "./AdminUI";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -38,6 +39,7 @@ type NavSectionId =
   | "ledger"
   | "invoices"
   | "expenses"
+  | "autonomy"
   | "ai-monitoring"
   | "feature-flags"
   | "settings"
@@ -90,6 +92,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
   {
     label: "Intelligence & Ops",
     items: [
+      { id: "autonomy", label: "Autonomy Engine", description: "Queues, breakers, and modes" },
       { id: "ai-monitoring", label: "AI monitoring", description: "Agent reports & metrics" },
       { id: "feature-flags", label: "Feature flags", description: "Rollouts & experiments" },
       { id: "settings", label: "Settings", description: "Security & config" },
@@ -674,13 +677,18 @@ const Sidebar: React.FC<{
         <p className="text-xs text-slate-600">Internal-only rails. Every action is accountable.</p>
       </div>
       <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
-        {navGroups.map((group) => (
+        {navGroups.map((group) => {
+          const visibleItems = group.items.filter(
+            (item) => item.id !== "employees" || canManageAdminUsers
+          );
+          if (visibleItems.length === 0) return null;
+          return (
           <div key={group.label}>
             <p className="px-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500 mb-1.5">
               {group.label}
             </p>
             <div className="space-y-0.5">
-              {group.items.map((item) => {
+              {visibleItems.map((item) => {
 
                 const active = current === item.id;
                 return (
@@ -703,7 +711,8 @@ const Sidebar: React.FC<{
               })}
             </div>
           </div>
-        ))}
+        );
+        })}
       </nav>
       <div className="border-t border-slate-200 px-4 py-3 space-y-3">
         <LogoutButton />
@@ -768,6 +777,8 @@ export const AdminApp: React.FC = () => {
         return <InvoicesSection />;
       case "expenses":
         return <ExpensesSection />;
+      case "autonomy":
+        return <AutonomySection />;
       case "ai-monitoring":
         return <AiMonitoringSection />;
       case "feature-flags":

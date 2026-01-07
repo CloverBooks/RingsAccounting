@@ -1,6 +1,7 @@
 import React from "react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { screen, waitFor, fireEvent, within } from "@testing-library/react";
+import { renderWithRouter } from "../test/testUtils";
 import InvoicesPage from "./InvoicesPage";
 
 const runsPayload = {
@@ -69,7 +70,7 @@ describe("InvoicesPage", () => {
   });
 
   it("renders upload section and runs list", async () => {
-    render(<InvoicesPage defaultCurrency="USD" />);
+    renderWithRouter(<InvoicesPage defaultCurrency="USD" />);
 
     // Wait for page to render
     await waitFor(() => expect(screen.getByText(/Recent runs/i)).toBeInTheDocument());
@@ -84,16 +85,17 @@ describe("InvoicesPage", () => {
   });
 
   it("shows run list with correct data", async () => {
-    render(<InvoicesPage defaultCurrency="USD" />);
+    renderWithRouter(<InvoicesPage defaultCurrency="USD" />);
 
     // Wait for runs to load
     await waitFor(() => expect(screen.getByText(/Recent runs/i)).toBeInTheDocument());
 
     // Verify run data is displayed
-    expect(screen.getByText("#1")).toBeInTheDocument();
-    expect(screen.getByText("COMPLETED")).toBeInTheDocument();
-    expect(screen.getByText("1")).toBeInTheDocument(); // total_documents
-    expect(screen.getByText("0")).toBeInTheDocument(); // error_count
+    const row = screen.getByText("#1").closest("tr");
+    expect(row).not.toBeNull();
+    const cells = within(row as HTMLElement).getAllByRole("cell");
+    expect(cells[2]).toHaveTextContent("1"); // total_documents
+    expect(cells[4]).toHaveTextContent("0"); // error_count
 
     // Verify View button exists
     const viewButtons = screen.getAllByText(/View/i);
@@ -101,7 +103,7 @@ describe("InvoicesPage", () => {
   });
 
   it("renders AI companion insights when present", async () => {
-    render(<InvoicesPage defaultCurrency="USD" />);
+    renderWithRouter(<InvoicesPage defaultCurrency="USD" />);
 
     await waitFor(() => expect(screen.getByText(/Recent runs/i)).toBeInTheDocument());
 

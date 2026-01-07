@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Outlet } from "react-router-dom";
 import React from "react";
 
 // Mock all the page components to avoid complex dependencies
@@ -70,8 +70,10 @@ vi.mock("./contexts/AuthContext", () => ({
 
 // Mock other dependencies
 vi.mock("./layouts/CustomerLayout", () => ({
-    CustomerLayout: ({ children }: { children: React.ReactNode }) => (
-        <div data-testid="customer-layout">{children}</div>
+    CustomerLayout: () => (
+        <div data-testid="customer-layout">
+            <Outlet />
+        </div>
     ),
 }));
 vi.mock("./contexts/ToastContext", () => ({
@@ -80,7 +82,7 @@ vi.mock("./contexts/ToastContext", () => ({
 }));
 
 // Import App after mocks
-import App from "./App";
+import { AppRoutes } from "./App";
 
 describe("App Routes", () => {
     beforeAll(() => {
@@ -96,7 +98,7 @@ describe("App Routes", () => {
         it("renders dashboard at /dashboard", async () => {
             render(
                 <MemoryRouter initialEntries={["/dashboard"]}>
-                    <App />
+                    <AppRoutes />
                 </MemoryRouter>
             );
 
@@ -108,7 +110,7 @@ describe("App Routes", () => {
         it("renders chart of accounts with mock data", async () => {
             render(
                 <MemoryRouter initialEntries={["/chart-of-accounts"]}>
-                    <App />
+                    <AppRoutes />
                 </MemoryRouter>
             );
 
@@ -122,7 +124,7 @@ describe("App Routes", () => {
         it("renders invoices page with USD currency", async () => {
             render(
                 <MemoryRouter initialEntries={["/invoices"]}>
-                    <App />
+                    <AppRoutes />
                 </MemoryRouter>
             );
 
@@ -136,7 +138,7 @@ describe("App Routes", () => {
         it("renders banking page", async () => {
             render(
                 <MemoryRouter initialEntries={["/banking"]}>
-                    <App />
+                    <AppRoutes />
                 </MemoryRouter>
             );
 
@@ -148,7 +150,7 @@ describe("App Routes", () => {
         it("renders settings page", async () => {
             render(
                 <MemoryRouter initialEntries={["/settings"]}>
-                    <App />
+                    <AppRoutes />
                 </MemoryRouter>
             );
 
@@ -160,7 +162,7 @@ describe("App Routes", () => {
         it("renders companion page", async () => {
             render(
                 <MemoryRouter initialEntries={["/companion"]}>
-                    <App />
+                    <AppRoutes />
                 </MemoryRouter>
             );
 
@@ -172,7 +174,7 @@ describe("App Routes", () => {
         it("renders tax guardian page", async () => {
             render(
                 <MemoryRouter initialEntries={["/companion/tax"]}>
-                    <App />
+                    <AppRoutes />
                 </MemoryRouter>
             );
 
@@ -184,7 +186,7 @@ describe("App Routes", () => {
         it("renders reconciliation page", async () => {
             render(
                 <MemoryRouter initialEntries={["/reconciliation"]}>
-                    <App />
+                    <AppRoutes />
                 </MemoryRouter>
             );
 

@@ -1,7 +1,8 @@
 //! Dashboard and core API routes for Clover Books
 //!
-//! Native Rust endpoints that read directly from Django's database.
-//! Replaces Django proxy calls for better performance.
+//! Native Rust endpoints that read directly from the existing database.
+//! Replaces legacy proxy calls for better performance.
+#![allow(dead_code)]
 
 use axum::{
     extract::{Path, Query, State},
@@ -702,7 +703,7 @@ pub struct BankTransactionQuery {
 }
 
 // ============================================================================
-// Full Customer List API (Django-compatible format)
+// Full Customer List API (legacy-compatible format)
 // ============================================================================
 
 /// GET /api/customers/list/

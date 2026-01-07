@@ -34,7 +34,14 @@ import CloseAssistantDrawer from "./CloseAssistantDrawer";
 import IssuesPanel from "./IssuesPanel";
 import PanelShell from "./PanelShell";
 import SuggestionsPanel from "./SuggestionsPanel";
-import { PanelType } from "./companionCopy";
+import { PanelType, toCustomerCopy } from "./companionCopy";
+import {
+  applyEngineBatch,
+  fetchCockpitQueues,
+  fetchCockpitStatus,
+  EngineQueuesResult,
+  EngineStatusPayload,
+} from "@/api/companionAutonomyApi";
 
 // recharts (available)
 import {
@@ -153,6 +160,10 @@ type Proposal = {
   description: string;
   amount?: number;
   risk: "ready" | "review" | "needs_attention";
+  customer_action_kind?: "apply" | "review" | "info";
+  risk_level?: "low" | "medium" | "high";
+  preview_effects?: string[];
+  source_agent?: string | null;
   created_at: string;
   target_url?: string; // review link
   // backend action ids can be carried here if needed
@@ -206,6 +217,48 @@ function proposalRiskFromEvent(event: any): Proposal["risk"] {
     return "ready";
   }
   return event?.status === "proposed" ? "review" : "ready";
+}
+
+function proposalRiskLevelFromEvent(event: any): Proposal["risk_level"] {
+  const explicit = event?.risk_level;
+  if (explicit === "low" || explicit === "medium" || explicit === "high") return explicit;
+  const tier = Number(event?.human_in_the_loop?.tier);
+  if (Number.isFinite(tier)) {
+    if (tier >= 2) return "high";
+    if (tier === 1) return "medium";
+    return "low";
+  }
+  const status = String(event?.status || "").toLowerCase();
+  if (status === "proposed") return "medium";
+  return "low";
+}
+
+function proposalActionKindFromEvent(event: any): Proposal["customer_action_kind"] {
+  const explicit = event?.customer_action_kind || event?.action_kind;
+  if (explicit === "apply" || explicit === "review" || explicit === "info") return explicit;
+  const status = String(event?.status || "").toLowerCase();
+  if (status === "proposed") return "review";
+  return "apply";
+}
+
+function proposalAgentFromEvent(event: any): string | null {
+  const explicit = event?.agent_name || event?.agent || event?.data?.agent || event?.data?.source_agent;
+  if (explicit) return String(explicit);
+  const eventType = String(event?.event_type || "").toLowerCase();
+  if (eventType.includes("categorization")) return "CategorizationAgent";
+  if (eventType.includes("reconciliation") || eventType.includes("bankmatch") || eventType.includes("match")) {
+    return "ReconciliationAgent";
+  }
+  if (eventType.includes("narrative")) return "NarrativeAgent";
+  return null;
+}
+
+function proposalPreviewEffectsFromEvent(event: any): string[] | undefined {
+  const effects = event?.preview_effects || event?.data?.preview_effects || event?.data?.effects;
+  if (Array.isArray(effects)) {
+    return effects.map((item) => String(item)).filter(Boolean);
+  }
+  return undefined;
 }
 
 function proposalTitleFromEvent(event: any): string {
@@ -279,10 +332,10 @@ async function fetchSummaryApi(): Promise<Summary> {
     ai_companion_enabled: data.ai_companion_enabled ?? true,
     generated_at: data.generated_at || new Date().toISOString(),
     voice: {
-      greeting: voice.greeting || "Hello",
+      greeting: toCustomerCopy(voice.greeting || "Hello"),
       focus_mode: voice.focus_mode || "watchlist",
-      tone_tagline: voice.tone_tagline || "Your books need attention.",
-      primary_call_to_action: voice.primary_call_to_action || "Review open items.",
+      tone_tagline: toCustomerCopy(voice.tone_tagline || "Your books need attention."),
+      primary_call_to_action: toCustomerCopy(voice.primary_call_to_action || "Review open items."),
     },
     radar: [
       { key: "cash_reconciliation" as const, label: "Cash", score: radar.cash_reconciliation?.score ?? 100, open_issues: radar.cash_reconciliation?.open_issues ?? 0 },
@@ -298,8 +351,8 @@ async function fetchSummaryApi(): Promise<Summary> {
     ],
     playbook: playbook.map((p: any, i: number) => ({
       id: `p${i}`,
-      title: p.label || p.title || "Action item",
-      description: p.description || "",
+      title: toCustomerCopy(p.label || p.title || "Action item"),
+      description: toCustomerCopy(p.description || ""),
       severity: (p.severity || "medium") as "low" | "medium" | "high",
       surface: normalizeSurfaceKey(p.surface) || undefined,
       url: p.url,
@@ -311,17 +364,17 @@ async function fetchSummaryApi(): Promise<Summary> {
       progress_percent: closeReadiness.progress_percent ?? (closeReadiness.status === "ready" ? 100 : 50),
       blockers: (closeReadiness.blocking_items || closeReadiness.blocking_reasons || []).map((b: any, i: number) => ({
         id: `b${i}`,
-        title: typeof b === "string" ? b : (b.reason || b.title || "Blocker"),
+        title: toCustomerCopy(typeof b === "string" ? b : (b.reason || b.title || "Blocker")),
         surface: normalizeSurfaceKey(b.surface) || undefined,
         severity: (b.severity || "high") as "medium" | "high",
         url: b.url,
       })),
     },
     llm_subtitles: [
-      { surface: "banking" as SurfaceKey, subtitle: llmSubtitles.bank || llmSubtitles.banking || "", source: "ai" as const },
-      { surface: "receipts" as SurfaceKey, subtitle: llmSubtitles.receipts || "", source: "ai" as const },
-      { surface: "invoices" as SurfaceKey, subtitle: llmSubtitles.invoices || "", source: "ai" as const },
-      { surface: "books" as SurfaceKey, subtitle: llmSubtitles.books || "", source: "ai" as const },
+      { surface: "banking" as SurfaceKey, subtitle: toCustomerCopy(llmSubtitles.bank || llmSubtitles.banking || ""), source: "ai" as const },
+      { surface: "receipts" as SurfaceKey, subtitle: toCustomerCopy(llmSubtitles.receipts || ""), source: "ai" as const },
+      { surface: "invoices" as SurfaceKey, subtitle: toCustomerCopy(llmSubtitles.invoices || ""), source: "ai" as const },
+      { surface: "books" as SurfaceKey, subtitle: toCustomerCopy(llmSubtitles.books || ""), source: "ai" as const },
     ].filter(s => s.subtitle) as LlmSubtitle[],
     finance_snapshot: {
       ending_cash: financeSnapshot.ending_cash ?? cashHealth.ending_cash ?? 0,
@@ -358,10 +411,14 @@ async function fetchProposalsApi(): Promise<Proposal[]> {
       return {
         id: event.id,
         surface,
-        title: proposalTitleFromEvent(event),
-        description: proposalDescriptionFromEvent(event),
+        title: toCustomerCopy(proposalTitleFromEvent(event)),
+        description: toCustomerCopy(proposalDescriptionFromEvent(event)),
         amount: proposalAmountFromEvent(event),
         risk: proposalRiskFromEvent(event),
+        customer_action_kind: proposalActionKindFromEvent(event),
+        risk_level: proposalRiskLevelFromEvent(event),
+        preview_effects: proposalPreviewEffectsFromEvent(event),
+        source_agent: proposalAgentFromEvent(event),
         created_at: event.created_at || new Date().toISOString(),
         target_url: event?.data?.target_url || SURFACE_URLS[surface],
       };
@@ -379,8 +436,8 @@ async function fetchIssuesApi(): Promise<Issue[]> {
     return (data.issues || []).map((i: any) => ({
       id: String(i.id),
       surface: normalizeSurfaceKey(i.surface) || "banking",
-      title: i.title,
-      description: i.recommended_action || i.estimated_impact || "",
+      title: toCustomerCopy(i.title),
+      description: toCustomerCopy(i.recommended_action || i.estimated_impact || ""),
       severity: i.severity,
       created_at: i.created_at,
       target_url: i.target_url,
@@ -430,7 +487,8 @@ function usePanelRouting() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const panelParam = (searchParams.get("panel") || "").toLowerCase();
-  const panel = panelParam === "suggestions" || panelParam === "issues" || panelParam === "close"
+  const panel =
+    panelParam === "suggestions" || panelParam === "issues" || panelParam === "close" || panelParam === "engine"
     ? (panelParam as PanelType)
     : null;
 
@@ -438,14 +496,20 @@ function usePanelRouting() {
   const surfaceKey = normalizeSurfaceKey(surfaceParam);
   const surfaceLabel = surfaceKey ? surfaceMeta(surfaceKey).label : null;
   const surfaceFilter = surfaceKey ? surfaceKeyToFilterParam(surfaceKey) : null;
+  const agentFilter = searchParams.get("agent")?.trim() || null;
 
-  const open = (p: PanelType, surface?: SurfaceKey) => {
+  const open = (p: PanelType, surface?: SurfaceKey, agent?: string | null) => {
     const next = new URLSearchParams(searchParams);
     next.set("panel", p);
     if (surface) {
       next.set("surface", surfaceKeyToFilterParam(surface));
     } else {
       next.delete("surface");
+    }
+    if (agent) {
+      next.set("agent", agent);
+    } else {
+      next.delete("agent");
     }
     setSearchParams(next, { replace: false });
   };
@@ -454,21 +518,24 @@ function usePanelRouting() {
     const next = new URLSearchParams(searchParams);
     next.delete("panel");
     next.delete("surface");
+    next.delete("agent");
     setSearchParams(next, { replace: false });
   };
 
-  return { panel, surfaceFilter, surfaceLabel, open, close };
+  return { panel, surfaceFilter, surfaceLabel, agentFilter, open, close };
 }
 
 // ---------------------------
 // Main Page
 // ---------------------------
 export default function AICompanionControlTower() {
-  const { panel, surfaceFilter, surfaceLabel, open, close } = usePanelRouting();
+  const { panel, surfaceFilter, surfaceLabel, agentFilter, open, close } = usePanelRouting();
 
   const [summary, setSummary] = useState<Summary | null>(null);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [issues, setIssues] = useState<Issue[]>([]);
+  const [engineQueues, setEngineQueues] = useState<EngineQueuesResult | null>(null);
+  const [engineStatus, setEngineStatus] = useState<EngineStatusPayload | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -479,10 +546,12 @@ export default function AICompanionControlTower() {
     let alive = true;
     (async () => {
       setLoading(true);
-      const [summaryResult, proposalsResult, issuesResult] = await Promise.allSettled([
+      const [summaryResult, proposalsResult, issuesResult, engineResult, statusResult] = await Promise.allSettled([
         fetchSummaryApi(),
         fetchProposalsApi(),
         fetchIssuesApi(),
+        fetchCockpitQueues(),
+        fetchCockpitStatus(),
       ]);
       if (!alive) return;
       if (summaryResult.status === "fulfilled") {
@@ -493,6 +562,12 @@ export default function AICompanionControlTower() {
       }
       setProposals(proposalsResult.status === "fulfilled" ? proposalsResult.value : []);
       setIssues(issuesResult.status === "fulfilled" ? issuesResult.value : []);
+      if (engineResult.status === "fulfilled") {
+        setEngineQueues(engineResult.value);
+      }
+      if (statusResult.status === "fulfilled") {
+        setEngineStatus(statusResult.value);
+      }
       setLoading(false);
     })();
     return () => {
@@ -518,10 +593,12 @@ export default function AICompanionControlTower() {
     if (refreshing) return;
     setRefreshing(true);
     try {
-      const [summaryResult, proposalsResult, issuesResult] = await Promise.allSettled([
+      const [summaryResult, proposalsResult, issuesResult, engineResult, statusResult] = await Promise.allSettled([
         fetchSummaryApi(),
         fetchProposalsApi(),
         fetchIssuesApi(),
+        fetchCockpitQueues(),
+        fetchCockpitStatus(),
       ]);
       if (summaryResult.status === "fulfilled") {
         setSummary(summaryResult.value);
@@ -531,6 +608,12 @@ export default function AICompanionControlTower() {
       }
       if (issuesResult.status === "fulfilled") {
         setIssues(issuesResult.value);
+      }
+      if (engineResult.status === "fulfilled") {
+        setEngineQueues(engineResult.value);
+      }
+      if (statusResult.status === "fulfilled") {
+        setEngineStatus(statusResult.value);
       }
     } catch (e) {
       console.error("Failed to refresh companion data", e);
@@ -597,6 +680,11 @@ export default function AICompanionControlTower() {
             <div className="space-y-6">
               <FinanceSnapshotCard finance={summary.finance_snapshot} />
               <TaxGuardianCard tax={summary.tax_guardian} />
+              <EngineQueueCard
+                queues={engineQueues}
+                status={engineStatus}
+                onOpenQueue={() => open("engine")}
+              />
               <TrustSafetyCard safeMode={safeMode} />
             </div>
           </div>
@@ -608,13 +696,23 @@ export default function AICompanionControlTower() {
           <SuggestionsPanel
             proposals={proposals}
             surface={surfaceFilter}
+            agentFilter={agentFilter}
             onApplied={(id) => setProposals((prev) => prev.filter((p) => p.id !== id))}
             onDismissed={(id) => setProposals((prev) => prev.filter((p) => p.id !== id))}
             loading={loading}
+            engineMode={engineStatus?.mode}
           />
         )}
         {panel === "issues" && <IssuesPanel issues={issues} surface={surfaceFilter} loading={loading} />}
         {panel === "close" && <CloseAssistantDrawer summary={summary} loading={loading} />}
+        {panel === "engine" && (
+          <EngineQueuePanel
+            queues={engineQueues}
+            status={engineStatus}
+            onRefresh={refresh}
+            onOpenSuggestions={(agent) => open("suggestions", undefined, agent)}
+          />
+        )}
       </PanelShell>
 
       <Footer />
@@ -1007,10 +1105,18 @@ function SurfacesGrid({
             const c = counts(k);
 
             return (
-              <button
+              <div
                 key={k}
+                role="button"
+                tabIndex={0}
                 onClick={() => (c.sug ? onOpenSuggestions(k) : onOpenIssues(k))}
-                className="group rounded-3xl border border-zinc-200 bg-white p-5 text-left shadow-sm transition hover:bg-zinc-50"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    (c.sug ? onOpenSuggestions(k) : onOpenIssues(k));
+                  }
+                }}
+                className="group cursor-pointer rounded-3xl border border-zinc-200 bg-white p-5 text-left shadow-sm transition hover:bg-zinc-50"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-3">
@@ -1084,7 +1190,7 @@ function SurfacesGrid({
                     </Tooltip>
                   </TooltipProvider>
                 </div>
-              </button>
+              </div>
             );
           })}
         </div>
@@ -1207,6 +1313,326 @@ function TinyChip({ label, value }: { label: string; value: string }) {
     <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">
       <div className="text-[11px] text-zinc-500">{label}</div>
       <div className="mt-0.5 text-sm font-semibold text-zinc-950">{value}</div>
+    </div>
+  );
+}
+
+function EngineQueueCard({
+  queues,
+  status,
+  onOpenQueue,
+}: {
+  queues: EngineQueuesResult | null;
+  status: EngineStatusPayload | null;
+  onOpenQueue: () => void;
+}) {
+  const stats = queues?.data?.stats;
+  const ready = stats?.ready ?? 0;
+  const attention = stats?.needs_attention ?? 0;
+  const waiting = stats?.waiting_approval ?? 0;
+  const trust = queues ? Math.round(queues.data.trust_score) : null;
+  const applied = stats?.applied_last_day ?? 0;
+  const breakers = stats?.breaker_events_last_day ?? status?.breakers?.recent ?? 0;
+  const jobTotals = queues?.data?.job_totals || null;
+  const queuedTotal = jobTotals?.queued ?? 0;
+  const runningTotal = jobTotals?.running ?? 0;
+  const blockedTotal = jobTotals?.blocked ?? 0;
+  const mode = status?.mode || queues?.data?.mode || "offline";
+  const stale = queues?.stale;
+  const freshness = stale == null ? "unknown" : stale ? "stale" : "fresh";
+
+  return (
+    <Card className="border-zinc-200 bg-white shadow-sm">
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-base">Autonomy Engine</CardTitle>
+            <CardDescription>Queue snapshot and safe batch controls</CardDescription>
+          </div>
+          <div className="flex flex-col items-end gap-2">
+            <Badge variant="outline" className="rounded-full border-zinc-200 bg-white text-zinc-700">
+              {mode.replace("_", " ")}
+            </Badge>
+            <Badge
+              variant="outline"
+              className={cx(
+                "rounded-full border-zinc-200 bg-white text-zinc-700",
+                freshness === "stale" && "border-amber-200 text-amber-700",
+                freshness === "fresh" && "border-emerald-200 text-emerald-700"
+              )}
+            >
+              {freshness}
+            </Badge>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0 space-y-3">
+        <div className="grid grid-cols-3 gap-2">
+          <TinyChip label="Queued" value={`${queuedTotal}`} />
+          <TinyChip label="Running" value={`${runningTotal}`} />
+          <TinyChip label="Blocked" value={`${blockedTotal}`} />
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <TinyChip label="Ready" value={`${ready}`} />
+          <TinyChip label="Needs attention" value={`${attention}`} />
+          <TinyChip label="Waiting approval" value={`${waiting}`} />
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <TinyChip label="Applied (24h)" value={`${applied}`} />
+          <TinyChip label="Breakers (24h)" value={`${breakers}`} />
+        </div>
+
+        <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+          <div className="flex items-center justify-between text-xs text-zinc-600">
+            <span>Trust score</span>
+            <span className="font-semibold text-zinc-900">{trust != null ? `${trust}%` : "—"}</span>
+          </div>
+        </div>
+
+        <Button onClick={onOpenQueue} className="w-full rounded-2xl bg-zinc-950 text-white hover:bg-zinc-900">
+          View engine queue
+          <ChevronRight className="ml-2 h-4 w-4" />
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function EngineQueuePanel({
+  queues,
+  status,
+  onRefresh,
+  onOpenSuggestions,
+}: {
+  queues: EngineQueuesResult | null;
+  status: EngineStatusPayload | null;
+  onRefresh: () => void;
+  onOpenSuggestions: (agent: string) => void;
+}) {
+  const ready = queues?.data?.ready_queue ?? [];
+  const attention = queues?.data?.needs_attention_queue ?? [];
+  const stats = queues?.data?.stats;
+  const jobTotals = queues?.data?.job_totals || null;
+  const jobByAgent = queues?.data?.job_by_agent ?? [];
+  const topBlockers = queues?.data?.top_blockers ?? [];
+  const mode = status?.mode || queues?.data?.mode || "offline";
+  const stale = queues?.stale;
+  const freshness = stale == null ? "Unknown" : stale ? "Stale" : "Fresh";
+  const [selected, setSelected] = useState<number[]>([]);
+  const [applying, setApplying] = useState(false);
+  const selectableReady = ready.filter((item) => item.action_id != null && item.risk_level === "low");
+  const allSelected = selectableReady.length > 0 && selected.length === selectableReady.length;
+
+  const toggleSelection = (id: number) => {
+    setSelected((prev) => (prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]));
+  };
+
+  const toggleAll = () => {
+    if (allSelected) {
+      setSelected([]);
+    } else {
+      setSelected(selectableReady.map((item) => item.action_id as number));
+    }
+  };
+
+  const handleApplyBatch = async () => {
+    if (selected.length === 0) return;
+    setApplying(true);
+    const ok = await applyEngineBatch(selected);
+    setApplying(false);
+    if (ok) {
+      setSelected([]);
+      onRefresh();
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="text-xs font-semibold text-zinc-900 uppercase tracking-wide">Queue snapshot</div>
+            <div className="mt-1 text-xs text-zinc-500">
+              Mode: {mode.replace("_", " ")} · {freshness}
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="rounded-full border-zinc-200 bg-white"
+            onClick={onRefresh}
+          >
+            Refresh
+          </Button>
+        </div>
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          <TinyChip label="Queued" value={`${jobTotals?.queued ?? 0}`} />
+          <TinyChip label="Running" value={`${jobTotals?.running ?? 0}`} />
+          <TinyChip label="Blocked" value={`${jobTotals?.blocked ?? 0}`} />
+        </div>
+      </div>
+
+      <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+        <div className="text-xs font-semibold text-zinc-900 uppercase tracking-wide">Batch review</div>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <TinyChip label="Applied (24h)" value={`${stats?.applied_last_day ?? 0}`} />
+          <TinyChip label="Breakers (24h)" value={`${stats?.breaker_events_last_day ?? 0}`} />
+        </div>
+        <div className="mt-4 flex items-center justify-between text-xs text-zinc-500">
+          <span>{selected.length} selected</span>
+          <button
+            className="text-zinc-900 hover:underline"
+            onClick={toggleAll}
+            disabled={selectableReady.length === 0}
+          >
+            {allSelected ? "Clear all" : "Select all"}
+          </button>
+        </div>
+        <Button
+          className="mt-3 w-full rounded-2xl bg-zinc-950 text-white hover:bg-zinc-900"
+          onClick={handleApplyBatch}
+          disabled={selected.length === 0 || applying}
+        >
+          {applying ? "Applying..." : "Apply selected low-risk actions"}
+        </Button>
+      </div>
+
+      <div>
+        <div className="text-xs font-semibold text-zinc-900 uppercase tracking-wide">By agent</div>
+        <div className="mt-3 space-y-2">
+          {jobByAgent.length === 0 ? (
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-xs text-zinc-500">
+              No agent activity yet.
+            </div>
+          ) : (
+            jobByAgent.map((row) => (
+              <div key={row.agent} className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-xs">
+                <div className="flex items-center justify-between">
+                  <div className="font-semibold text-zinc-900">{row.agent}</div>
+                  <div className="text-zinc-500">
+                    Queued {row.queued} · Running {row.running} · Blocked {row.blocked}
+                  </div>
+                </div>
+                <div className="mt-2 flex justify-end">
+                  <button
+                    className="text-xs font-semibold text-zinc-900 hover:underline"
+                    onClick={() => onOpenSuggestions(row.agent)}
+                  >
+                    Open suggestions
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      <div>
+        <div className="text-xs font-semibold text-zinc-900 uppercase tracking-wide">Top blockers</div>
+        <div className="mt-3 space-y-2">
+          {topBlockers.length === 0 ? (
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-xs text-zinc-500">
+              No blockers reported.
+            </div>
+          ) : (
+            topBlockers.map((blocker, index) => (
+              <div key={`${blocker.kind}-${index}`} className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-xs">
+                <div className="flex items-center justify-between">
+                  <div className="font-semibold text-zinc-900">{blocker.kind}</div>
+                  <div className="text-zinc-500">{blocker.status}</div>
+                </div>
+                <div className="mt-1 text-zinc-500">{toCustomerCopy(blocker.reason)}</div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      <div>
+        <div className="text-xs font-semibold text-zinc-900 uppercase tracking-wide">Ready to apply</div>
+        <div className="mt-3 space-y-3">
+          {ready.length === 0 ? (
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-xs text-zinc-500">
+              No ready items right now.
+            </div>
+          ) : (
+            ready.map((item) => {
+              const chip = severityChip(item.risk_level as "low" | "medium" | "high");
+              const actionId = item.action_id ?? null;
+              const safeTitle = toCustomerCopy(item.title);
+              const safeSummary = toCustomerCopy(item.summary);
+              return (
+                <div key={item.id} className="rounded-3xl border border-zinc-200 bg-white p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-950">{safeTitle}</div>
+                      <div className="mt-1 text-xs text-zinc-500">{safeSummary}</div>
+                    </div>
+                    <span className={cx("rounded-full px-2 py-1 text-[10px] uppercase", chip.cls)}>{chip.label}</span>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between text-[11px] text-zinc-500">
+                    <label className="flex items-center gap-2 text-xs text-zinc-600">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-zinc-300"
+                        checked={actionId ? selected.includes(actionId) : false}
+                        onChange={() => actionId && toggleSelection(actionId)}
+                        disabled={!actionId || item.risk_level !== "low"}
+                      />
+                      {item.risk_level === "low" ? "Add to batch" : "Manual review"}
+                    </label>
+                    {item.target_url ? (
+                      <a href={item.target_url} className="text-zinc-900 hover:underline">
+                        Open
+                      </a>
+                    ) : null}
+                  </div>
+                  <div className="mt-2 text-[11px] text-zinc-500">
+                    {surfaceMeta(normalizeSurfaceKey(item.surface) || "banking").label}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      <div>
+        <div className="text-xs font-semibold text-zinc-900 uppercase tracking-wide">Needs attention</div>
+        <div className="mt-3 space-y-3">
+          {attention.length === 0 ? (
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-xs text-zinc-500">
+              No high-risk items yet.
+            </div>
+          ) : (
+            attention.map((item) => {
+              const chip = severityChip(item.risk_level as "low" | "medium" | "high");
+              const safeTitle = toCustomerCopy(item.title);
+              const safeSummary = toCustomerCopy(item.summary);
+              return (
+                <div key={item.id} className="rounded-3xl border border-zinc-200 bg-white p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-950">{safeTitle}</div>
+                      <div className="mt-1 text-xs text-zinc-500">{safeSummary}</div>
+                    </div>
+                    <span className={cx("rounded-full px-2 py-1 text-[10px] uppercase", chip.cls)}>{chip.label}</span>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between text-[11px] text-zinc-500">
+                    <span>{surfaceMeta(normalizeSurfaceKey(item.surface) || "banking").label}</span>
+                    {item.target_url ? (
+                      <a href={item.target_url} className="text-zinc-900 hover:underline">
+                        Open
+                      </a>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
     </div>
   );
 }

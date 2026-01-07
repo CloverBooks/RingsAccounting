@@ -1,5 +1,5 @@
 // Database connection module
-// Provides SQLite connection pool for accessing Django's existing database
+// Provides SQLite connection pool for accessing the existing database
 
 pub mod models;
 pub mod queries;
@@ -30,6 +30,7 @@ impl DbPool {
     }
     
     /// Get the underlying pool reference
+    #[allow(dead_code)]
     pub fn get(&self) -> &SqlitePool {
         &self.pool
     }

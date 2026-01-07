@@ -79,9 +79,13 @@ exports[`TopMetricsRow > renders all four hero cards 1`] = `
                 class="whitespace-nowrap"
               >
                 Last 30 days: 
-                +
-                8.2
-                %
+                <span
+                  class="font-mono-soft"
+                >
+                  +
+                  8.2
+                  %
+                </span>
               </span>
             </div>
           </div>

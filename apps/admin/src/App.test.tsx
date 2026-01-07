@@ -20,5 +20,5 @@ beforeEach(() => {
 
 test("renders the admin sign in screen", async () => {
   render(<App />);
-  expect(await screen.findByText(/Control Tower/i)).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: /Control Tower/i })).toBeInTheDocument();
 });

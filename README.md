@@ -117,7 +117,7 @@ Key screens (see demo video for full walkthrough):
 | **LLM (Text)** | DeepSeek Chat (deepseek-chat) for structured JSON output |
 | **LLM (Vision)** | OpenAI GPT-4o-mini for receipt OCR/extraction |
 
-Legacy FastAPI and Django code remain in the repository for reference, but the core stack is now Rust + standalone SPAs.
+Legacy services remain in the repository for reference, but the core stack is Rust + standalone SPAs.
 
 ---
 
@@ -135,12 +135,10 @@ Legacy FastAPI and Django code remain in the repository for reference, but the c
 - `apps/customer` - Customer React SPA
 - `apps/admin` - Admin React SPA
 - `apps/shared-ui` - Shared design system (theme + primitives)
-- `backend/` - Legacy FastAPI service
-- `legacy/` - Archived Django monolith + legacy frontend
+- `backend/` - Legacy FastAPI service (read-only during transition)
+- `legacy/` - Archived database artifacts (SQLite backups, snapshots)
 
 Legacy archive details:
-- `legacy/django` - Django project/apps, templates, static assets, and scripts
-- `legacy/frontend` - Original multi-entry Vite frontend
 - `legacy/db` - Local SQLite backup (if you keep one; ignored by git)
 If you have a local `db.sqlite3`, copy it into `legacy/db/` to keep a private backup.
 
@@ -156,6 +154,9 @@ cd rust-api
 
 # Configure environment
 cp .env.example .env
+
+# Run migrations (SQLx)
+sqlx migrate run
 
 # Run the API
 cargo run
@@ -213,30 +214,56 @@ npm run build
 - `GET /api/auth/google/login` initiates Google OAuth flow.
 - Native JWT token management for secure sessions.
 
+### Companion Autonomy Engine (CAE)
+
+Local runbook:
+
+```bash
+# Apply SQLx migrations (includes CAE tables)
+sqlx migrate run
+
+# Run a tick across all tenants (creates WorkItems)
+cargo run -- companion-engine-tick --tenant all
+
+# Materialize cockpit snapshot (keeps Control Tower fast)
+cargo run -- companion-engine-materialize --tenant all --max-age-minutes 15
+
+# Optional worker to drain queued agent runs
+cargo run -- companion-engine-worker --once
+```
+
+Key endpoints:
+
+- `GET /api/companion/cockpit/queues` (Control Tower engine snapshot)
+- `GET /api/companion/cockpit/status` (engine status + budgets)
+- `POST /api/companion/autonomy/actions/batch-apply` (low-risk apply)
+
 ### Database & Migrations
 
 - Default DB: SQLite at `legacy/db/db.sqlite3`.
 - The Rust API uses **SQLx** for high-performance, asynchronous database access.
+- Companion Autonomy Engine tables ship via SQLx migrations.
+- Local-only auto-init is available with `CAE_SCHEMA_AUTOINIT=1`.
 
 ### Deployment Notes
 
-- Set `DATABASE_URL`, `JWT_SECRET`, and `CORS_ORIGINS` for the FastAPI service.
+- Set `DATABASE_URL`, `JWT_SECRET`, and `CORS_ALLOWED_ORIGINS` for the Rust API.
+- Run `sqlx migrate run` against `DATABASE_URL` as part of your deploy or post-deploy step.
 - Set `COOKIE_SECURE=true` and `COOKIE_SAMESITE=none` in production when using HTTPS.
-- Run `alembic upgrade head` during deploy before starting the API.
 - Set `VITE_API_BASE_URL` for each SPA build (customer/admin).
 
 ### CI Guardrails
 
-- `scripts/guardrails/check_separation.sh` fails CI if any Django/legacy imports appear in `backend/` or `apps/**`.
+- `scripts/guardrails/check_separation.sh` fails CI if any legacy imports appear in `backend/` or `apps/**`.
 
 ---
 
 ## Environment Variables
 
-Copy `backend/.env.example` to `backend/.env` and configure:
+Copy `rust-api/.env.example` to `rust-api/.env` and configure:
 
 ```bash
-cp backend/.env.example backend/.env
+cp rust-api/.env.example rust-api/.env
 ```
 
 Frontend env examples:
@@ -253,10 +280,20 @@ Frontend env examples:
 | `GOOGLE_CLIENT_SECRET` | Google OAuth Client Secret |
 | `GOOGLE_REDIRECT_URI` | Google OAuth Redirect URI (default: `http://localhost:3001/api/auth/google/callback`) |
 | `VITE_API_BASE_URL` | Backend base URL for each Vite frontend |
+| `ENGINE_BUDGET_TOKENS_PER_DAY` | Daily token budget for Companion tools |
+| `ENGINE_BUDGET_TOOL_CALLS_PER_DAY` | Daily tool call budget for Companion tools |
+| `ENGINE_BUDGET_RUNS_PER_DAY` | Daily agent run budget for Companion engine |
+| `ENGINE_APPROVAL_AMOUNT_THRESHOLD` | Value threshold that triggers approvals |
+| `ENGINE_VELOCITY_THRESHOLD` | Max new work items per tick before a breaker |
+| `ENGINE_ALLOWLIST_DOMAINS` | Comma-separated allowlist for URL fetch tool |
+| `ENGINE_LLM_ALLOWED_MODELS` | Comma-separated allowlist for LLM model hints |
+| `CAE_SCHEMA_AUTOINIT` | Local-only auto-init for CAE schema (set `1` for dev) |
+| `LLM_MODE` | `mock` or `live` (mock uses deterministic responses) |
+| `TOOL_MODE` | `mock` or `live` (mock uses deterministic fetch) |
 
 > ⚠️ **Security**: Never commit secrets to the repository. All sensitive values are set via environment variables.
 
-See `backend/.env.example` for the complete list.
+See `rust-api/.env.example` for the complete list.
 
 ---
 
@@ -270,7 +307,7 @@ Recommended backend envs for cross-subdomain cookie auth:
 
 - `COOKIE_DOMAIN=.<domain>`
 - `COOKIE_SECURE=true`
-- `CORS_ORIGINS=https://app.<domain>,https://admin.<domain>`
+- `CORS_ALLOWED_ORIGINS=https://app.<domain>,https://admin.<domain>`
 
 ---
 
@@ -282,9 +319,9 @@ Clover Books follows a **"deterministic-first, LLM-optional"** architecture:
 
 2. **LLM is best-effort, suggest-only** – If the LLM times out or fails, the system gracefully falls back to deterministic results.
 
-3. **No auto-posting of transactions** – AI can suggest journal entries, but humans must approve before posting to the ledger.
+3. **No auto-posting of transactions** – AI can suggest changes to your books, but humans must approve before applying.
 
-4. **Structured JSON validation** – All LLM outputs go through Pydantic validation to prevent malformed or hallucinated data.
+4. **Structured JSON validation** – Agent outputs are validated before use to prevent malformed data.
 
 5. **Human-in-the-loop** – Critical actions (posting, deletion, status changes) require explicit user action.
 

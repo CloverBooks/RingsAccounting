@@ -1,6 +1,7 @@
 import React from "react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { screen, waitFor, fireEvent } from "@testing-library/react";
+import { renderWithRouter } from "../test/testUtils";
 import BankReviewPage from "./BankReviewPage";
 
 const runsPayload = {
@@ -66,13 +67,13 @@ describe("BankReviewPage", () => {
   });
 
   it("renders runs and risk badge", async () => {
-    render(<BankReviewPage />);
+    renderWithRouter(<BankReviewPage />);
     await waitFor(() => expect(screen.getByText(/Previous runs/i)).toBeInTheDocument());
     expect(screen.getByText(/High risk/)).toBeInTheDocument();
   });
 
   it("shows run list with correct data", async () => {
-    render(<BankReviewPage />);
+    renderWithRouter(<BankReviewPage />);
 
     // Wait for runs to load
     await waitFor(() => expect(screen.getByText(/Previous runs/i)).toBeInTheDocument());
@@ -88,7 +89,7 @@ describe("BankReviewPage", () => {
   });
 
   it("renders AI companion insights when present", async () => {
-    render(<BankReviewPage />);
+    renderWithRouter(<BankReviewPage />);
 
     await waitFor(() => expect(screen.getByText(/Previous runs/i)).toBeInTheDocument());
 

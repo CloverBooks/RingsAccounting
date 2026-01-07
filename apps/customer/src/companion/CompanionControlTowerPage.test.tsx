@@ -38,10 +38,90 @@ const summaryPayload = {
   },
 };
 
+const enginePayload = {
+  generated_at: "2025-01-05T00:00:00Z",
+  mode: "drafts",
+  trust_score: 78,
+  stats: {
+    ready: 2,
+    needs_attention: 1,
+    waiting_approval: 0,
+    applied_last_day: 4,
+    dismissed_last_day: 1,
+    breaker_events_last_day: 1,
+  },
+  ready_queue: [
+    {
+      id: 101,
+      action_id: 1001,
+      work_type: "categorize_tx",
+      surface: "bank",
+      status: "open",
+      risk_level: "low",
+      title: "Review category",
+      summary: "Needs a category.",
+    },
+  ],
+  needs_attention_queue: [
+    {
+      id: 102,
+      action_id: 1002,
+      work_type: "match_bank",
+      surface: "bank",
+      status: "open",
+      risk_level: "high",
+      title: "Match bank activity",
+      summary: "Needs matching.",
+    },
+  ],
+  job_totals: {
+    queued: 3,
+    running: 1,
+    blocked: 0,
+    failed: 0,
+    succeeded: 5,
+    canceled: 0,
+  },
+  job_by_agent: [
+    { agent: "CategorizationAgent", queued: 1, running: 0, blocked: 0 },
+  ],
+  top_blockers: [],
+};
+
+const engineStatusPayload = {
+  ok: true,
+  tenant_id: 1,
+  mode: "drafts",
+  breakers: { recent: 1, ok: false },
+  budgets: { tokens_per_day: 100000, tool_calls_per_day: 500, runs_per_day: 200 },
+  last_tick_at: "2025-01-05T00:00:00Z",
+  last_materialized_at: "2025-01-05T00:00:00Z",
+  engine_version: "v1",
+  mock_mode: { llm: "mock", tools: "mock" },
+};
+
 describe("CompanionControlTowerPage", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    globalThis.fetch = vi.fn(() => Promise.resolve(new Response(JSON.stringify(summaryPayload)))) as unknown as typeof fetch;
+    globalThis.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.startsWith("/api/agentic/companion/summary")) {
+        return Promise.resolve(new Response(JSON.stringify(summaryPayload)));
+      }
+      if (url.startsWith("/api/companion/v2/shadow-events")) {
+        return Promise.resolve(new Response(JSON.stringify({ events: [] })));
+      }
+      if (url.startsWith("/api/agentic/companion/issues")) {
+        return Promise.resolve(new Response(JSON.stringify({ issues: [] })));
+      }
+      if (url.startsWith("/api/companion/cockpit/queues")) {
+        return Promise.resolve(new Response(JSON.stringify({ data: enginePayload, source: "snapshot", stale: false })));
+      }
+      if (url.startsWith("/api/companion/cockpit/status")) {
+        return Promise.resolve(new Response(JSON.stringify(engineStatusPayload)));
+      }
+      return Promise.resolve(new Response("{}"));
+    }) as unknown as typeof fetch;
   });
 
   afterEach(() => {
@@ -70,5 +150,15 @@ describe("CompanionControlTowerPage", () => {
       </MemoryRouter>
     );
     await waitFor(() => expect(screen.getByText(/Companion is disabled/i)).toBeInTheDocument());
+  });
+
+  it("renders engine queue snapshot", async () => {
+    render(
+      <MemoryRouter>
+        <CompanionControlTowerPage />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByText(/Autonomy Engine/i)).toBeInTheDocument());
+    expect(screen.getByText(/Queue snapshot/i)).toBeInTheDocument();
   });
 });

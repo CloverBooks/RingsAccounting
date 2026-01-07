@@ -1,7 +1,7 @@
 //! Native Bank Matching Engine for Clover Books
 //!
 //! 100% Rust implementation of the 3-tier matching algorithm.
-//! Replaces Django's bank_matching.py entirely.
+//! Replaces the legacy bank matching module entirely.
 
 #![allow(dead_code)]
 
@@ -553,7 +553,7 @@ impl BankMatchingEngine {
 }
 
 // ============================================================================
-// Route Handlers (Native, No Django)
+// Route Handlers (Native)
 // ============================================================================
 
 /// POST /api/banking/find-matches
@@ -1007,4 +1007,3 @@ mod tests {
         assert_eq!(request.allocations[0].kind, "invoice");
     }
 }
-

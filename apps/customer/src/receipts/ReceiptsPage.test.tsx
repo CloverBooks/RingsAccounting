@@ -1,6 +1,7 @@
 import React from "react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { screen, waitFor, fireEvent } from "@testing-library/react";
+import { renderWithRouter } from "../test/testUtils";
 import ReceiptsPage from "./ReceiptsPage";
 
 const runsPayload = {
@@ -92,7 +93,7 @@ describe("ReceiptsPage", () => {
   });
 
   it("renders upload section and runs list", async () => {
-    render(<ReceiptsPage defaultCurrency="USD" />);
+    renderWithRouter(<ReceiptsPage defaultCurrency="USD" />);
 
     await waitFor(() => expect(screen.getByText(/Recent runs/i)).toBeInTheDocument());
 
@@ -104,7 +105,7 @@ describe("ReceiptsPage", () => {
   });
 
   it("shows run list with correct data", async () => {
-    render(<ReceiptsPage defaultCurrency="USD" />);
+    renderWithRouter(<ReceiptsPage defaultCurrency="USD" />);
 
     await waitFor(() => expect(screen.getByText(/Recent runs/i)).toBeInTheDocument());
 
@@ -118,7 +119,7 @@ describe("ReceiptsPage", () => {
   });
 
   it("shows risk badges, audit flags, and console link on run detail", async () => {
-    render(<ReceiptsPage defaultCurrency="USD" />);
+    renderWithRouter(<ReceiptsPage defaultCurrency="USD" />);
 
     await waitFor(() => expect(screen.getByText(/Recent runs/i)).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("#1")).toBeInTheDocument());
@@ -135,7 +136,7 @@ describe("ReceiptsPage", () => {
   });
 
   it("renders AI companion insights when present", async () => {
-    render(<ReceiptsPage defaultCurrency="USD" />);
+    renderWithRouter(<ReceiptsPage defaultCurrency="USD" />);
 
     await waitFor(() => expect(screen.getByText(/Recent runs/i)).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("#1")).toBeInTheDocument());
@@ -150,7 +151,7 @@ describe("ReceiptsPage", () => {
   });
 
   it("shows journal lines preview in readable format", async () => {
-    render(<ReceiptsPage defaultCurrency="USD" />);
+    renderWithRouter(<ReceiptsPage defaultCurrency="USD" />);
 
     await waitFor(() => expect(screen.getByText(/Recent runs/i)).toBeInTheDocument());
     fireEvent.click(screen.getAllByRole("button", { name: "View" })[0]);
@@ -167,7 +168,7 @@ describe("ReceiptsPage", () => {
 
   it("allows editing AI-filled fields and sends overrides on approve", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
-    render(<ReceiptsPage defaultCurrency="USD" />);
+    renderWithRouter(<ReceiptsPage defaultCurrency="USD" />);
 
     await waitFor(() => expect(screen.getByText(/Recent runs/i)).toBeInTheDocument());
     fireEvent.click(screen.getAllByRole("button", { name: "View" })[0]);
@@ -190,7 +191,7 @@ describe("ReceiptsPage", () => {
   });
 
   it("has collapsible raw JSON debug view", async () => {
-    render(<ReceiptsPage defaultCurrency="USD" />);
+    renderWithRouter(<ReceiptsPage defaultCurrency="USD" />);
 
     await waitFor(() => expect(screen.getByText(/Recent runs/i)).toBeInTheDocument());
     fireEvent.click(screen.getAllByRole("button", { name: "View" })[0]);
@@ -220,7 +221,7 @@ describe("ReceiptsPage Pagination", () => {
   });
 
   it("shows only 5 runs per page when there are more than 5", async () => {
-    render(<ReceiptsPage defaultCurrency="USD" />);
+    renderWithRouter(<ReceiptsPage defaultCurrency="USD" />);
 
     await waitFor(() => expect(screen.getByText(/Recent runs/i)).toBeInTheDocument());
 
@@ -237,7 +238,7 @@ describe("ReceiptsPage Pagination", () => {
   });
 
   it("shows pagination controls when there are more than 5 runs", async () => {
-    render(<ReceiptsPage defaultCurrency="USD" />);
+    renderWithRouter(<ReceiptsPage defaultCurrency="USD" />);
 
     await waitFor(() => expect(screen.getByText(/Recent runs/i)).toBeInTheDocument());
 
@@ -251,7 +252,7 @@ describe("ReceiptsPage Pagination", () => {
   });
 
   it("navigates to next page when clicking Next", async () => {
-    render(<ReceiptsPage defaultCurrency="USD" />);
+    renderWithRouter(<ReceiptsPage defaultCurrency="USD" />);
 
     await waitFor(() => expect(screen.getByText(/Recent runs/i)).toBeInTheDocument());
 
@@ -273,7 +274,7 @@ describe("ReceiptsPage Pagination", () => {
   });
 
   it("navigates back to previous page when clicking Previous", async () => {
-    render(<ReceiptsPage defaultCurrency="USD" />);
+    renderWithRouter(<ReceiptsPage defaultCurrency="USD" />);
 
     await waitFor(() => expect(screen.getByText(/Recent runs/i)).toBeInTheDocument());
 
@@ -290,7 +291,7 @@ describe("ReceiptsPage Pagination", () => {
   });
 
   it("disables Previous button on first page", async () => {
-    render(<ReceiptsPage defaultCurrency="USD" />);
+    renderWithRouter(<ReceiptsPage defaultCurrency="USD" />);
 
     await waitFor(() => expect(screen.getByText(/Recent runs/i)).toBeInTheDocument());
 
@@ -299,7 +300,7 @@ describe("ReceiptsPage Pagination", () => {
   });
 
   it("disables Next button on last page", async () => {
-    render(<ReceiptsPage defaultCurrency="USD" />);
+    renderWithRouter(<ReceiptsPage defaultCurrency="USD" />);
 
     await waitFor(() => expect(screen.getByText(/Recent runs/i)).toBeInTheDocument());
 

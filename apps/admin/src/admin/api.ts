@@ -234,6 +234,100 @@ const apiFetch = async <T>(path: string, options: RequestOptions = {}): Promise<
   return data as T;
 };
 
+const autonomyFetch = async <T>(path: string, options: RequestOptions = {}): Promise<T> => {
+  const { method = "GET", body, params } = options;
+  const url = buildUrl(path, params);
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+  };
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+  const token = getAccessToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(url, {
+    method,
+    headers,
+    credentials: "include",
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+
+  const isJson = res.headers.get("content-type")?.includes("application/json");
+  const data = isJson ? await res.json().catch(() => ({})) : {};
+
+  if (!res.ok) {
+    const error: ApiError = {
+      status: res.status,
+      message: data?.detail || data?.message || "Request failed",
+      data,
+    };
+    throw error;
+  }
+
+  return data as T;
+};
+
+export type AutonomyStatus = {
+  ok: boolean;
+  tenant_id: number;
+  mode: string;
+  breakers: { recent: number; ok: boolean };
+  budgets: { tokens_per_day: number; tool_calls_per_day: number; runs_per_day: number };
+  last_tick_at?: string | null;
+  last_materialized_at?: string | null;
+  engine_version: string;
+  mock_mode: { llm: string; tools: string };
+};
+
+export type AutonomyQueuesPayload = {
+  generated_at: string;
+  mode: string;
+  trust_score: number;
+  stats: {
+    ready: number;
+    needs_attention: number;
+    waiting_approval: number;
+    applied_last_day: number;
+    dismissed_last_day: number;
+    breaker_events_last_day: number;
+  };
+  job_totals?: { queued: number; running: number; blocked: number; failed: number; succeeded: number; canceled: number } | null;
+  job_by_agent?: Array<{ agent: string; queued: number; running: number; blocked: number }> | null;
+  top_blockers?: Array<{ kind: string; status: string; reason: string; updated_at: string }> | null;
+  ready_queue: Array<{
+    id: number;
+    work_type: string;
+    surface: string;
+    status: string;
+    risk_level: string;
+    title: string;
+    summary: string;
+    action_id?: number | null;
+    target_url?: string | null;
+    due_at?: string | null;
+  }>;
+  needs_attention_queue: Array<{
+    id: number;
+    work_type: string;
+    surface: string;
+    status: string;
+    risk_level: string;
+    title: string;
+    summary: string;
+    action_id?: number | null;
+    target_url?: string | null;
+    due_at?: string | null;
+  }>;
+};
+
+export type AutonomyQueuesResponse = {
+  ok: boolean;
+  source: "snapshot" | "live";
+  stale: boolean;
+  data: AutonomyQueuesPayload;
+};
+
 export const fetchOverviewMetrics = () => apiFetch<OverviewMetrics>("overview-metrics/");
 
 export const fetchUsers = (params?: Record<string, string | number | undefined | null>) =>
@@ -256,6 +350,35 @@ export const resetPassword = (id: number, reason: string) =>
   apiFetch<PasswordResetApprovalResponse>(`users/${id}/reset-password/`, {
     method: "POST",
     body: { reason },
+  });
+
+export const fetchAutonomyStatus = (tenantId: number) =>
+  autonomyFetch<AutonomyStatus>("/api/companion/cockpit/status", {
+    params: { tenant_id: tenantId },
+  });
+
+export const fetchAutonomyQueues = (tenantId: number) =>
+  autonomyFetch<AutonomyQueuesResponse>("/api/companion/cockpit/queues", {
+    params: { tenant_id: tenantId },
+  });
+
+export const runAutonomyTick = (tenantId: number | "all") =>
+  autonomyFetch<{ ok: boolean }>("/api/companion/autonomy/tick", {
+    method: "POST",
+    body: { tenant: tenantId === "all" ? "all" : undefined, tenant_id: tenantId === "all" ? undefined : tenantId },
+  });
+
+export const runAutonomyMaterialize = (tenantId: number | "all") =>
+  autonomyFetch<{ ok: boolean }>("/api/companion/autonomy/materialize", {
+    method: "POST",
+    body: { tenant: tenantId === "all" ? "all" : undefined, tenant_id: tenantId === "all" ? undefined : tenantId },
+  });
+
+export const updateAutonomyPolicy = (tenantId: number, mode: string) =>
+  autonomyFetch<{ ok: boolean }>("/api/companion/autonomy/policy", {
+    method: "POST",
+    params: { tenant_id: tenantId },
+    body: { mode },
   });
 
 export const fetchWorkspaces = (params?: Record<string, string | number | undefined | null>) =>

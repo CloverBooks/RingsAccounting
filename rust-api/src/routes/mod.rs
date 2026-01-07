@@ -1,6 +1,7 @@
 pub mod agentic;
 pub mod auth;
 pub mod companion;
+pub mod companion_autonomy;
 pub mod dashboard;
 pub mod matching;
 pub mod reconciliation;

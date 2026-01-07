@@ -1,5 +1,6 @@
-// Rust models matching Django's core.models
-// These structs map directly to the Django database tables
+// Rust models matching the core schema
+// These structs map directly to the existing database tables
+#![allow(dead_code)]
 // Using f64 for financial values as SQLite stores decimals as REAL
 
 use chrono::{DateTime, NaiveDate, Utc};

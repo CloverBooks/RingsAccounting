@@ -1,7 +1,7 @@
 import React from "react";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, cleanup, waitFor, fireEvent, screen } from "@testing-library/react";
-
+import { cleanup, waitFor, fireEvent, screen } from "@testing-library/react";
+import { renderWithRouter } from "../test/testUtils";
 import ReconciliationPage from "./ReconciliationPage";
 
 vi.mock("../hooks/usePermissions", () => ({
@@ -65,7 +65,7 @@ describe("ReconciliationPage", () => {
     // @ts-ignore
     global.fetch = fetchMock;
 
-    render(<ReconciliationPage />);
+    renderWithRouter(<ReconciliationPage />);
     await startReconciliation();
 
     await waitFor(() => {
@@ -115,7 +115,7 @@ describe("ReconciliationPage", () => {
 
     vi.spyOn(window, "confirm").mockReturnValue(true);
 
-    render(<ReconciliationPage />);
+    renderWithRouter(<ReconciliationPage />);
     await startReconciliation();
 
     await screen.findByText("Reopen period");
@@ -203,7 +203,7 @@ describe("ReconciliationPage", () => {
     // @ts-ignore
     global.fetch = fetchMock;
 
-    render(<ReconciliationPage />);
+    renderWithRouter(<ReconciliationPage />);
     await startReconciliation();
 
     // Verify status badges are shown (new UI uses badges instead of helper text)
@@ -250,7 +250,7 @@ describe("ReconciliationPage", () => {
     // @ts-ignore
     global.fetch = fetchMock;
 
-    render(<ReconciliationPage />);
+    renderWithRouter(<ReconciliationPage />);
     await startReconciliation();
     await waitFor(() => expect(screen.getByText("Complete period")).toBeInTheDocument());
 
@@ -353,7 +353,7 @@ describe("ReconciliationPage", () => {
     // @ts-ignore
     global.fetch = fetchMock;
 
-    render(<ReconciliationPage />);
+    renderWithRouter(<ReconciliationPage />);
     await startReconciliation();
 
     await screen.findByText(/matched/i);
@@ -433,7 +433,7 @@ describe("ReconciliationPage", () => {
     // @ts-ignore
     global.fetch = fetchMock;
 
-    render(<ReconciliationPage />);
+    renderWithRouter(<ReconciliationPage />);
     await startReconciliation();
     await screen.findByText("To exclude");
 
@@ -497,7 +497,7 @@ describe("ReconciliationPage", () => {
     global.fetch = fetchMock;
     vi.spyOn(window, "confirm").mockReturnValue(true);
 
-    render(<ReconciliationPage />);
+    renderWithRouter(<ReconciliationPage />);
     await startReconciliation();
 
     await screen.findByText("Locked item");
@@ -557,7 +557,7 @@ describe("ReconciliationPage", () => {
     // @ts-ignore
     global.fetch = fetchMock;
 
-    render(<ReconciliationPage />);
+    renderWithRouter(<ReconciliationPage />);
     await startReconciliation();
     await screen.findByText("Failing item");
 

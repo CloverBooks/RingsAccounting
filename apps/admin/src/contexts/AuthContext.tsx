@@ -23,8 +23,21 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const computeIsAdmin = (user: User | null) =>
-  Boolean(user && (user.is_admin || user.role === "admin" || user.role === "superadmin"));
+const computeIsAdmin = (user: User | null) => {
+  if (!user) return false;
+  const role = (user.role || "").toLowerCase();
+  return Boolean(
+    user.is_admin ||
+      user.isStaff ||
+      user.is_staff ||
+      user.isSuperuser ||
+      user.is_superuser ||
+      role === "admin" ||
+      role === "superadmin" ||
+      user.internalAdmin?.adminPanelAccess ||
+      user.internalAdmin?.canAccessInternalAdmin
+  );
+};
 
 const toAuthState = (user: User | null, loading = false): AuthState => ({
   authenticated: Boolean(user),

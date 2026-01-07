@@ -18,6 +18,7 @@ const TERM_MAP: Record<string, string> = {
     "shadow event": "suggested change",
     "shadow events": "suggested changes",
     "canonical ledger": "your books",
+    "canonical": "your books",
     "categorization": "category",
     "reclassification": "category correction",
     "reconciliation": "matching",
@@ -137,6 +138,7 @@ export const PANEL_TITLES = {
     suggestions: "AI Suggestions",
     issues: "Open Issues",
     close: "Close Assistant",
+    engine: "Companion Queue",
 } as const;
 
 export type PanelType = keyof typeof PANEL_TITLES;
@@ -170,6 +172,7 @@ export const EMPTY_STATES = {
     suggestions: "No suggestions to review. Check back later.",
     issues: "All clear! No open issues.",
     close: "No items to review for this period.",
+    engine: "No engine items yet.",
 };
 
 export function getEmptyState(panel: string): string {

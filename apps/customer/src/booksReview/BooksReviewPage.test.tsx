@@ -1,6 +1,7 @@
 import React from "react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { screen, waitFor, fireEvent, within } from "@testing-library/react";
+import { renderWithRouter } from "../test/testUtils";
 import BooksReviewPage from "./BooksReviewPage";
 
 const runsPayload = {
@@ -49,13 +50,13 @@ describe("BooksReviewPage", () => {
     vi.restoreAllMocks();
     globalThis.fetch = vi.fn((url: RequestInfo | URL) => {
       const href = url.toString();
-      if (href.includes("/runs")) {
+      if (href.endsWith("/api/agentic/books-review/runs")) {
         return Promise.resolve(new Response(JSON.stringify(runsPayload)));
       }
-      if (href.includes("/run/1")) {
+      if (href.includes("/api/agentic/books-review/run/1")) {
         return Promise.resolve(new Response(JSON.stringify(runDetailPayload)));
       }
-      if (href.includes("/run") && href.includes("http")) { // catch-all for POST
+      if (href.includes("/api/agentic/books-review/run") && !href.includes("/run/")) {
         return Promise.resolve(new Response(JSON.stringify({ run_id: 1, status: "COMPLETED" })));
       }
       return Promise.resolve(new Response("{}", { status: 200 }));
@@ -67,41 +68,48 @@ describe("BooksReviewPage", () => {
   });
 
   it("renders runs and shows risk badge", async () => {
-    render(<BooksReviewPage defaultCurrency="USD" />);
+    renderWithRouter(<BooksReviewPage />);
 
-    await waitFor(() => expect(screen.getByText(/Previous reviews/i)).toBeInTheDocument());
-    expect(screen.getByText(/High risk/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/Previous analysis archives/i)).toBeInTheDocument());
+    const historyTable = screen.getByRole("table");
+    const historyScope = within(historyTable);
+    expect(historyScope.getByText(/High Risk/i)).toBeInTheDocument();
   });
 
   it("shows run list with correct data", async () => {
-    render(<BooksReviewPage defaultCurrency="USD" />);
+    renderWithRouter(<BooksReviewPage />);
 
     // Wait for runs to load
-    await waitFor(() => expect(screen.getByText(/Previous reviews/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Previous analysis archives/i)).toBeInTheDocument());
 
     // Verify run data is displayed
-    expect(screen.getByText("#1")).toBeInTheDocument();
-    expect(screen.getByText("COMPLETED")).toBeInTheDocument();
-    expect(screen.getByText(/High risk/)).toBeInTheDocument();
+    const historyTable = screen.getByRole("table");
+    const historyScope = within(historyTable);
+    expect(historyScope.getByText("2025-01-01")).toBeInTheDocument();
+    expect(historyScope.getByText("2025-01-31")).toBeInTheDocument();
+    expect(historyScope.getByText(/High Risk/i)).toBeInTheDocument();
 
-    // Verify View button exists
-    const viewButtons = screen.getAllByText(/View/i);
-    expect(viewButtons.length).toBeGreaterThan(0);
+    // Verify history row is clickable
+    const runRow = historyScope.getByText("2025-01-01").closest("tr");
+    expect(runRow).not.toBeNull();
   });
 
   it("renders companion insights when llm data is present", async () => {
-    render(<BooksReviewPage defaultCurrency="USD" />);
+    renderWithRouter(<BooksReviewPage />);
 
-    await waitFor(() => expect(screen.getByText(/Previous reviews/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Previous analysis archives/i)).toBeInTheDocument());
 
-    // Wait for the rows to load (Wait for specific ID to ensure rows are present)
-    await waitFor(() => expect(screen.getByText("#1")).toBeInTheDocument());
+    // Wait for the rows to load (Wait for specific date to ensure rows are present)
+    const historyTable = screen.getByRole("table");
+    const historyScope = within(historyTable);
+    await waitFor(() => expect(historyScope.getByText("2025-01-01")).toBeInTheDocument());
 
-    const viewBtns = screen.getAllByRole("button", { name: "View" });
-    fireEvent.click(viewBtns[0]);
+    const runRow = historyScope.getByText("2025-01-01").closest("tr");
+    expect(runRow).not.toBeNull();
+    fireEvent.click(runRow as HTMLElement);
 
     await waitFor(() => expect(screen.getByText(/Run #1/)).toBeInTheDocument());
-    expect(screen.getByText(/AI Companion insights/i)).toBeInTheDocument();
+    expect(screen.getByText(/Neural Analysis/i)).toBeInTheDocument();
     expect(screen.getByText(/Ledger looks healthy overall./i)).toBeInTheDocument();
     expect(screen.getByText(/Unusual spike/i)).toBeInTheDocument();
   });

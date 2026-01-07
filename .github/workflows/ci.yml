@@ -48,6 +48,48 @@ jobs:
           curl -f http://127.0.0.1:8000/healthz
           kill $UVICORN_PID
 
+  rust-api-tests:
+    name: Rust API Checks
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: rust-api
+
+    env:
+      DATABASE_URL: sqlite:./target/ci.db
+      LLM_MODE: mock
+      TOOL_MODE: mock
+      ENGINE_LLM_ALLOWED_MODELS: stub
+      ENGINE_ALLOWLIST_DOMAINS: example.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Separation guardrails
+        run: ../scripts/guardrails/check_separation.sh
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli --no-default-features --features sqlite --locked
+
+      - name: Run SQLx migrations
+        run: |
+          mkdir -p target
+          sqlx migrate run
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy -- -D warnings
+
   frontend-build:
     name: Frontend Build
     runs-on: ubuntu-latest

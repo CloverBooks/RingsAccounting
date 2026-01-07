@@ -1,6 +1,7 @@
 //! AI Companion routes for Clover Books
 //!
 //! Native Rust endpoints for companion issues, high-risk audits, and radar data.
+#![allow(dead_code)]
 
 use axum::{
     extract::{Path, Query, State},
@@ -596,6 +597,7 @@ pub struct ShadowEventsQuery {
 /// GET /api/companion/v2/shadow-events/
 /// 
 /// List shadow events (AI suggestions) for the Control Tower.
+/// Reads from companion_provisionalledgerevent table (legacy ProvisionalLedgerEvent model)
 pub async fn list_shadow_events(
     State(state): State<AppState>,
     Query(params): Query<ShadowEventsQuery>,
@@ -605,11 +607,12 @@ pub async fn list_shadow_events(
     
     tracing::info!("Listing shadow events with status={}", status);
     
-    // Try to get shadow events from database
-    let events = sqlx::query_as::<_, (i64, String, String, String, String, String, String, String)>(
-        "SELECT id, event_type, status, title, description, 
-                source_surface, confidence, created_at
-         FROM core_shadowevent 
+    // Query companion_provisionalledgerevent table (correct table name for shadow events)
+    // Note: confidence_score is REAL type in SQLite, so use Option<f64>
+    let result = sqlx::query_as::<_, (String, String, String, String, String, Option<f64>, Option<String>, String)>(
+        "SELECT id, event_type, status, data, rationale, 
+                confidence_score, human_in_the_loop, created_at
+         FROM companion_provisionalledgerevent 
          WHERE status = ?
          ORDER BY created_at DESC
          LIMIT ?"
@@ -617,12 +620,59 @@ pub async fn list_shadow_events(
     .bind(status)
     .bind(limit)
     .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
+    .await;
+    
+    let events = match result {
+        Ok(rows) => {
+            tracing::info!("Found {} shadow events", rows.len());
+            rows
+        }
+        Err(e) => {
+            tracing::error!("Failed to query shadow events: {:?}", e);
+            vec![]
+        }
+    };
     
     let event_list: Vec<serde_json::Value> = events
         .into_iter()
-        .map(|(id, event_type, status, title, description, source_surface, confidence, created_at)| {
+        .map(|(id, event_type, status, data, rationale, confidence_score, human_in_the_loop, created_at)| {
+            // Parse data JSON to extract title/description if available
+            let data_obj: serde_json::Value = serde_json::from_str(&data).unwrap_or_default();
+            let hitl_obj: serde_json::Value = human_in_the_loop
+                .as_ref()
+                .and_then(|h| serde_json::from_str(h).ok())
+                .unwrap_or_default();
+            
+            // Build a customer-friendly title from event_type
+            let title = match event_type.as_str() {
+                "CategorizationProposed" => "Categorize transaction".to_string(),
+                "BankMatchProposed" => "Match bank transaction".to_string(),
+                "JournalEntryProposed" => "Create journal entry".to_string(),
+                _ => format!("Review: {}", event_type.replace("Proposed", ""))
+            };
+            
+            // Description from rationale or data
+            let description = if !rationale.is_empty() {
+                rationale.clone()
+            } else {
+                data_obj.get("description")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "Review this suggested change.".to_string())
+            };
+            
+            // Parse surface from data or event_type
+            let source_surface = data_obj.get("surface")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| {
+                    if event_type.contains("Bank") || event_type.contains("Categorization") {
+                        "banking".to_string()
+                    } else {
+                        "books".to_string()
+                    }
+                });
+            
             serde_json::json!({
                 "id": id,
                 "event_type": event_type,
@@ -630,7 +680,10 @@ pub async fn list_shadow_events(
                 "title": title,
                 "description": description,
                 "source_surface": source_surface,
-                "confidence": confidence,
+                "confidence": confidence_score,
+                "rationale": rationale,
+                "data": data_obj,
+                "human_in_the_loop": hitl_obj,
                 "created_at": created_at,
                 "safe_mode_eligible": true
             })
@@ -932,4 +985,3 @@ mod tests {
         assert!(json.contains("\"rejected_count\":2"));
     }
 }
-

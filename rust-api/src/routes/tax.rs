@@ -2,10 +2,10 @@
 //!
 //! Provides endpoints for tax period management, snapshots, anomalies, and payments.
 //! These endpoints support the Tax Guardian UI in the customer frontend.
+#![allow(dead_code)]
 
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
     response::IntoResponse,
     Json,
 };
@@ -304,7 +304,7 @@ pub async fn get_snapshot(
 /// Returns anomalies for a specific period
 pub async fn list_anomalies(
     State(_state): State<AppState>,
-    Path(period_key): Path<String>,
+    Path(_period_key): Path<String>,
     Query(_params): Query<AnomaliesQuery>,
 ) -> impl IntoResponse {
     // Return empty anomalies for now (demo data)

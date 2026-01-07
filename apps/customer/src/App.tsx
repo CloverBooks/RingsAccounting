@@ -124,7 +124,7 @@ const AccountSettingsRoute: React.FC = () => <AccountSettingsPage {...mockSettin
 
 
 
-const AppRoutes: React.FC = () => (
+export const AppRoutes: React.FC = () => (
   <Routes>
     <Route path="/login" element={<CloverBooksLoginPage />} />
     <Route path="/welcome" element={<CloverBooksWelcomePage />} />

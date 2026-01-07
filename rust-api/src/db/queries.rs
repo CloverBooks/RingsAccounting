@@ -1,5 +1,6 @@
 // Database queries for core models
-// These functions query Django's existing SQLite database
+// These functions query the existing SQLite database
+#![allow(dead_code)]
 
 use sqlx::SqlitePool;
 use super::models::*;

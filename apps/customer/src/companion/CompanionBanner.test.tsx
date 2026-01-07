@@ -14,12 +14,10 @@ vi.mock("./useCompanionSummary", () => ({
     clearCompanionSummaryCache: vi.fn(),
 }));
 
-// Mock fetch for AuthContext
-const mockFetch = vi.fn().mockResolvedValue({
-    ok: true,
-    json: () => Promise.resolve({ authenticated: true, user: { firstName: "Mike", lastName: "Test" } }),
-});
-vi.stubGlobal("fetch", mockFetch);
+vi.mock("../contexts/AuthContext", () => ({
+    AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    useAuth: () => ({ auth: { user: { firstName: "Mike", lastName: "Test" } } }),
+}));
 
 const mockSummary: useCompanionSummaryModule.CompanionSummary = {
     ai_companion_enabled: true,
@@ -53,7 +51,7 @@ describe("CompanionBanner", () => {
         vi.restoreAllMocks();
     });
 
-    it("renders loading state", () => {
+    it("renders loading state", async () => {
         vi.mocked(useCompanionSummaryModule.useCompanionSummary).mockReturnValue({
             summary: null,
             isLoading: true,

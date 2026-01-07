@@ -161,19 +161,19 @@ export const refresh = async (): Promise<TokenResponse> => {
     }
   }
 
-  // Try to refresh via API (if we have a token)
-  if (accessToken) {
-    try {
-      const data = await apiJson<{ ok: boolean; user: User }>("/api/auth/me", { method: "GET" });
-      if (data.user) {
-        return {
-          access_token: accessToken,
-          token_type: "bearer",
-          user: data.user,
-        };
-      }
-    } catch {
-      // Token invalid, clear it
+  // Try to refresh via API (cookie or bearer token)
+  try {
+    const data = await apiJson<{ ok?: boolean; user?: User }>("/api/auth/me", { method: "GET" });
+    if (data.user) {
+      return {
+        access_token: accessToken ?? "",
+        token_type: "bearer",
+        user: data.user,
+      };
+    }
+  } catch {
+    // Token invalid, clear it
+    if (accessToken) {
       setAccessToken(null);
     }
   }
@@ -187,4 +187,3 @@ export const logout = () =>
   });
 
 export const fetchMe = () => apiJson<AuthResponse>("/api/auth/me");
-

@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import { installApiFetch } from "./utils/apiClient";
 import "./index.css";
+import "./styles/chromeGlow.css";
 
 installApiFetch();
 
