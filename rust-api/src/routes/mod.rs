@@ -4,5 +4,6 @@ pub mod companion;
 pub mod companion_autonomy;
 pub mod dashboard;
 pub mod matching;
+pub mod onboarding;
 pub mod reconciliation;
 pub mod tax;

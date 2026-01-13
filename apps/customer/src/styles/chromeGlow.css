@@ -19,33 +19,27 @@
         0 0 25px rgba(148, 163, 184, 0.08);
 }
 
-/* ROTATING METAL - simplified gradient for smooth performance */
+/* ROTATING METAL - optimized for visible flow */
 .chromeGlowCard::before {
     content: "";
     position: absolute;
-    width: 150%;
-    height: 150%;
-    top: -25%;
-    left: -25%;
+    inset: -50%;
     z-index: 0;
 
-    /* Simplified metallic gradient - fewer stops = smoother animation */
+    /* Simplified metallic gradient */
     background: conic-gradient(from 0deg,
-            #f1f5f9 0deg,
-            #cbd5e1 60deg,
-            #64748b 120deg,
-            #cbd5e1 180deg,
-            #f8fafc 240deg,
-            #94a3b8 300deg,
-            #f1f5f9 360deg);
+            #e2e8f0 0deg,
+            #94a3b8 90deg,
+            #475569 180deg,
+            #94a3b8 270deg,
+            #e2e8f0 360deg);
 
-    /* GPU acceleration hints */
+    /* GPU acceleration */
     will-change: transform;
-    backface-visibility: hidden;
-    transform: translateZ(0) rotate(0deg);
+    transform: translateZ(0);
 
-    /* Smooth 30-second rotation */
-    animation: metalFlow 30s linear infinite;
+    /* Visible 8-second rotation */
+    animation: metalFlow 8s linear infinite;
 }
 
 /* CLEAN GLASS PANEL */
@@ -74,7 +68,7 @@
 }
 
 .chromeGlowCard:hover::before {
-    animation: metalFlow 20s linear infinite;
+    animation: metalFlow 4s linear infinite;
 }
 
 /* Smooth continuous animation */

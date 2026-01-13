@@ -55,6 +55,15 @@ async fn main() {
         panic!("Autonomy schema auto-init failed: {}", e);
     }
 
+    // Verify onboarding tables exist (fail-fast if migrations not run)
+    if let Err(e) = routes::onboarding::verify_schema(&db_pool.pool).await {
+        tracing::error!("❌ Onboarding schema verification failed: {}", e);
+        tracing::error!("💡 Run: cd rust-api && sqlx migrate run");
+        panic!("Onboarding schema missing: {}", e);
+    }
+    tracing::info!("✅ Onboarding schema verified");
+
+
     if let Some(cmd) = std::env::args().nth(1) {
         if run_engine_command(&cmd, &db_pool.pool).await {
             return;
@@ -200,6 +209,13 @@ async fn main() {
         .route("/api/reconciliation/sessions/:id/reopen/", post(routes::reconciliation::reopen_session))
         .route("/api/reconciliation/sessions/:id/delete/", post(routes::reconciliation::delete_session))
         .route("/api/reconciliation/create-adjustment/", post(routes::reconciliation::create_adjustment))
+        // Onboarding APIs
+        .route("/api/onboarding/profile", get(routes::onboarding::get_profile))
+        .route("/api/onboarding/profile", axum::routing::put(routes::onboarding::update_profile))
+        .route("/api/onboarding/event", post(routes::onboarding::log_event))
+        .route("/api/consents/grant", post(routes::onboarding::grant_consent))
+        .route("/api/consents/revoke", post(routes::onboarding::revoke_consent))
+        .route("/api/ai/handshake/confirm", post(routes::onboarding::confirm_ai_handshake))
         // Tax Guardian APIs
         .route("/api/tax/periods/", get(routes::tax::list_periods))
         .route("/api/tax/periods/:period_key/", get(routes::tax::get_snapshot))
@@ -214,6 +230,7 @@ async fn main() {
         .route("/api/tax/periods/:period_key/payments/:payment_id/delete/", post(routes::tax::delete_payment))
         // Add shared state for all routes
         .with_state(app_state)
+
         // Add middleware
         .layer(cors)
         .layer(TraceLayer::new_for_http());

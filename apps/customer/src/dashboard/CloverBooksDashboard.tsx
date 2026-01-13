@@ -4,6 +4,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { AICommandStrip } from "./AICommandStrip";
 import { SuppliersDonutCard } from "./SuppliersDonutCard";
 import { PLSnapshotCard } from "./PLSnapshotCard";
+import { SetupCards } from "./SetupCards";
 
 type PLMonthOption = {
   value: string;
@@ -455,6 +456,9 @@ const CloverBooksDashboard: React.FC<CloverBooksDashboardProps> = ({
           </div>
         </header>
 
+        {/* Onboarding Setup Cards - gentle nudge for incomplete setup */}
+        <SetupCards />
+
         <section className="grid gap-4 lg:grid-cols-[1.15fr,1.1fr]">
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="rounded-3xl border border-slate-100 bg-white/90 px-4 py-4 shadow-sm">
@@ -516,10 +520,10 @@ const CloverBooksDashboard: React.FC<CloverBooksDashboardProps> = ({
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]">
                     <span
                       className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-semibold ${taxGuardianCard?.status === "all_clear"
-                          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                          : taxGuardianCard?.status === "attention"
-                            ? "bg-amber-50 text-amber-700 border-amber-200"
-                            : "bg-rose-50 text-rose-700 border-rose-200"
+                        ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                        : taxGuardianCard?.status === "attention"
+                          ? "bg-amber-50 text-amber-700 border-amber-200"
+                          : "bg-rose-50 text-rose-700 border-rose-200"
                         }`}
                     >
                       {taxGuardianCard?.status === "all_clear"
