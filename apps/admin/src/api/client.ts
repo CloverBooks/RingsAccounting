@@ -102,23 +102,23 @@ const apiJson = async <T>(path: string, options: RequestOptions = {}): Promise<T
   return data as T;
 };
 
-export const fetchHealth = () => apiJson<HealthResponse>("/healthz");
+export const fetchHealth = () => apiJson<HealthResponse>("/api/health");
 
 export const login = (email: string, password: string) =>
-  apiJson<TokenResponse>("/auth/login", { method: "POST", body: { email, password }, auth: false }).then((data) => {
+  apiJson<TokenResponse>("/api/auth/login", { method: "POST", body: { email, password }, auth: false }).then((data) => {
     setAccessToken(data.access_token);
     return data;
   });
 
 export const refresh = () =>
-  apiJson<TokenResponse>("/auth/refresh", { method: "POST", auth: false }).then((data) => {
+  apiJson<TokenResponse>("/api/auth/refresh", { method: "POST", auth: false }).then((data) => {
     setAccessToken(data.access_token);
     return data;
   });
 
 export const logout = () =>
-  apiJson<{ ok: boolean }>("/auth/logout", { method: "POST", auth: false }).finally(() => {
+  apiJson<{ ok: boolean }>("/api/auth/logout", { method: "POST", auth: false }).finally(() => {
     setAccessToken(null);
   });
 
-export const fetchMe = () => apiJson<AuthResponse>("/me");
+export const fetchMe = () => apiJson<AuthResponse>("/api/auth/me");
