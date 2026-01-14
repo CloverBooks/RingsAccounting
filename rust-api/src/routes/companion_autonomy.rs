@@ -5,7 +5,7 @@ use axum::{
 };
 use chrono::TimeZone;
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::companion_autonomy::{policy::BudgetConfig, store};
 use crate::routes::auth::{extract_claims_from_header, Claims};
@@ -63,22 +63,21 @@ pub struct PolicyUpdatePayload {
 pub async fn autonomy_status(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(params): Query<TenantQuery>,
+    Query(_params): Query<TenantQuery>,
 ) -> impl axum::response::IntoResponse {
-    let claims = match extract_claims_from_header(&headers) {
+    let claims = match require_claims(&headers) {
         Ok(claims) => claims,
-        Err(_) => {
+        Err(response) => return response,
+    };
+    let tenant_id = match claims.business_id {
+        Some(id) => id,
+        None => {
             return (
                 StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({ "ok": false, "error": "unauthorized" })),
+                Json(json!({ "ok": false, "error": "unauthorized" })),
             );
         }
     };
-    let tenant_id = claims
-        .business_id
-        .or(params.tenant_id)
-        .or(params.business_id)
-        .unwrap_or(1);
     let queues = store::fetch_cockpit_queues(&state.db, tenant_id)
         .await
         .unwrap_or_else(|_| {
@@ -125,22 +124,21 @@ pub async fn autonomy_status(
 pub async fn cockpit_status(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(params): Query<TenantQuery>,
+    Query(_params): Query<TenantQuery>,
 ) -> impl axum::response::IntoResponse {
-    let claims = match extract_claims_from_header(&headers) {
+    let claims = match require_claims(&headers) {
         Ok(claims) => claims,
-        Err(_) => {
+        Err(response) => return response,
+    };
+    let tenant_id = match claims.business_id {
+        Some(id) => id,
+        None => {
             return (
                 StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({ "ok": false, "error": "unauthorized" })),
+                Json(json!({ "ok": false, "error": "unauthorized" })),
             );
         }
     };
-    let tenant_id = claims
-        .business_id
-        .or(params.tenant_id)
-        .or(params.business_id)
-        .unwrap_or(1);
 
     let policy_mode = store::fetch_policy(&state.db, tenant_id)
         .await
@@ -188,22 +186,21 @@ pub async fn cockpit_status(
 pub async fn cockpit_queues(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(params): Query<TenantQuery>,
+    Query(_params): Query<TenantQuery>,
 ) -> impl axum::response::IntoResponse {
-    let claims = match extract_claims_from_header(&headers) {
+    let claims = match require_claims(&headers) {
         Ok(claims) => claims,
-        Err(_) => {
+        Err(response) => return response,
+    };
+    let tenant_id = match claims.business_id {
+        Some(id) => id,
+        None => {
             return (
                 StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({ "ok": false, "error": "unauthorized" })),
+                Json(json!({ "ok": false, "error": "unauthorized" })),
             );
         }
     };
-    let tenant_id = claims
-        .business_id
-        .or(params.tenant_id)
-        .or(params.business_id)
-        .unwrap_or(1);
     if let Ok(Some(snapshot)) = store::latest_queue_snapshot(&state.db, tenant_id).await {
         let payload: serde_json::Value =
             serde_json::from_str(&snapshot.snapshot_json).unwrap_or_else(|_| serde_json::json!({}));
@@ -349,25 +346,34 @@ pub async fn update_policy(
 pub async fn list_runs(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(params): Query<TenantQuery>,
-) -> Json<serde_json::Value> {
-    let tenant_id = resolve_tenant_id(&headers, params.business_id.or(params.tenant_id));
+    Query(_params): Query<TenantQuery>,
+) -> impl axum::response::IntoResponse {
+    let tenant_id = match require_business_id(&headers) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
     let runs = store::list_agent_runs(&state.db, tenant_id, 50)
         .await
         .unwrap_or_default();
-    Json(serde_json::json!({
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
         "ok": true,
         "runs": runs
-    }))
+        })),
+    )
 }
 
 pub async fn work_detail(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(work_item_id): Path<i64>,
-    Query(params): Query<TenantQuery>,
-) -> Json<serde_json::Value> {
-    let tenant_id = resolve_tenant_id(&headers, params.business_id.or(params.tenant_id));
+    Query(_params): Query<TenantQuery>,
+) -> impl axum::response::IntoResponse {
+    let tenant_id = match require_business_id(&headers) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
     let detail = store::get_work_item_detail(&state.db, tenant_id, work_item_id)
         .await
         .unwrap_or(None);
@@ -403,7 +409,9 @@ pub async fn work_detail(
             })
         });
 
-        return Json(serde_json::json!({
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({
             "ok": true,
             "work_item": {
                 "id": work_item.id,
@@ -423,21 +431,28 @@ pub async fn work_detail(
             "recommendations": actions_json,
             "rationale": rationale_json,
             "evidence": evidence
-        }));
+            })),
+        );
     }
 
-    Json(serde_json::json!({"ok": false, "error": "work item not found"}))
+    (
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({"ok": false, "error": "work item not found"})),
+    )
 }
 
 pub async fn dismiss_work_item(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(work_item_id): Path<i64>,
-    Query(params): Query<TenantQuery>,
+    Query(_params): Query<TenantQuery>,
     Json(payload): Json<DismissPayload>,
-) -> Json<serde_json::Value> {
-    let tenant_id = resolve_tenant_id(&headers, params.business_id.or(params.tenant_id));
-    let actor_id = resolve_actor_id(&headers);
+) -> impl axum::response::IntoResponse {
+    let tenant_id = match require_business_id(&headers) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let actor_id = require_user_id(&headers).ok();
     let dismissed = store::dismiss_work_item(&state.db, tenant_id, work_item_id)
         .await
         .unwrap_or(false);
@@ -458,44 +473,60 @@ pub async fn dismiss_work_item(
     )
     .await;
 
-    Json(serde_json::json!({
-        "ok": true,
-        "dismissed": dismissed
-    }))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "ok": true,
+            "dismissed": dismissed
+        })),
+    )
 }
 
 pub async fn snooze_work_item(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(work_item_id): Path<i64>,
-    Query(params): Query<TenantQuery>,
+    Query(_params): Query<TenantQuery>,
     Json(payload): Json<SnoozePayload>,
-) -> Json<serde_json::Value> {
-    let tenant_id = resolve_tenant_id(&headers, params.business_id.or(params.tenant_id));
+) -> impl axum::response::IntoResponse {
+    let tenant_id = match require_business_id(&headers) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
     let snoozed = store::snooze_work_item(&state.db, tenant_id, work_item_id, &payload.until)
         .await
         .unwrap_or(false);
 
-    Json(serde_json::json!({
-        "ok": true,
-        "snoozed": snoozed
-    }))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "ok": true,
+            "snoozed": snoozed
+        })),
+    )
 }
 
 pub async fn request_approval(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(work_item_id): Path<i64>,
-    Query(params): Query<TenantQuery>,
+    Query(_params): Query<TenantQuery>,
     Json(payload): Json<ApprovalRequestPayload>,
-) -> Json<serde_json::Value> {
-    let tenant_id = resolve_tenant_id(&headers, params.business_id.or(params.tenant_id));
+) -> impl axum::response::IntoResponse {
+    let tenant_id = match require_business_id(&headers) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let actor_id = match require_user_id(&headers) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
     let request = store::create_approval_request(
         &state.db,
         tenant_id,
         tenant_id,
         work_item_id,
-        "system",
+        &format!("user:{}", actor_id),
         payload.reason_required.unwrap_or(false),
         payload.reason_text.as_deref(),
         payload.expires_at.as_deref(),
@@ -504,13 +535,19 @@ pub async fn request_approval(
 
     if let Ok(request) = request {
         let _ = store::update_work_item_status(&state.db, work_item_id, tenant_id, "waiting_approval").await;
-        return Json(serde_json::json!({
-            "ok": true,
-            "approval": request
-        }));
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "ok": true,
+                "approval": request
+            })),
+        );
     }
 
-    Json(serde_json::json!({"ok": false, "error": "failed to create approval"}))
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(serde_json::json!({"ok": false, "error": "failed to create approval"})),
+    )
 }
 
 pub async fn approve_request(
@@ -518,19 +555,19 @@ pub async fn approve_request(
     headers: HeaderMap,
     Path(approval_id): Path<i64>,
     Json(payload): Json<ApprovalDecisionPayload>,
-) -> Json<serde_json::Value> {
-    let actor_id = match resolve_actor_id(&headers) {
-        Some(id) => id,
-        None => {
-            return Json(serde_json::json!({
-                "ok": false,
-                "error": "unauthorized"
-            }))
-        }
+) -> impl axum::response::IntoResponse {
+    let tenant_id = match require_business_id(&headers) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let actor_id = match require_user_id(&headers) {
+        Ok(id) => id,
+        Err(response) => return response,
     };
 
     let updated = store::set_approval_status(
         &state.db,
+        tenant_id,
         approval_id,
         "approved",
         Some(actor_id),
@@ -540,15 +577,18 @@ pub async fn approve_request(
     .unwrap_or(false);
 
     if updated {
-        if let Ok(Some((tenant_id, work_item_id))) = fetch_approval_work_item(&state.db, approval_id).await {
+        if let Ok(Some((tenant_id, work_item_id))) = fetch_approval_work_item(&state.db, approval_id, tenant_id).await {
             let _ = store::update_work_item_status(&state.db, work_item_id, tenant_id, "ready").await;
         }
     }
 
-    Json(serde_json::json!({
-        "ok": true,
-        "approved": updated
-    }))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "ok": true,
+            "approved": updated
+        })),
+    )
 }
 
 pub async fn reject_request(
@@ -556,19 +596,19 @@ pub async fn reject_request(
     headers: HeaderMap,
     Path(approval_id): Path<i64>,
     Json(payload): Json<ApprovalDecisionPayload>,
-) -> Json<serde_json::Value> {
-    let actor_id = match resolve_actor_id(&headers) {
-        Some(id) => id,
-        None => {
-            return Json(serde_json::json!({
-                "ok": false,
-                "error": "unauthorized"
-            }))
-        }
+) -> impl axum::response::IntoResponse {
+    let tenant_id = match require_business_id(&headers) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let actor_id = match require_user_id(&headers) {
+        Ok(id) => id,
+        Err(response) => return response,
     };
 
     let updated = store::set_approval_status(
         &state.db,
+        tenant_id,
         approval_id,
         "rejected",
         Some(actor_id),
@@ -578,29 +618,38 @@ pub async fn reject_request(
     .unwrap_or(false);
 
     if updated {
-        if let Ok(Some((tenant_id, work_item_id))) = fetch_approval_work_item(&state.db, approval_id).await {
+        if let Ok(Some((tenant_id, work_item_id))) = fetch_approval_work_item(&state.db, approval_id, tenant_id).await {
             let _ = store::update_work_item_status(&state.db, work_item_id, tenant_id, "dismissed").await;
         }
     }
 
-    Json(serde_json::json!({
-        "ok": true,
-        "rejected": updated
-    }))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "ok": true,
+            "rejected": updated
+        })),
+    )
 }
 
 pub async fn apply_action(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(action_id): Path<i64>,
-    Query(params): Query<TenantQuery>,
-) -> Json<serde_json::Value> {
-    let tenant_id = resolve_tenant_id(&headers, params.business_id.or(params.tenant_id));
+    Query(_params): Query<TenantQuery>,
+) -> impl axum::response::IntoResponse {
+    let tenant_id = match require_business_id(&headers) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
     if !can_apply_action(&state.db, tenant_id, action_id).await.unwrap_or(false) {
-        return Json(serde_json::json!({
-            "ok": false,
-            "error": "approval required"
-        }));
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "ok": false,
+                "error": "approval required"
+            })),
+        );
     }
 
     let applied = store::apply_action(&state.db, tenant_id, action_id)
@@ -613,19 +662,25 @@ pub async fn apply_action(
         }
     }
 
-    Json(serde_json::json!({
-        "ok": true,
-        "applied": applied
-    }))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "ok": true,
+            "applied": applied
+        })),
+    )
 }
 
 pub async fn batch_apply_actions(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(params): Query<TenantQuery>,
+    Query(_params): Query<TenantQuery>,
     Json(payload): Json<BatchApplyPayload>,
-) -> Json<serde_json::Value> {
-    let tenant_id = resolve_tenant_id(&headers, params.business_id.or(params.tenant_id));
+) -> impl axum::response::IntoResponse {
+    let tenant_id = match require_business_id(&headers) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
     let mut results = Vec::new();
     let mut applied_ids = Vec::new();
     for action_id in &payload.action_ids {
@@ -657,10 +712,13 @@ pub async fn batch_apply_actions(
         let _ = store::update_work_item_status(&state.db, work_item_id, tenant_id, "applied").await;
     }
 
-    Json(serde_json::json!({
-        "ok": true,
-        "results": results
-    }))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "ok": true,
+            "results": results
+        })),
+    )
 }
 
 fn resolve_tenant_id(headers: &HeaderMap, fallback: Option<i64>) -> i64 {
@@ -681,12 +739,23 @@ fn resolve_tenant_id_from_payload(
     resolve_tenant_id(headers, payload.tenant_id.or(tenant_id).or(business_id))
 }
 
-fn resolve_actor_id(headers: &HeaderMap) -> Option<i64> {
-    extract_claims(headers).and_then(|claims| claims.sub.parse::<i64>().ok())
+fn require_claims(headers: &HeaderMap) -> Result<Claims, (StatusCode, Json<serde_json::Value>)> {
+    extract_claims_from_header(headers)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, Json(json!({ "ok": false, "error": "unauthorized" }))))
 }
 
-fn extract_claims(headers: &HeaderMap) -> Option<Claims> {
-    extract_claims_from_header(headers).ok()
+fn require_business_id(headers: &HeaderMap) -> Result<i64, (StatusCode, Json<serde_json::Value>)> {
+    require_claims(headers)?
+        .business_id
+        .ok_or_else(|| (StatusCode::UNAUTHORIZED, Json(json!({ "ok": false, "error": "unauthorized" }))))
+}
+
+fn require_user_id(headers: &HeaderMap) -> Result<i64, (StatusCode, Json<serde_json::Value>)> {
+    let claims = require_claims(headers)?;
+    claims
+        .sub
+        .parse::<i64>()
+        .map_err(|_| (StatusCode::UNAUTHORIZED, Json(json!({ "ok": false, "error": "unauthorized" }))))
 }
 
 async fn require_staff(
@@ -725,34 +794,61 @@ fn is_queue_snapshot_stale(generated_at: &str, stale_after_seconds: i64) -> bool
 async fn fetch_approval_work_item(
     pool: &sqlx::SqlitePool,
     approval_id: i64,
+    tenant_id: i64,
 ) -> Result<Option<(i64, i64)>, sqlx::Error> {
     sqlx::query_as(
-        "SELECT tenant_id, work_item_id FROM companion_autonomy_approval_requests WHERE id = ?"
+        "SELECT tenant_id, work_item_id
+         FROM companion_autonomy_approval_requests
+         WHERE id = ? AND tenant_id = ?"
     )
     .bind(approval_id)
+    .bind(tenant_id)
     .fetch_optional(pool)
     .await
 }
 
-async fn can_apply_action(
+pub async fn can_apply_action(
     pool: &sqlx::SqlitePool,
     tenant_id: i64,
     action_id: i64,
 ) -> Result<bool, sqlx::Error> {
-    let action = sqlx::query_as::<_, (i64, bool)>(
-        "SELECT work_item_id, requires_confirm
-         FROM companion_autonomy_action_recommendations
-         WHERE tenant_id = ? AND id = ?"
+    let action = sqlx::query_as::<_, (i64, bool, String, String)>(
+        "SELECT a.work_item_id, a.requires_confirm, a.status, w.status
+         FROM companion_autonomy_action_recommendations a
+         JOIN companion_autonomy_work_items w ON w.id = a.work_item_id
+         WHERE a.tenant_id = ? AND a.id = ? AND w.tenant_id = ?"
     )
     .bind(tenant_id)
     .bind(action_id)
+    .bind(tenant_id)
     .fetch_optional(pool)
     .await?;
 
-    let (work_item_id, requires_confirm) = match action {
+    let (work_item_id, requires_confirm, action_status, work_item_status) = match action {
         Some(row) => row,
         None => return Ok(false),
     };
+
+    if action_status != "proposed" {
+        return Ok(false);
+    }
+
+    let allowed_status = matches!(
+        work_item_status.as_str(),
+        "open" | "ready" | "waiting_approval"
+    );
+    if !allowed_status {
+        return Ok(false);
+    }
+
+    if let Ok(Some(settings)) = store::fetch_ai_settings(pool, tenant_id).await {
+        if !settings.ai_enabled || settings.kill_switch {
+            return Ok(false);
+        }
+        if settings.ai_mode == "shadow_only" {
+            return Ok(false);
+        }
+    }
 
     if !requires_confirm {
         return Ok(true);

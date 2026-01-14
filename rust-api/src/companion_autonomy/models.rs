@@ -205,6 +205,35 @@ pub struct PolicyRow {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct AiSettingsRow {
+    pub id: i64,
+    pub business_id: i64,
+    pub ai_enabled: bool,
+    pub kill_switch: bool,
+    pub ai_mode: String,
+    pub velocity_limit_per_minute: i64,
+    pub value_breaker_threshold: String,
+    pub anomaly_stddev_threshold: String,
+    pub trust_downgrade_rejection_rate: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct BusinessPolicyRow {
+    pub id: i64,
+    pub business_id: i64,
+    pub materiality_threshold: String,
+    pub risk_appetite: String,
+    pub commingling_risk_vendors_json: String,
+    pub related_entities_json: String,
+    pub intercompany_enabled: bool,
+    pub sector_archetype: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct AuditLog {
     pub id: i64,
     pub tenant_id: i64,

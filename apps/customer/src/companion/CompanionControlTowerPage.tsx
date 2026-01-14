@@ -35,6 +35,7 @@ import IssuesPanel from "./IssuesPanel";
 import PanelShell from "./PanelShell";
 import SuggestionsPanel from "./SuggestionsPanel";
 import { PanelType, toCustomerCopy } from "./companionCopy";
+import { buildApiUrl, getAccessToken } from "@/api/client";
 import {
   applyEngineBatch,
   fetchCockpitQueues,
@@ -289,7 +290,13 @@ function proposalAmountFromEvent(event: any): number | undefined {
 
 // API Functions
 async function fetchSummaryApi(): Promise<Summary> {
-  const res = await fetch("/api/agentic/companion/summary", { credentials: "same-origin" });
+  const headers: Record<string, string> = { Accept: "application/json" };
+  const token = getAccessToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(buildApiUrl("/api/agentic/companion/summary"), {
+    credentials: "same-origin",
+    headers,
+  });
   if (!res.ok) throw new Error("Failed to load summary");
   const data = await res.json();
 
@@ -398,13 +405,16 @@ async function fetchSummaryApi(): Promise<Summary> {
 
 async function fetchProposalsApi(): Promise<Proposal[]> {
   try {
-    const res = await fetch("/api/companion/v2/shadow-events/?status=proposed&limit=50", {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    const token = getAccessToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await fetch(buildApiUrl("/api/companion/v2/shadow-events/?status=proposed&limit=50"), {
       credentials: "same-origin",
-      headers: { Accept: "application/json" },
+      headers,
     });
     if (!res.ok) return [];
     const data = await res.json();
-    const items = Array.isArray(data) ? data : (data?.events || data?.items || []);
+    const items = Array.isArray(data) ? data : (data?.proposals || data?.events || data?.items || []);
     if (!Array.isArray(items)) return [];
     return items.map((event: any) => {
       const surface = proposalSurfaceFromEvent(event);
@@ -430,7 +440,13 @@ async function fetchProposalsApi(): Promise<Proposal[]> {
 
 async function fetchIssuesApi(): Promise<Issue[]> {
   try {
-    const res = await fetch("/api/agentic/companion/issues?status=open", { credentials: "same-origin" });
+    const headers: Record<string, string> = { Accept: "application/json" };
+    const token = getAccessToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await fetch(buildApiUrl("/api/agentic/companion/issues?status=open"), {
+      credentials: "same-origin",
+      headers,
+    });
     if (!res.ok) return [];
     const data = await res.json();
     return (data.issues || []).map((i: any) => ({

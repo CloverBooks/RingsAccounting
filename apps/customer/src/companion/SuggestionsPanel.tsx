@@ -26,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { buildApiUrl, getAccessToken } from "@/api/client";
 
 type SurfaceKey = "receipts" | "invoices" | "books" | "banking";
 
@@ -151,8 +152,10 @@ export default function SuggestionsPanel({
       const csrf = await ensureCsrfToken();
       const headers: Record<string, string> = { Accept: "application/json" };
       if (csrf) headers["X-CSRFToken"] = csrf;
+      const token = getAccessToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
       for (const proposal of readyItems) {
-        const res = await fetch(`/api/companion/v2/shadow-events/${proposal.id}/apply/`, {
+        const res = await fetch(buildApiUrl(`/api/companion/v2/shadow-events/${proposal.id}/apply/`), {
           method: "POST",
           credentials: "same-origin",
           headers,
@@ -321,7 +324,9 @@ function SuggestionCard({
       const csrf = await ensureCsrfToken();
       const headers: Record<string, string> = { Accept: "application/json" };
       if (csrf) headers["X-CSRFToken"] = csrf;
-      const res = await fetch(`/api/companion/v2/shadow-events/${proposal.id}/apply/`, {
+      const token = getAccessToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(buildApiUrl(`/api/companion/v2/shadow-events/${proposal.id}/apply/`), {
         method: "POST",
         credentials: "same-origin",
         headers,
@@ -346,7 +351,9 @@ function SuggestionCard({
         "Content-Type": "application/json",
       };
       if (csrf) headers["X-CSRFToken"] = csrf;
-      const res = await fetch(`/api/companion/v2/shadow-events/${proposal.id}/reject/`, {
+      const token = getAccessToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(buildApiUrl(`/api/companion/v2/shadow-events/${proposal.id}/reject/`), {
         method: "POST",
         credentials: "same-origin",
         headers,

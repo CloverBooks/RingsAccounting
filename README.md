@@ -232,11 +232,18 @@ cargo run -- companion-engine-materialize --tenant all --max-age-minutes 15
 cargo run -- companion-engine-worker --once
 ```
 
+Agentic receipts/invoices runs are persisted in `agentic_receipt_*` / `agentic_invoice_*` tables and generate CAE work items per document for the Control Tower.
+
 Key endpoints:
 
 - `GET /api/companion/cockpit/queues` (Control Tower engine snapshot)
 - `GET /api/companion/cockpit/status` (engine status + budgets)
 - `POST /api/companion/autonomy/actions/batch-apply` (low-risk apply)
+- `GET/PATCH /api/companion/v2/settings/` (AI settings per workspace)
+- `GET/PATCH /api/companion/v2/policy/` (business policy)
+- `GET /api/companion/v2/proposals/` (CAE-backed proposals list)
+- `POST /api/companion/v2/proposals/:id/apply/` (apply proposal)
+- `POST /api/companion/v2/proposals/:id/reject/` (reject proposal)
 
 ### Database & Migrations
 

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { buildApiUrl, getAccessToken } from "../api/client";
 
 type InvoiceStatus = "PENDING" | "PROCESSED" | "POSTED" | "DISCARDED" | "ERROR";
 type RiskLevel = "low" | "medium" | "high" | "unknown";
@@ -531,7 +532,13 @@ const InvoicesPage: React.FC<{ defaultCurrency: string }> = ({ defaultCurrency }
   const loadRuns = useCallback(async () => {
     setLoadingRuns(true);
     try {
-      const res = await fetch("/api/agentic/invoices/runs");
+      const headers: Record<string, string> = { Accept: "application/json" };
+      const token = getAccessToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(buildApiUrl("/api/agentic/invoices/runs"), {
+        headers,
+        credentials: "same-origin",
+      });
       const json = await res.json();
       setRuns(json.runs || []);
     } catch (err) {
@@ -543,7 +550,13 @@ const InvoicesPage: React.FC<{ defaultCurrency: string }> = ({ defaultCurrency }
 
   const loadRunDetail = useCallback(async (runId: number) => {
     try {
-      const res = await fetch(`/api/agentic/invoices/run/${runId}`);
+      const headers: Record<string, string> = { Accept: "application/json" };
+      const token = getAccessToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(buildApiUrl(`/api/agentic/invoices/run/${runId}`), {
+        headers,
+        credentials: "same-origin",
+      });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to load run");
       setSelectedRun(json);
@@ -577,7 +590,15 @@ const InvoicesPage: React.FC<{ defaultCurrency: string }> = ({ defaultCurrency }
     if (upload.defaultIssueDate) form.append("default_issue_date", upload.defaultIssueDate);
     if (upload.defaultDueDate) form.append("default_due_date", upload.defaultDueDate);
     try {
-      const res = await fetch("/api/agentic/invoices/run", { method: "POST", body: form });
+      const headers: Record<string, string> = {};
+      const token = getAccessToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(buildApiUrl("/api/agentic/invoices/run"), {
+        method: "POST",
+        body: form,
+        headers,
+        credentials: "same-origin",
+      });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Upload failed");
       setInfo(`Run ${json.run_id} queued`);
@@ -595,9 +616,13 @@ const InvoicesPage: React.FC<{ defaultCurrency: string }> = ({ defaultCurrency }
 
   const approveInvoice = async (id: number, overrides: DraftEdits) => {
     try {
-      const res = await fetch(`/api/agentic/invoices/${id}/approve`, {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      const token = getAccessToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(buildApiUrl(`/api/agentic/invoices/${id}/approve`), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
+        credentials: "same-origin",
         body: JSON.stringify(overrides),
       });
       const json = await res.json();
@@ -611,7 +636,14 @@ const InvoicesPage: React.FC<{ defaultCurrency: string }> = ({ defaultCurrency }
 
   const discardInvoice = async (id: number) => {
     try {
-      const res = await fetch(`/api/agentic/invoices/${id}/discard`, { method: "POST" });
+      const headers: Record<string, string> = {};
+      const token = getAccessToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(buildApiUrl(`/api/agentic/invoices/${id}/discard`), {
+        method: "POST",
+        headers,
+        credentials: "same-origin",
+      });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Discard failed");
       setInfo("Invoice discarded");

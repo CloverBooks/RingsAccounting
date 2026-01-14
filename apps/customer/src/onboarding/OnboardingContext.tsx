@@ -12,6 +12,13 @@ export type OnboardingStep =
     | "industry"
     | "entity"
     | "fiscal_pulse"
+    // New steps for enhanced AI Companion context
+    | "team_size"
+    | "business_age"
+    | "challenges"
+    | "current_tools"
+    | "transaction_volume"
+    | "accounting_habits"
     | "data_source"
     | "ai_handshake"
     | "done";
@@ -32,6 +39,15 @@ export interface OnboardingProfile {
     annual_revenue_bracket?: string;
     tax_registration?: string;
     accounting_method?: string;
+    // New fields for enhanced AI context
+    business_age?: string;
+    biggest_challenges?: string[];
+    current_tools?: string;
+    bank_accounts_count?: string;
+    monthly_transactions?: string;
+    has_accountant?: boolean;
+    accounting_frequency?: string;
+    tax_concerns?: string[];
     // Inferred fields (provenance tracking)
     _inferred?: Record<string, { value: unknown; confidence: number; source: string }>;
 }
@@ -49,6 +65,7 @@ export interface OnboardingState {
 
 export interface OnboardingContextType extends OnboardingState {
     updateProfile: (partial: Partial<OnboardingProfile>) => Promise<void>;
+    updateField: <K extends keyof OnboardingProfile>(key: K, value: OnboardingProfile[K]) => void;
     setStep: (step: OnboardingStep) => void;
     skipStep: () => void;
     completeOnboarding: () => Promise<void>;
@@ -58,14 +75,19 @@ export interface OnboardingContextType extends OnboardingState {
     retrySync: () => void;
 }
 
-const FAST_PATH_STEPS: OnboardingStep[] = ["welcome", "intent", "business_basics", "industry", "done"];
+// Updated step paths with new steps
+const FAST_PATH_STEPS: OnboardingStep[] = [
+    "welcome", "intent", "business_basics", "industry", "team_size", "done"
+];
 const GUIDED_PATH_STEPS: OnboardingStep[] = [
-    "welcome", "intent", "business_basics", "industry",
-    "entity", "fiscal_pulse", "data_source", "ai_handshake", "done"
+    "welcome", "intent", "business_basics", "industry", "entity", "fiscal_pulse",
+    "team_size", "business_age", "challenges", "current_tools", "transaction_volume",
+    "accounting_habits", "data_source", "ai_handshake", "done"
 ];
 
 const LOCAL_STORAGE_KEY = "clover_onboarding_state";
 const RETRY_DELAYS = [1000, 2000, 4000, 8000]; // Exponential backoff
+const DEBOUNCE_MS = 500; // Debounce for field-level updates
 
 // =============================================================================
 // Context
@@ -96,6 +118,7 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
 
     const retryCount = useRef(0);
+    const pendingFieldSync = useRef<ReturnType<typeof setTimeout> | null>(null);
     const pendingSync = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Load from server + local storage on mount
@@ -251,6 +274,20 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         await saveToServer(newProfile, state.currentStep, "in_progress", state.fastPath);
     }, [state.profile, state.currentStep, state.fastPath, saveToServer]);
 
+    // Granular field-level update with debounce for better UX
+    const updateField = useCallback(<K extends keyof OnboardingProfile>(key: K, value: OnboardingProfile[K]) => {
+        const newProfile = { ...state.profile, [key]: value };
+        setState(prev => ({ ...prev, profile: newProfile, status: "in_progress" }));
+
+        // Debounce the server sync
+        if (pendingFieldSync.current) {
+            clearTimeout(pendingFieldSync.current);
+        }
+        pendingFieldSync.current = setTimeout(() => {
+            saveToServer(newProfile, state.currentStep, "in_progress", state.fastPath);
+        }, DEBOUNCE_MS);
+    }, [state.profile, state.currentStep, state.fastPath, saveToServer]);
+
     const steps = useMemo(() => state.fastPath ? FAST_PATH_STEPS : GUIDED_PATH_STEPS, [state.fastPath]);
 
     const setStep = useCallback((step: OnboardingStep) => {
@@ -314,12 +351,14 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     useEffect(() => {
         return () => {
             if (pendingSync.current) clearTimeout(pendingSync.current);
+            if (pendingFieldSync.current) clearTimeout(pendingFieldSync.current);
         };
     }, []);
 
     const value: OnboardingContextType = useMemo(() => ({
         ...state,
         updateProfile,
+        updateField,
         setStep,
         skipStep,
         completeOnboarding,
@@ -327,7 +366,7 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setFastPath,
         resetError,
         retrySync,
-    }), [state, updateProfile, setStep, skipStep, completeOnboarding, logEventFn, setFastPath, resetError, retrySync]);
+    }), [state, updateProfile, updateField, setStep, skipStep, completeOnboarding, logEventFn, setFastPath, resetError, retrySync]);
 
     return <OnboardingContext.Provider value={value}>{children}</OnboardingContext.Provider>;
 };

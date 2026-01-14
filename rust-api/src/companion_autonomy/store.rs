@@ -3,8 +3,9 @@ use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::companion_autonomy::models::{
-    ActionRecommendation, AgentRun, ApprovalRequest, CockpitQueueItem, CockpitQueues, Evidence,
-    PolicyRow, QueueSnapshot, RationaleCard, RecommendationSeed, WorkItem, WorkItemSeed,
+    ActionRecommendation, AgentRun, ApprovalRequest, AiSettingsRow, BusinessPolicyRow,
+    CockpitQueueItem, CockpitQueues, Evidence, PolicyRow, QueueSnapshot, RationaleCard,
+    RecommendationSeed, WorkItem, WorkItemSeed,
 };
 use crate::companion_autonomy::policy::{derive_engine_mode, trust_score};
 use crate::companion_autonomy::now_utc_str;
@@ -14,6 +15,16 @@ pub async fn list_business_ids(pool: &SqlitePool) -> Result<Vec<i64>, sqlx::Erro
         .fetch_all(pool)
         .await?;
     Ok(rows)
+}
+
+pub async fn business_ai_enabled(pool: &SqlitePool, business_id: i64) -> Result<Option<bool>, sqlx::Error> {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT ai_companion_enabled FROM core_business WHERE id = ?"
+    )
+    .bind(business_id)
+    .fetch_optional(pool)
+    .await
+    .map(|row| row.map(|value| value != 0))
 }
 
 pub async fn insert_job(
@@ -185,6 +196,114 @@ pub async fn fetch_policy(pool: &SqlitePool, tenant_id: i64) -> Result<Option<Po
     )
     .bind(tenant_id)
     .fetch_optional(pool)
+    .await
+}
+
+pub async fn fetch_ai_settings(pool: &SqlitePool, business_id: i64) -> Result<Option<AiSettingsRow>, sqlx::Error> {
+    sqlx::query_as::<_, AiSettingsRow>(
+        "SELECT * FROM companion_ai_settings WHERE business_id = ?"
+    )
+    .bind(business_id)
+    .fetch_optional(pool)
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn upsert_ai_settings(
+    pool: &SqlitePool,
+    business_id: i64,
+    ai_enabled: bool,
+    kill_switch: bool,
+    ai_mode: &str,
+    velocity_limit_per_minute: i64,
+    value_breaker_threshold: &str,
+    anomaly_stddev_threshold: &str,
+    trust_downgrade_rejection_rate: &str,
+) -> Result<AiSettingsRow, sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO companion_ai_settings (
+            business_id, ai_enabled, kill_switch, ai_mode, velocity_limit_per_minute,
+            value_breaker_threshold, anomaly_stddev_threshold, trust_downgrade_rejection_rate,
+            created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+        ON CONFLICT(business_id) DO UPDATE SET
+            ai_enabled = excluded.ai_enabled,
+            kill_switch = excluded.kill_switch,
+            ai_mode = excluded.ai_mode,
+            velocity_limit_per_minute = excluded.velocity_limit_per_minute,
+            value_breaker_threshold = excluded.value_breaker_threshold,
+            anomaly_stddev_threshold = excluded.anomaly_stddev_threshold,
+            trust_downgrade_rejection_rate = excluded.trust_downgrade_rejection_rate,
+            updated_at = datetime('now')"
+    )
+    .bind(business_id)
+    .bind(ai_enabled)
+    .bind(kill_switch)
+    .bind(ai_mode)
+    .bind(velocity_limit_per_minute)
+    .bind(value_breaker_threshold)
+    .bind(anomaly_stddev_threshold)
+    .bind(trust_downgrade_rejection_rate)
+    .execute(pool)
+    .await?;
+
+    sqlx::query_as::<_, AiSettingsRow>(
+        "SELECT * FROM companion_ai_settings WHERE business_id = ?"
+    )
+    .bind(business_id)
+    .fetch_one(pool)
+    .await
+}
+
+pub async fn fetch_business_policy(pool: &SqlitePool, business_id: i64) -> Result<Option<BusinessPolicyRow>, sqlx::Error> {
+    sqlx::query_as::<_, BusinessPolicyRow>(
+        "SELECT * FROM companion_business_policy WHERE business_id = ?"
+    )
+    .bind(business_id)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn upsert_business_policy(
+    pool: &SqlitePool,
+    business_id: i64,
+    materiality_threshold: &str,
+    risk_appetite: &str,
+    commingling_risk_vendors_json: &str,
+    related_entities_json: &str,
+    intercompany_enabled: bool,
+    sector_archetype: &str,
+) -> Result<BusinessPolicyRow, sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO companion_business_policy (
+            business_id, materiality_threshold, risk_appetite,
+            commingling_risk_vendors_json, related_entities_json,
+            intercompany_enabled, sector_archetype, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+        ON CONFLICT(business_id) DO UPDATE SET
+            materiality_threshold = excluded.materiality_threshold,
+            risk_appetite = excluded.risk_appetite,
+            commingling_risk_vendors_json = excluded.commingling_risk_vendors_json,
+            related_entities_json = excluded.related_entities_json,
+            intercompany_enabled = excluded.intercompany_enabled,
+            sector_archetype = excluded.sector_archetype,
+            updated_at = datetime('now')"
+    )
+    .bind(business_id)
+    .bind(materiality_threshold)
+    .bind(risk_appetite)
+    .bind(commingling_risk_vendors_json)
+    .bind(related_entities_json)
+    .bind(intercompany_enabled)
+    .bind(sector_archetype)
+    .execute(pool)
+    .await?;
+
+    sqlx::query_as::<_, BusinessPolicyRow>(
+        "SELECT * FROM companion_business_policy WHERE business_id = ?"
+    )
+    .bind(business_id)
+    .fetch_one(pool)
     .await
 }
 
@@ -902,7 +1021,7 @@ pub async fn dismiss_work_item(
     let result = sqlx::query(
         "UPDATE companion_autonomy_work_items
          SET status = 'dismissed', updated_at = datetime('now')
-         WHERE id = ? AND tenant_id = ? AND status != 'dismissed'"
+         WHERE id = ? AND tenant_id = ? AND status NOT IN ('dismissed', 'applied')"
     )
     .bind(work_item_id)
     .bind(tenant_id)
@@ -932,7 +1051,7 @@ pub async fn snooze_work_item(
     let result = sqlx::query(
         "UPDATE companion_autonomy_work_items
          SET status = 'snoozed', snoozed_until = ?, updated_at = datetime('now')
-         WHERE id = ? AND tenant_id = ?"
+         WHERE id = ? AND tenant_id = ? AND status NOT IN ('dismissed', 'applied')"
     )
     .bind(until)
     .bind(work_item_id)
@@ -981,6 +1100,7 @@ pub async fn create_approval_request(
 
 pub async fn set_approval_status(
     pool: &SqlitePool,
+    tenant_id: i64,
     approval_id: i64,
     status: &str,
     approved_by: Option<i64>,
@@ -989,12 +1109,13 @@ pub async fn set_approval_status(
     let result = sqlx::query(
         "UPDATE companion_autonomy_approval_requests
          SET status = ?, approved_by = ?, reason_text = COALESCE(?, reason_text), updated_at = datetime('now')
-         WHERE id = ?"
+         WHERE id = ? AND tenant_id = ?"
     )
     .bind(status)
     .bind(approved_by)
     .bind(reason_text)
     .bind(approval_id)
+    .bind(tenant_id)
     .execute(pool)
     .await?;
     Ok(result.rows_affected() > 0)
@@ -1008,9 +1129,14 @@ pub async fn apply_action(
     let result = sqlx::query(
         "UPDATE companion_autonomy_action_recommendations
          SET status = 'applied', updated_at = datetime('now')
-         WHERE id = ? AND tenant_id = ? AND status != 'applied'"
+         WHERE id = ? AND tenant_id = ? AND status = 'proposed'
+           AND work_item_id IN (
+             SELECT id FROM companion_autonomy_work_items
+             WHERE tenant_id = ? AND status IN ('open', 'ready', 'waiting_approval')
+           )"
     )
     .bind(action_id)
+    .bind(tenant_id)
     .bind(tenant_id)
     .execute(pool)
     .await?;
@@ -1106,4 +1232,92 @@ pub async fn action_work_item_ids(
         }
     }
     Ok(pairs)
+}
+
+pub async fn action_for_work_item(
+    pool: &SqlitePool,
+    tenant_id: i64,
+    work_item_id: i64,
+) -> Result<Option<ActionRecommendation>, sqlx::Error> {
+    sqlx::query_as::<_, ActionRecommendation>(
+        "SELECT * FROM companion_autonomy_action_recommendations
+         WHERE tenant_id = ? AND work_item_id = ?
+         ORDER BY CASE action_kind WHEN 'apply' THEN 0 WHEN 'review' THEN 1 ELSE 2 END
+         LIMIT 1"
+    )
+    .bind(tenant_id)
+    .bind(work_item_id)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn list_work_items_by_status(
+    pool: &SqlitePool,
+    tenant_id: i64,
+    statuses: &[&str],
+    limit: i64,
+) -> Result<Vec<WorkItem>, sqlx::Error> {
+    if statuses.is_empty() {
+        return Ok(Vec::new());
+    }
+    let placeholders = std::iter::repeat("?").take(statuses.len()).collect::<Vec<_>>().join(",");
+    let query = format!(
+        "SELECT * FROM companion_autonomy_work_items
+         WHERE tenant_id = ? AND status IN ({})
+         ORDER BY priority DESC, created_at DESC
+         LIMIT ?",
+        placeholders
+    );
+    let mut q = sqlx::query_as::<_, WorkItem>(&query).bind(tenant_id);
+    for status in statuses {
+        q = q.bind(*status);
+    }
+    q.bind(limit).fetch_all(pool).await
+}
+
+pub async fn work_item_by_dedupe_key(
+    pool: &SqlitePool,
+    tenant_id: i64,
+    dedupe_key: &str,
+) -> Result<Option<WorkItem>, sqlx::Error> {
+    sqlx::query_as::<_, WorkItem>(
+        "SELECT * FROM companion_autonomy_work_items WHERE tenant_id = ? AND dedupe_key = ?"
+    )
+    .bind(tenant_id)
+    .bind(dedupe_key)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn work_item_by_id(
+    pool: &SqlitePool,
+    tenant_id: i64,
+    work_item_id: i64,
+) -> Result<Option<WorkItem>, sqlx::Error> {
+    sqlx::query_as::<_, WorkItem>(
+        "SELECT * FROM companion_autonomy_work_items WHERE tenant_id = ? AND id = ?"
+    )
+    .bind(tenant_id)
+    .bind(work_item_id)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn update_work_item_status_by_dedupe_key(
+    pool: &SqlitePool,
+    tenant_id: i64,
+    dedupe_key: &str,
+    status: &str,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        "UPDATE companion_autonomy_work_items
+         SET status = ?, updated_at = datetime('now')
+         WHERE tenant_id = ? AND dedupe_key = ?"
+    )
+    .bind(status)
+    .bind(tenant_id)
+    .bind(dedupe_key)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
 }

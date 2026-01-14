@@ -149,6 +149,13 @@ async fn main() {
         .route("/api/companion/v2/shadow-events/", get(routes::companion::list_shadow_events))
         .route("/api/companion/v2/shadow-events/:id/apply/", post(routes::companion::apply_shadow_event))
         .route("/api/companion/v2/shadow-events/:id/reject/", post(routes::companion::reject_shadow_event))
+        .route("/api/companion/v2/settings/", get(routes::companion::get_ai_settings_v2))
+        .route("/api/companion/v2/settings/", axum::routing::patch(routes::companion::patch_ai_settings_v2))
+        .route("/api/companion/v2/policy/", get(routes::companion::get_business_policy_v2))
+        .route("/api/companion/v2/policy/", axum::routing::patch(routes::companion::patch_business_policy_v2))
+        .route("/api/companion/v2/proposals/", get(routes::companion::list_proposals))
+        .route("/api/companion/v2/proposals/:id/apply/", post(routes::companion::apply_proposal))
+        .route("/api/companion/v2/proposals/:id/reject/", post(routes::companion::reject_proposal))
         // Companion autonomy engine APIs
         .route("/api/companion/autonomy/status", get(routes::companion_autonomy::autonomy_status))
         .route("/api/companion/autonomy/runs", get(routes::companion_autonomy::list_runs))
@@ -195,6 +202,8 @@ async fn main() {
         // Agentic Companion APIs (for Control Tower)
         .route("/api/agentic/companion/summary", get(routes::agentic::companion_summary))
         .route("/api/agentic/companion/issues", get(routes::agentic::companion_issues))
+        .route("/api/agentic/companion/issues/:id", axum::routing::patch(routes::agentic::update_companion_issue))
+        .route("/api/agentic/companion/context-summary/", get(routes::agentic::companion_context_summary))
         // Reconciliation APIs
         .route("/api/reconciliation/accounts/", get(routes::reconciliation::list_accounts))
         .route("/api/reconciliation/accounts/:id/periods/", get(routes::reconciliation::list_periods))

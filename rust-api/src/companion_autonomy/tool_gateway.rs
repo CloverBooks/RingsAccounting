@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
+use reqwest::Url;
 
 use crate::companion_autonomy::policy::BudgetConfig;
 use crate::companion_autonomy::store;
@@ -224,10 +225,7 @@ impl ToolGateway {
             return Err(ToolGatewayError::Blocked(reason));
         }
 
-        let allowlisted = self
-            .allowed_domains
-            .iter()
-            .any(|domain| url.contains(domain));
+        let allowlisted = is_allowlisted_url(url, &self.allowed_domains);
 
         if !allowlisted {
             let reason = "domain not allowlisted".to_string();
@@ -350,6 +348,30 @@ impl ToolGateway {
         )
         .await;
     }
+}
+
+fn is_allowlisted_url(url: &str, allowed_domains: &[String]) -> bool {
+    let host = match Url::parse(url).ok().and_then(|parsed| parsed.host_str().map(|h| h.to_lowercase())) {
+        Some(host) => host,
+        None => return false,
+    };
+    allowed_domains.iter().any(|domain| {
+        let Some(normalized) = normalize_allowlist_domain(domain) else {
+            return false;
+        };
+        host == normalized || host.ends_with(&format!(".{}", normalized))
+    })
+}
+
+fn normalize_allowlist_domain(entry: &str) -> Option<String> {
+    let trimmed = entry.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Ok(url) = Url::parse(trimmed) {
+        return url.host_str().map(|host| host.to_lowercase());
+    }
+    Some(trimmed.to_lowercase())
 }
 
 fn env_list(key: &str) -> Vec<String> {

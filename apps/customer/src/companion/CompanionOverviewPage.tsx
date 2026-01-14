@@ -19,6 +19,7 @@ import {
   BookOpen,
   Landmark,
 } from "lucide-react";
+import { buildApiUrl, getAccessToken } from "../api/client";
 
 // --- TYPES ----------------------------------------------------------------
 
@@ -197,9 +198,12 @@ const CompanionOverviewPage: React.FC = () => {
     setLoading(true);
     try {
       // Fetch both APIs in parallel - summary for surfaces, context-summary for health score
+      const headers: Record<string, string> = { Accept: "application/json" };
+      const token = getAccessToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
       const [summaryRes, healthRes] = await Promise.all([
-        fetch("/api/agentic/companion/summary"),
-        fetch("/api/agentic/companion/context-summary/"),
+        fetch(buildApiUrl("/api/agentic/companion/summary"), { headers, credentials: "same-origin" }),
+        fetch(buildApiUrl("/api/agentic/companion/context-summary/"), { headers, credentials: "same-origin" }),
       ]);
 
       const summaryJson = await summaryRes.json();

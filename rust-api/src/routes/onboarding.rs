@@ -39,6 +39,15 @@ const ALLOWED_PROFILE_KEYS: &[&str] = &[
     "annual_revenue_bracket",
     "tax_registration",
     "accounting_method",
+    // New fields for enhanced AI Companion context
+    "business_age",
+    "biggest_challenges",
+    "current_tools",
+    "bank_accounts_count",
+    "monthly_transactions",
+    "has_accountant",
+    "accounting_frequency",
+    "tax_concerns",
     "_inferred",
 ];
 
@@ -217,31 +226,26 @@ pub fn build_context(profile_json: &Value) -> ContextBuilderOutput {
     let mut unknowns = Vec::new();
     let mut narrative_parts = Vec::new();
 
+    // Helper to extract string field
+    let get_str = |key: &str| -> Option<&str> {
+        profile_json.get(key).and_then(|v| v.as_str()).filter(|s| !s.is_empty())
+    };
+
     // Extract known fields - never invent defaults
-    let business_name = profile_json
-        .get("business_name")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty());
-
-    let industry = profile_json
-        .get("industry")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty());
+    let business_name = get_str("business_name");
+    let industry = get_str("industry");
+    let intent = get_str("intent");
+    let entity_type = get_str("entity_type");
+    let fiscal_year_end = get_str("fiscal_year_end");
     
-    let intent = profile_json
-        .get("intent")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty());
-
-    let entity_type = profile_json
-        .get("entity_type")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty());
-
-    let fiscal_year_end = profile_json
-        .get("fiscal_year_end")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty());
+    // New fields for enhanced AI context
+    let employee_count = get_str("employee_count");
+    let business_age = get_str("business_age");
+    let biggest_challenges = profile_json.get("biggest_challenges").and_then(|v| v.as_array());
+    let current_tools = get_str("current_tools");
+    let monthly_transactions = get_str("monthly_transactions");
+    let has_accountant = profile_json.get("has_accountant").and_then(|v| v.as_bool());
+    let accounting_frequency = get_str("accounting_frequency");
 
     // Check for inferred data
     let inferred = profile_json.get("_inferred").and_then(|v| v.as_object());
@@ -276,6 +280,41 @@ pub fn build_context(profile_json: &Value) -> ContextBuilderOutput {
         narrative_parts.push(format!("Fiscal year ends: {}", fy));
     }
 
+    // New enhanced context fields
+    if let Some(count) = employee_count {
+        narrative_parts.push(format!("Team size: {}", count));
+    }
+
+    if let Some(age) = business_age {
+        narrative_parts.push(format!("Business age: {}", age));
+    }
+
+    if let Some(challenges) = biggest_challenges {
+        let challenge_strs: Vec<&str> = challenges
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        if !challenge_strs.is_empty() {
+            narrative_parts.push(format!("Key challenges: {}", challenge_strs.join(", ")));
+        }
+    }
+
+    if let Some(tools) = current_tools {
+        narrative_parts.push(format!("Currently using: {}", tools));
+    }
+
+    if let Some(txns) = monthly_transactions {
+        narrative_parts.push(format!("Monthly transaction volume: {}", txns));
+    }
+
+    if let Some(has_acc) = has_accountant {
+        narrative_parts.push(format!("Has accountant: {}", if has_acc { "Yes" } else { "No" }));
+    }
+
+    if let Some(freq) = accounting_frequency {
+        narrative_parts.push(format!("Accounting frequency: {}", freq));
+    }
+
     let narrative_context_string = if narrative_parts.is_empty() {
         "No business profile information provided yet.".to_string()
     } else {
@@ -298,6 +337,28 @@ pub fn build_context(profile_json: &Value) -> ContextBuilderOutput {
     }
     if let Some(fy) = fiscal_year_end {
         structured.insert("fiscal_year_end".to_string(), json!(fy));
+    }
+    // New fields
+    if let Some(count) = employee_count {
+        structured.insert("employee_count".to_string(), json!(count));
+    }
+    if let Some(age) = business_age {
+        structured.insert("business_age".to_string(), json!(age));
+    }
+    if let Some(challenges) = biggest_challenges {
+        structured.insert("biggest_challenges".to_string(), json!(challenges));
+    }
+    if let Some(tools) = current_tools {
+        structured.insert("current_tools".to_string(), json!(tools));
+    }
+    if let Some(txns) = monthly_transactions {
+        structured.insert("monthly_transactions".to_string(), json!(txns));
+    }
+    if let Some(has_acc) = has_accountant {
+        structured.insert("has_accountant".to_string(), json!(has_acc));
+    }
+    if let Some(freq) = accounting_frequency {
+        structured.insert("accounting_frequency".to_string(), json!(freq));
     }
     if let Some(inf) = inferred {
         structured.insert("_inferred".to_string(), json!(inf));

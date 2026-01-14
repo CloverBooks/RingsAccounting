@@ -5,6 +5,7 @@
  * Provides caching and error handling to avoid duplicate fetches
  */
 import { useState, useEffect, useCallback } from "react";
+import { buildApiUrl, getAccessToken } from "../api/client";
 
 // ---------------------------------------------------------------------------
 // TYPES
@@ -215,8 +216,10 @@ export function useCompanionSummary(): UseCompanionSummaryResult {
             const headers: Record<string, string> = {
                 Accept: "application/json",
             };
+            const token = getAccessToken();
+            if (token) headers.Authorization = `Bearer ${token}`;
 
-            const response = await fetch("/api/agentic/companion/summary", {
+            const response = await fetch(buildApiUrl("/api/agentic/companion/summary"), {
                 method: "GET",
                 credentials: "same-origin",
                 headers,

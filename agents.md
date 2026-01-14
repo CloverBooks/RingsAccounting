@@ -8,7 +8,7 @@ This document describes the current agentic stack in Clover Books (Rust-first) a
 
 - Companion Autonomy Engine (CAE): Generates work items and recommendations, persists them, and materializes queue snapshots for the Control Tower.
 - Companion Core: Deterministic issues, audits, and radar endpoints used by the UI.
-- Agentic Surfaces: Receipts, invoices, and companion summary endpoints currently return stubbed data in the Rust API while the pipeline is completed.
+- Agentic Surfaces: Receipts/invoices are stored in agentic document tables and reflected as CAE work items; companion summary/issues read from CAE + document runs.
 
 ---
 
@@ -80,7 +80,8 @@ Agent output shape: `AgentOutput { signals, recommendations, evidence_refs, work
 
 - CAE agents only cover banking work items (unmatched and uncategorized transactions).
 - ToolGateway defaults to a stub provider unless a real LLM provider is wired in.
-- Agentic receipts/invoices and companion summary endpoints return stub responses in Rust.
+- Agentic receipts/invoices + companion summary/issues are wired to Rust tables and CAE, but extraction/classification is still heuristic until a real LLM provider is wired.
+- Provenance and integrity report endpoints are still not implemented on the Rust side.
 
 ---
 

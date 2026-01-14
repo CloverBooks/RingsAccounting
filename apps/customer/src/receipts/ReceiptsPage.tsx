@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { buildApiUrl, getAccessToken } from "../api/client";
 import { ensureCsrfToken, getCsrfToken as getCsrfTokenSync } from "../utils/csrf";
 
 function getCsrfToken(): string {
@@ -249,7 +250,13 @@ const ReceiptsPage: React.FC<{ defaultCurrency: string }> = ({ defaultCurrency }
   const loadRuns = useCallback(async () => {
     setLoadingRuns(true);
     try {
-      const res = await fetch("/api/agentic/receipts/runs");
+      const headers: Record<string, string> = { Accept: "application/json" };
+      const token = getAccessToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(buildApiUrl("/api/agentic/receipts/runs"), {
+        headers,
+        credentials: "same-origin",
+      });
       const json = await res.json();
       setRuns(json.runs || []);
       setRunsPage(1); // Reset to first page on reload
@@ -262,7 +269,13 @@ const ReceiptsPage: React.FC<{ defaultCurrency: string }> = ({ defaultCurrency }
 
   const loadRunDetail = useCallback(async (runId: number) => {
     try {
-      const res = await fetch(`/api/agentic/receipts/run/${runId}`);
+      const headers: Record<string, string> = { Accept: "application/json" };
+      const token = getAccessToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(buildApiUrl(`/api/agentic/receipts/run/${runId}`), {
+        headers,
+        credentials: "same-origin",
+      });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to load run");
       setSelectedRun(json);
@@ -320,10 +333,14 @@ const ReceiptsPage: React.FC<{ defaultCurrency: string }> = ({ defaultCurrency }
     if (upload.defaultVendor) form.append("default_vendor", upload.defaultVendor);
     if (upload.defaultDate) form.append("default_date", upload.defaultDate);
     try {
-      const res = await fetch("/api/agentic/receipts/run", {
+      const headers: Record<string, string> = { "X-CSRFToken": getCsrfToken() };
+      const token = getAccessToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(buildApiUrl("/api/agentic/receipts/run"), {
         method: "POST",
         body: form,
-        headers: { "X-CSRFToken": getCsrfToken() },
+        headers,
+        credentials: "same-origin",
       });
       const json = await res.json();
       if (!res.ok) {
@@ -357,9 +374,16 @@ const ReceiptsPage: React.FC<{ defaultCurrency: string }> = ({ defaultCurrency }
     const draft = drafts[id];
     setPostingId(id);
     try {
-      const res = await fetch(`/api/agentic/receipts/${id}/approve`, {
+      const headers: Record<string, string> = {
+        "X-CSRFToken": getCsrfToken(),
+        "Content-Type": "application/json",
+      };
+      const token = getAccessToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(buildApiUrl(`/api/agentic/receipts/${id}/approve`), {
         method: "POST",
-        headers: { "X-CSRFToken": getCsrfToken(), "Content-Type": "application/json" },
+        headers,
+        credentials: "same-origin",
         body: draft ? JSON.stringify({ overrides: draft }) : "{}",
       });
       const json = await res.json();
@@ -376,9 +400,13 @@ const ReceiptsPage: React.FC<{ defaultCurrency: string }> = ({ defaultCurrency }
   const discardReceipt = async (id: number) => {
     setDiscardingId(id);
     try {
-      const res = await fetch(`/api/agentic/receipts/${id}/discard`, {
+      const headers: Record<string, string> = { "X-CSRFToken": getCsrfToken() };
+      const token = getAccessToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(buildApiUrl(`/api/agentic/receipts/${id}/discard`), {
         method: "POST",
-        headers: { "X-CSRFToken": getCsrfToken() },
+        headers,
+        credentials: "same-origin",
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Discard failed");

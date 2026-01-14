@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { buildApiUrl, getAccessToken } from "../../api/client";
 
 export interface FinancialPulseMetrics {
   cashOnHand: {
@@ -139,10 +140,13 @@ function taxStatusFromCounts(counts?: { low?: number; medium?: number; high?: nu
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  const token = getAccessToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(buildApiUrl(url), {
     method: "GET",
     credentials: "same-origin",
-    headers: { Accept: "application/json" },
+    headers,
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");

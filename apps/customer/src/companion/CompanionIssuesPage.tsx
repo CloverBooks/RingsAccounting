@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { buildApiUrl, getAccessToken } from "../api/client";
 
 type Issue = {
   id: number;
@@ -53,7 +54,13 @@ const CompanionIssuesPage: React.FC = () => {
     if (filters.surface) params.set("surface", filters.surface);
     if (filters.severity) params.set("severity", filters.severity);
     try {
-      const res = await fetch(`/api/agentic/companion/issues?${params.toString()}`);
+      const headers: Record<string, string> = { Accept: "application/json" };
+      const token = getAccessToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(buildApiUrl(`/api/agentic/companion/issues?${params.toString()}`), {
+        headers,
+        credentials: "same-origin",
+      });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to load issues");
       setIssues(json.issues || []);
@@ -74,9 +81,13 @@ const CompanionIssuesPage: React.FC = () => {
 
   const updateStatus = async (id: number, next: string) => {
     try {
-      const res = await fetch(`/api/agentic/companion/issues/${id}`, {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      const token = getAccessToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(buildApiUrl(`/api/agentic/companion/issues/${id}`), {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers,
+        credentials: "same-origin",
         body: JSON.stringify({ status: next }),
       });
       const json = await res.json();
