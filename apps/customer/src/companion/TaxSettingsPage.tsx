@@ -65,7 +65,7 @@ const TaxSettingsPage: React.FC = () => {
               <p className="text-sm text-slate-600">Configure tax country, filing cadence, and registration numbers for this business.</p>
             </div>
           </div>
-          <Link to="/tax" className="inline-flex items-center gap-1 text-sm text-slate-600 hover:text-slate-800">
+          <Link to="/companion/tax" className="inline-flex items-center gap-1 text-sm text-slate-600 hover:text-slate-800">
             <ArrowLeft className="w-4 h-4" />
             Back to Tax Guardian
           </Link>
@@ -229,7 +229,7 @@ const TaxSettingsPage: React.FC = () => {
           </p>
           <div className="mt-3">
             <Link
-              to="/tax/product-rules"
+              to="/companion/tax/product-rules"
               className="inline-flex items-center gap-2 px-3 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50"
             >
               Manage rules
@@ -245,7 +245,7 @@ const TaxSettingsPage: React.FC = () => {
             </p>
             <div className="mt-3">
               <Link
-                to="/tax/catalog"
+                to="/companion/tax/catalog"
                 className="inline-flex items-center gap-2 px-3 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50"
               >
                 <Database className="w-4 h-4" />

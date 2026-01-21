@@ -154,7 +154,7 @@ const TaxProductRulesPage: React.FC = () => {
             <p className="text-xs text-slate-500 mt-1">These rules power T5_EXEMPT_TAXED anomalies and filing summaries.</p>
           </div>
           <div className="flex items-center gap-2">
-            <Link to="/tax" className="inline-flex items-center gap-1 text-sm text-slate-600 hover:text-slate-800">
+            <Link to="/companion/tax" className="inline-flex items-center gap-1 text-sm text-slate-600 hover:text-slate-800">
               <ArrowLeft className="w-4 h-4" />
               Back to Tax Guardian
             </Link>

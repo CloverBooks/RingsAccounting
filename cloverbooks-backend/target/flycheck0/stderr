@@ -1,0 +1,10 @@
+    Updating crates.io index
+error: failed to select a version for `sqlx`.
+    ... required by package `cloverbooks-backend v0.1.0 (C:\Clover\cloverbooks-backend)`
+versions that meet the requirements `^0.7` are: 0.7.4, 0.7.3, 0.7.2, 0.7.1, 0.7.0
+
+package `cloverbooks-backend` depends on `sqlx` with feature `decimal` but `sqlx` does not have that feature.
+ package `sqlx` does have feature `bigdecimal`
+
+
+failed to select a version for `sqlx` which could resolve this conflict

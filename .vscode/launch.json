@@ -2,17 +2,31 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Django: runserver",
-      "type": "debugpy",
+      "name": "Rust API: Run (Debug)",
+      "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/manage.py",
-      "args": [
-        "runserver",
-        "127.0.0.1:8000"
-      ],
-      "django": true,
-      "envFile": "${workspaceFolder}/.env",
-      "justMyCode": true
+      "program": "${workspaceFolder}/rust-api/target/debug/clover-api",
+      "args": [],
+      "cwd": "${workspaceFolder}/rust-api",
+      "envFile": "${workspaceFolder}/rust-api/.env",
+      "preLaunchTask": "build rust api",
+      "sourceLanguages": [
+        "rust"
+      ]
+    },
+    {
+      "name": "Customer App (Chrome)",
+      "request": "launch",
+      "type": "chrome",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/apps/customer/src"
+    },
+    {
+      "name": "Admin App (Chrome)",
+      "request": "launch",
+      "type": "chrome",
+      "url": "http://localhost:5174",
+      "webRoot": "${workspaceFolder}/apps/admin/src"
     }
   ]
 }

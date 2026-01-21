@@ -1,0 +1,45 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build rust api",
+            "type": "shell",
+            "command": "cargo build",
+            "options": {
+                "cwd": "${workspaceFolder}/rust-api"
+            },
+            "problemMatcher": [
+                "$rustc"
+            ],
+            "group": "build"
+        },
+        {
+            "label": "run rust api",
+            "type": "shell",
+            "command": "cargo run",
+            "options": {
+                "cwd": "${workspaceFolder}/rust-api"
+            },
+            "problemMatcher": [
+                "$rustc"
+            ],
+            "isBackground": true
+        },
+        {
+            "label": "customer frontend",
+            "type": "npm",
+            "script": "dev",
+            "path": "apps/customer",
+            "problemMatcher": [],
+            "isBackground": true
+        },
+        {
+            "label": "admin frontend",
+            "type": "npm",
+            "script": "dev",
+            "path": "apps/admin",
+            "problemMatcher": [],
+            "isBackground": true
+        }
+    ]
+}

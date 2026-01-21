@@ -685,14 +685,14 @@ const TaxGuardianPage: React.FC = () => {
               </div>
             )}
             <Link
-              to="/tax/settings"
+              to="/companion/tax/settings"
               className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-2 text-xs font-semibold text-white shadow-lg shadow-slate-900/10 transition-transform hover:scale-105 active:scale-95"
             >
               Tax Settings
             </Link>
             {can("tax.catalog.view") && (
               <Link
-                to="/tax/catalog"
+                to="/companion/tax/catalog"
                 className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
               >
                 <Database className="h-3.5 w-3.5" />

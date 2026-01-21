@@ -432,7 +432,7 @@ const TaxCatalogPage: React.FC = () => {
               This page is staff/admin tooling for maintaining jurisdictions, rates, and taxability rules. Ask an operator to grant access.
             </p>
             <div className="mt-4">
-              <Link to="/tax" className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700 hover:text-slate-900">
+              <Link to="/companion/tax" className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700 hover:text-slate-900">
                 <ArrowLeft className="w-4 h-4" />
                 Back to Tax Guardian
               </Link>
@@ -455,17 +455,17 @@ const TaxCatalogPage: React.FC = () => {
               <h1 className="text-lg font-bold text-slate-900">Tax Catalog</h1>
               <p className="text-sm text-slate-600">Jurisdictions, rates, and taxability rules that power your Tax Engine.</p>
               <div className="mt-1 text-xs text-slate-500">
-                <Link to="/tax" className="text-sky-700 hover:text-sky-900 font-semibold">
+                <Link to="/companion/tax" className="text-sky-700 hover:text-sky-900 font-semibold">
                   Tax Guardian
                 </Link>{" "}
                 ·{" "}
-                <Link to="/tax/settings" className="text-sky-700 hover:text-sky-900 font-semibold">
+                <Link to="/companion/tax/settings" className="text-sky-700 hover:text-sky-900 font-semibold">
                   Tax Settings
                 </Link>
               </div>
             </div>
           </div>
-          <Link to="/tax" className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700 hover:text-slate-900">
+          <Link to="/companion/tax" className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700 hover:text-slate-900">
             <ArrowLeft className="w-4 h-4" />
             Back to Tax Guardian
           </Link>
