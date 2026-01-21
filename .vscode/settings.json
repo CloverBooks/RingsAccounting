@@ -2,5 +2,7 @@
   "python.defaultInterpreterPath": ".venv/bin/python",
   "python.analysis.typeCheckingMode": "basic",
   "python.formatting.provider": "black",
-  "editor.formatOnSave": true
+  "editor.formatOnSave": true,
+  "java.enabled": false,
+  "terminal.integrated.shellIntegration.enabled": false
 }
