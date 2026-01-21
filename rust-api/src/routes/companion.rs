@@ -224,13 +224,13 @@ pub async fn list_issues(
     
     (
         StatusCode::OK,
-        Json(CompanionIssuesResponse {
+        Json(json!(CompanionIssuesResponse {
             ok: true,
             issues: items,
             total,
             by_severity,
             by_surface,
-        }),
+        })),
     )
 }
 
@@ -429,13 +429,13 @@ pub async fn list_audits(
     
     (
         StatusCode::OK,
-        Json(HighRiskAuditsResponse {
+        Json(json!(HighRiskAuditsResponse {
             ok: true,
             audits: items,
             pending_count,
             approved_count,
             rejected_count,
-        }),
+        })),
     )
 }
 
@@ -1032,7 +1032,7 @@ pub async fn list_proposals(
     )
     .await;
 
-    (StatusCode::OK, Json(event_list))
+    (StatusCode::OK, Json(serde_json::Value::Array(event_list)))
 }
 
 /// POST /api/companion/v2/proposals/:id/apply/

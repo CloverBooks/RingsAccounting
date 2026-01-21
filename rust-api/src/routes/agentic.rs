@@ -106,7 +106,7 @@ struct InvoiceDocumentRow {
 }
 
 #[derive(Debug, Deserialize)]
-struct CompanionIssuesQuery {
+pub struct CompanionIssuesQuery {
     status: Option<String>,
     surface: Option<String>,
     severity: Option<String>,
@@ -114,17 +114,17 @@ struct CompanionIssuesQuery {
 }
 
 #[derive(Debug, Deserialize)]
-struct IssueStatusPayload {
+pub struct IssueStatusPayload {
     status: String,
 }
 
 #[derive(Debug, Deserialize)]
-struct ReceiptApprovePayload {
+pub struct ReceiptApprovePayload {
     overrides: Option<ReceiptOverrides>,
 }
 
 #[derive(Debug, Deserialize)]
-struct ReceiptOverrides {
+pub struct ReceiptOverrides {
     date: Option<String>,
     amount: Option<String>,
     currency: Option<String>,
@@ -134,7 +134,7 @@ struct ReceiptOverrides {
 }
 
 #[derive(Debug, Deserialize)]
-struct InvoiceOverrides {
+pub struct InvoiceOverrides {
     vendor: Option<String>,
     invoice_number: Option<String>,
     issue_date: Option<String>,
@@ -480,7 +480,8 @@ fn apply_receipt_overrides(
         .description
         .as_deref()
         .or_else(|| proposed.get("description").and_then(|v| v.as_str()))
-        .unwrap_or("Receipt");
+        .unwrap_or("Receipt")
+        .to_string();
 
     let amount_label = format_amount(amount);
 
@@ -545,7 +546,8 @@ fn apply_invoice_overrides(
         .description
         .as_deref()
         .or_else(|| proposed.get("description").and_then(|v| v.as_str()))
-        .unwrap_or("Invoice");
+        .unwrap_or("Invoice")
+        .to_string();
 
     let amount_label = format_amount(amount);
 
@@ -721,8 +723,7 @@ pub async fn get_run(
                     "error": "Run not found",
                     "run_id": run_id
                 })),
-            )
-                .into_response();
+            );
         }
     };
 
@@ -1243,8 +1244,7 @@ pub async fn get_receipt_run(
                     "error": "Run not found",
                     "run_id": run_id
                 })),
-            )
-                .into_response();
+            );
         }
     };
 
@@ -2104,7 +2104,7 @@ pub async fn companion_summary(
     });
 
     let monthly_burn = expenses_last_30d(&state.db, business_id).await;
-    let runway_months = if monthly_burn > 0.0 { None } else { None };
+    let runway_months: Option<f64> = if monthly_burn > 0.0 { None } else { None };
     let months = revenue_expense_series(&state.db, business_id).await;
 
     let finance_snapshot = json!({

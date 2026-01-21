@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import { backendUrl } from "../utils/apiClient";
 
 /**
  * Clover Books - Login Page
@@ -50,7 +51,7 @@ const CloverBooksLoginPage: React.FC = () => {
   };
 
   const handleGoogleLogin = () => {
-    window.location.href = "/api/auth/google/login";
+    window.location.href = backendUrl("/api/auth/google/login");
   };
 
   return (
