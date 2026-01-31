@@ -1,0 +1,240 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Country {
+  US
+  CA
+  RW
+}
+
+enum Currency {
+  USD
+  CAD
+  RWF
+}
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+enum JournalEntryStatus {
+  PENDING
+  POSTED
+  VOID
+}
+
+enum PaymentDirection {
+  AR
+  AP
+  SUBSCRIPTION
+}
+
+enum PaymentIntentType {
+  SUBSCRIPTION
+  MERCHANT_INVOICE_COLLECTION
+  RW_MOMO_COLLECTION
+  RW_BILLPAY
+}
+
+enum PaymentProvider {
+  STRIPE
+  FLUTTERWAVE
+}
+
+enum PaymentRail {
+  CARD
+  US_ACH
+  CA_ACSS
+  RW_MOMO
+  RW_BILLS
+}
+
+enum PaymentIntentStatus {
+  CREATED
+  REQUIRES_ACTION
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELED
+}
+
+enum PaymentReceiptType {
+  MANDATE
+  TOKEN
+  RRA_RECEIPT
+  BILL_RECEIPT
+  GENERIC
+}
+
+enum WebhookProvider {
+  STRIPE
+  FLUTTERWAVE
+}
+
+enum ProcessedEventStatus {
+  RECEIVED
+  PROCESSED
+  FAILED
+}
+
+enum ConsentType {
+  PAD_MANDATE
+  PAD_WAIVER
+}
+
+model Organization {
+  id                     String   @id @default(uuid())
+  legal_name             String
+  country                Country
+  tax_id_encrypted       String?  @db.Text
+  stripe_account_id      String?
+  flutterwave_merchant_id String?
+  pad_waiver_active      Boolean  @default(false)
+  created_at             DateTime @default(now())
+
+  users                  User[]
+  ledgers                Ledger[]
+  payment_intents        PaymentIntent[]
+  consent_records        ConsentRecord[]
+}
+
+model User {
+  id            String   @id @default(uuid())
+  org_id        String
+  email         String   @unique
+  password_hash String
+  role          String
+
+  organization  Organization @relation(fields: [org_id], references: [id])
+}
+
+model Ledger {
+  id       String   @id @default(uuid())
+  org_id   String
+  currency Currency
+  name     String
+
+  organization Organization @relation(fields: [org_id], references: [id])
+  accounts      Account[]
+  journal_entries JournalEntry[]
+}
+
+model Account {
+  id         String      @id @default(uuid())
+  ledger_id  String
+  name       String
+  type       AccountType
+  code       Int
+  is_system  Boolean     @default(false)
+
+  ledger     Ledger  @relation(fields: [ledger_id], references: [id])
+  postings   Posting[]
+}
+
+model JournalEntry {
+  id                 String             @id @default(uuid())
+  ledger_id          String
+  posted_at          DateTime?
+  description        String
+  external_reference String?            @db.Text
+  status             JournalEntryStatus
+  idempotency_key    String             @unique
+  created_at         DateTime           @default(now())
+
+  ledger   Ledger    @relation(fields: [ledger_id], references: [id])
+  postings Posting[]
+
+  @@index([external_reference])
+}
+
+model Posting {
+  id                String   @id @default(uuid())
+  journal_entry_id  String
+  account_id        String
+  amount            BigInt
+
+  journal_entry JournalEntry @relation(fields: [journal_entry_id], references: [id])
+  account       Account      @relation(fields: [account_id], references: [id])
+
+  @@check([amount <> 0])
+}
+
+model PaymentIntent {
+  id              String              @id @default(uuid())
+  org_id          String
+  direction       PaymentDirection
+  intent_type     PaymentIntentType
+  provider        PaymentProvider
+  rail            PaymentRail
+  amount          BigInt
+  currency        Currency
+  status          PaymentIntentStatus
+  provider_ref    String?
+  idempotency_key String              @unique
+  metadata        Json
+  created_at      DateTime            @default(now())
+  updated_at      DateTime            @updatedAt
+
+  organization Organization @relation(fields: [org_id], references: [id])
+  receipts      PaymentReceipt[]
+
+  @@index([org_id])
+  @@index([provider_ref])
+  @@index([status])
+}
+
+model PaymentReceipt {
+  id                String            @id @default(uuid())
+  payment_intent_id String
+  type              PaymentReceiptType
+  payload           Json
+  created_at        DateTime          @default(now())
+
+  payment_intent PaymentIntent @relation(fields: [payment_intent_id], references: [id])
+}
+
+model WebhookEvent {
+  id              String          @id @default(uuid())
+  provider        WebhookProvider
+  event_id        String?
+  received_at     DateTime        @default(now())
+  signature_valid Boolean
+  headers         Json
+  payload         Json
+  raw_body        String          @db.Text
+  processed       Boolean         @default(false)
+
+  @@index([provider, received_at])
+}
+
+model ProcessedEvent {
+  id           String              @id @default(uuid())
+  provider     WebhookProvider
+  event_id     String
+  processed_at DateTime            @default(now())
+  status       ProcessedEventStatus
+
+  @@unique([provider, event_id])
+}
+
+model ConsentRecord {
+  id               String     @id @default(uuid())
+  org_id           String
+  consent_type     ConsentType
+  text_version_hash String
+  ip_address       String
+  user_agent       String
+  accepted_at      DateTime   @default(now())
+
+  organization Organization @relation(fields: [org_id], references: [id])
+}

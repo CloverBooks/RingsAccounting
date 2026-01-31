@@ -263,7 +263,10 @@ const CloverBooksLoginPage: React.FC = () => {
             <div className="absolute bottom-0 left-0 right-0 h-44 bg-gradient-to-t from-black/40 to-transparent" />
           </div>
 
-          <div className="relative flex items-center justify-between">
+          {/* Orange micro-digits - rendered early so it stays behind content */}
+          <DigitsOverlay />
+
+          <div className="relative z-10 flex items-center justify-between">
             <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/80">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
               Live banking sync
@@ -271,7 +274,7 @@ const CloverBooksLoginPage: React.FC = () => {
             <div className="text-xs text-white/60">Owner view</div>
           </div>
 
-          <div className="relative mt-5 rounded-[28px] border border-white/10 bg-white/5 p-5 backdrop-blur-xl">
+          <div className="relative z-10 mt-5 rounded-[28px] border border-white/10 bg-white/5 p-5 backdrop-blur-xl">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="text-[11px] uppercase tracking-[0.22em] text-white/50">Today's cash position</div>
@@ -321,7 +324,7 @@ const CloverBooksLoginPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="relative mt-5 rounded-[28px] border border-white/10 bg-white/5 p-5">
+          <div className="relative z-10 mt-5 rounded-[28px] border border-white/10 bg-white/5 p-5">
             <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">Schedule</div>
             <div className="mt-4 space-y-3">
               <ScheduleRow title="Bank feed review" time="9:30 AM" />
@@ -333,8 +336,6 @@ const CloverBooksLoginPage: React.FC = () => {
             </p>
           </div>
 
-          {/* Orange micro-digits */}
-          <DigitsOverlay />
         </motion.aside>
       </main>
 
@@ -460,11 +461,15 @@ function GoogleIcon() {
 
 function DigitsOverlay() {
   // subtle numbers layer (orange) to match your brand accent
+  // Using inline rgba colors to ensure proper rendering
   return (
-    <div aria-hidden className="pointer-events-none absolute inset-0">
+    <div aria-hidden className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
       <div
-        className="absolute -right-10 top-16 rotate-6 text-[10px] leading-5 text-orange-400/25"
-        style={{ fontFamily: "JetBrains Mono, ui-monospace, SFMono-Regular" }}
+        className="absolute -right-10 top-16 rotate-6 text-[10px] leading-5"
+        style={{
+          fontFamily: "JetBrains Mono, ui-monospace, SFMono-Regular",
+          color: "rgba(251, 146, 60, 0.2)" // orange-400 at 20% opacity
+        }}
       >
         {Array.from({ length: 18 }).map((_, i) => (
           <div key={i}>
@@ -477,8 +482,11 @@ function DigitsOverlay() {
       </div>
 
       <div
-        className="absolute -left-8 bottom-10 -rotate-6 text-[10px] leading-5 text-orange-400/18"
-        style={{ fontFamily: "JetBrains Mono, ui-monospace, SFMono-Regular" }}
+        className="absolute -left-8 bottom-10 -rotate-6 text-[10px] leading-5"
+        style={{
+          fontFamily: "JetBrains Mono, ui-monospace, SFMono-Regular",
+          color: "rgba(251, 146, 60, 0.15)" // orange-400 at 15% opacity
+        }}
       >
         {Array.from({ length: 12 }).map((_, i) => (
           <div key={i}>{i % 3 === 0 ? "24 08 30 12 49 26" : "38 90 26 42 12 48"}</div>

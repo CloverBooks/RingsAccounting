@@ -120,12 +120,14 @@ export const fetchBusinessPolicyV2 = () => apiFetchV2<BusinessPolicy>("policy/")
 export const patchBusinessPolicyV2 = (patch: Partial<BusinessPolicy>) =>
   apiFetchV2<BusinessPolicy>("policy/", { method: "PATCH", body: patch });
 
-export const listShadowEventsV2 = async (params?: { status?: string; event_type?: string; subject_object_id?: number; limit?: number }) => {
+export const listShadowEventsV2 = async (params?: { workspace_id?: number; status?: string; event_type?: string; subject_object_id?: number; limit?: number; offset?: number }) => {
   const qs = new URLSearchParams();
+  if (params?.workspace_id) qs.set("workspace_id", String(params.workspace_id));
   if (params?.status) qs.set("status", params.status);
   if (params?.event_type) qs.set("event_type", params.event_type);
   if (params?.subject_object_id) qs.set("subject_object_id", String(params.subject_object_id));
   if (params?.limit) qs.set("limit", String(params.limit));
+  if (params?.offset) qs.set("offset", String(params.offset));
   const suffix = qs.toString();
   const data = await apiFetchV2<any>(`shadow-events/${suffix ? `?${suffix}` : ""}`);
   if (Array.isArray(data)) return data as ShadowEvent[];
@@ -133,21 +135,31 @@ export const listShadowEventsV2 = async (params?: { status?: string; event_type?
   return [];
 };
 
-export const applyShadowEventV2 = (id: string, override_splits?: any[]) =>
+export const applyShadowEventV2 = (id: string, opts?: { workspace_id?: number; override_splits?: any[] }) =>
   apiFetchV2<ApplyResultResponse>(`shadow-events/${id}/apply/`, {
     method: "POST",
-    body: override_splits ? { override_splits } : {},
+    body: {
+      ...(opts?.workspace_id ? { workspace_id: opts.workspace_id } : {}),
+      ...(opts?.override_splits ? { override_splits: opts.override_splits } : {}),
+    },
   });
 
-export const rejectShadowEventV2 = (id: string, reason?: string) =>
-  apiFetchV2<ShadowEvent>(`shadow-events/${id}/reject/`, { method: "POST", body: { reason: reason || "" } });
+export const rejectShadowEventV2 = (id: string, opts?: { workspace_id?: number; reason?: string }) =>
+  apiFetchV2<ShadowEvent>(`shadow-events/${id}/reject/`, {
+    method: "POST",
+    body: {
+      ...(opts?.workspace_id ? { workspace_id: opts.workspace_id } : {}),
+      reason: opts?.reason || "",
+    },
+  });
 
-export const listProposalsV2 = async (params?: { workspace_id?: number; event_type?: string; subject_object_id?: number; limit?: number }) => {
+export const listProposalsV2 = async (params?: { workspace_id?: number; event_type?: string; subject_object_id?: number; limit?: number; offset?: number }) => {
   const qs = new URLSearchParams();
   if (params?.workspace_id) qs.set("workspace_id", String(params.workspace_id));
   if (params?.event_type) qs.set("event_type", params.event_type);
   if (params?.subject_object_id) qs.set("subject_object_id", String(params.subject_object_id));
   if (params?.limit) qs.set("limit", String(params.limit));
+  if (params?.offset) qs.set("offset", String(params.offset));
   const suffix = qs.toString();
   const data = await apiFetchV2<any>(`proposals/${suffix ? `?${suffix}` : ""}`);
   if (Array.isArray(data)) return data as ShadowEvent[];

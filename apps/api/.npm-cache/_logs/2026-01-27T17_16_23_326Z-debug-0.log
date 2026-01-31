@@ -1,0 +1,295 @@
+0 verbose cli C:\Program Files\nodejs\node.exe C:\Program Files\nodejs\node_modules\npm\bin\npm-cli.js
+1 info using npm@11.7.0
+2 info using node@v25.4.0
+3 silly config load:file:C:\Program Files\nodejs\node_modules\npm\npmrc
+4 silly config load:file:C:\Users\mbaho\OneDrive\Desktop\CLOVER\Clover\apps\api\.npmrc
+5 silly config load:file:C:\Users\mbaho\.npmrc
+6 silly config load:file:C:\Users\mbaho\AppData\Roaming\npm\etc\npmrc
+7 verbose title npm install
+8 verbose argv "install" "--no-audit" "--no-fund" "--progress" "false"
+9 verbose logfile logs-max:10 dir:C:\Users\mbaho\OneDrive\Desktop\CLOVER\Clover\apps\api\.npm-cache\_logs\2026-01-27T17_16_23_326Z-
+10 verbose logfile C:\Users\mbaho\OneDrive\Desktop\CLOVER\Clover\apps\api\.npm-cache\_logs\2026-01-27T17_16_23_326Z-debug-0.log
+11 silly logfile done cleaning log files
+12 http fetch GET https://registry.npmjs.org/npm attempt 1 failed with ECONNREFUSED
+13 silly packumentCache heap:4496293888 maxSize:1124073472 maxEntrySize:562036736
+14 silly idealTree buildDeps
+15 silly fetch manifest @fastify/cors@^9.0.1
+16 silly packumentCache full:https://registry.npmjs.org/@fastify%2fcors cache-miss
+17 http fetch GET https://registry.npmjs.org/@fastify%2fcors attempt 1 failed with ECONNREFUSED
+18 http fetch GET https://registry.npmjs.org/npm attempt 2 failed with ECONNREFUSED
+19 http fetch GET https://registry.npmjs.org/@fastify%2fcors attempt 2 failed with ECONNREFUSED
+20 http fetch GET https://registry.npmjs.org/npm attempt 3 failed with ECONNREFUSED
+21 http fetch GET https://registry.npmjs.org/@fastify%2fcors attempt 3 failed with ECONNREFUSED
+22 silly fetch manifest @fastify/helmet@^11.1.1
+23 silly packumentCache full:https://registry.npmjs.org/@fastify%2fhelmet cache-miss
+24 http fetch GET https://registry.npmjs.org/@fastify%2fhelmet attempt 1 failed with ECONNREFUSED
+25 http fetch GET https://registry.npmjs.org/@fastify%2fhelmet attempt 2 failed with ECONNREFUSED
+26 http fetch GET https://registry.npmjs.org/@fastify%2fhelmet attempt 3 failed with ECONNREFUSED
+27 silly fetch manifest @fastify/rate-limit@^9.1.0
+28 silly packumentCache full:https://registry.npmjs.org/@fastify%2frate-limit cache-miss
+29 http fetch GET https://registry.npmjs.org/@fastify%2frate-limit attempt 1 failed with ECONNREFUSED
+30 http fetch GET https://registry.npmjs.org/@fastify%2frate-limit attempt 2 failed with ECONNREFUSED
+31 http fetch GET https://registry.npmjs.org/@fastify%2frate-limit attempt 3 failed with ECONNREFUSED
+32 silly fetch manifest @nestjs/bullmq@^10.0.3
+33 silly packumentCache full:https://registry.npmjs.org/@nestjs%2fbullmq cache-miss
+34 http fetch GET https://registry.npmjs.org/@nestjs%2fbullmq attempt 1 failed with ECONNREFUSED
+35 http fetch GET https://registry.npmjs.org/@nestjs%2fbullmq attempt 2 failed with ECONNREFUSED
+36 http fetch GET https://registry.npmjs.org/@nestjs%2fbullmq attempt 3 failed with ECONNREFUSED
+37 silly fetch manifest @nestjs/common@^10.3.2
+38 silly packumentCache full:https://registry.npmjs.org/@nestjs%2fcommon cache-miss
+39 http fetch GET https://registry.npmjs.org/@nestjs%2fcommon attempt 1 failed with ECONNREFUSED
+40 http fetch GET https://registry.npmjs.org/@nestjs%2fcommon attempt 2 failed with ECONNREFUSED
+41 http fetch GET https://registry.npmjs.org/@nestjs%2fcommon attempt 3 failed with ECONNREFUSED
+42 silly fetch manifest @nestjs/core@^10.3.2
+43 silly packumentCache full:https://registry.npmjs.org/@nestjs%2fcore cache-miss
+44 http fetch GET https://registry.npmjs.org/@nestjs%2fcore attempt 1 failed with ECONNREFUSED
+45 http fetch GET https://registry.npmjs.org/@nestjs%2fcore attempt 2 failed with ECONNREFUSED
+46 http fetch GET https://registry.npmjs.org/@nestjs%2fcore attempt 3 failed with ECONNREFUSED
+47 silly fetch manifest @nestjs/jwt@^10.2.0
+48 silly packumentCache full:https://registry.npmjs.org/@nestjs%2fjwt cache-miss
+49 http fetch GET https://registry.npmjs.org/@nestjs%2fjwt attempt 1 failed with ECONNREFUSED
+50 http fetch GET https://registry.npmjs.org/@nestjs%2fjwt attempt 2 failed with ECONNREFUSED
+51 http fetch GET https://registry.npmjs.org/@nestjs%2fjwt attempt 3 failed with ECONNREFUSED
+52 silly fetch manifest @nestjs/passport@^10.0.3
+53 silly packumentCache full:https://registry.npmjs.org/@nestjs%2fpassport cache-miss
+54 http fetch GET https://registry.npmjs.org/@nestjs%2fpassport attempt 1 failed with ECONNREFUSED
+55 http fetch GET https://registry.npmjs.org/@nestjs%2fpassport attempt 2 failed with ECONNREFUSED
+56 http fetch GET https://registry.npmjs.org/@nestjs%2fpassport attempt 3 failed with ECONNREFUSED
+57 silly fetch manifest @nestjs/platform-fastify@^10.3.2
+58 silly packumentCache full:https://registry.npmjs.org/@nestjs%2fplatform-fastify cache-miss
+59 http fetch GET https://registry.npmjs.org/@nestjs%2fplatform-fastify attempt 1 failed with ECONNREFUSED
+60 http fetch GET https://registry.npmjs.org/@nestjs%2fplatform-fastify attempt 2 failed with ECONNREFUSED
+61 http fetch GET https://registry.npmjs.org/@nestjs%2fplatform-fastify attempt 3 failed with ECONNREFUSED
+62 silly fetch manifest @nestjs/swagger@^7.2.0
+63 silly packumentCache full:https://registry.npmjs.org/@nestjs%2fswagger cache-miss
+64 http fetch GET https://registry.npmjs.org/@nestjs%2fswagger attempt 1 failed with ECONNREFUSED
+65 http fetch GET https://registry.npmjs.org/@nestjs%2fswagger attempt 2 failed with ECONNREFUSED
+66 http fetch GET https://registry.npmjs.org/@nestjs%2fswagger attempt 3 failed with ECONNREFUSED
+67 silly fetch manifest @opentelemetry/api@^1.9.0
+68 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fapi cache-miss
+69 http fetch GET https://registry.npmjs.org/@opentelemetry%2fapi attempt 1 failed with ECONNREFUSED
+70 http fetch GET https://registry.npmjs.org/@opentelemetry%2fapi attempt 2 failed with ECONNREFUSED
+71 http fetch GET https://registry.npmjs.org/@opentelemetry%2fapi attempt 3 failed with ECONNREFUSED
+72 silly fetch manifest @opentelemetry/exporter-trace-otlp-http@^0.47.0
+73 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fexporter-trace-otlp-http cache-miss
+74 http fetch GET https://registry.npmjs.org/@opentelemetry%2fexporter-trace-otlp-http attempt 1 failed with ECONNREFUSED
+75 http fetch GET https://registry.npmjs.org/@opentelemetry%2fexporter-trace-otlp-http attempt 2 failed with ECONNREFUSED
+76 http fetch GET https://registry.npmjs.org/@opentelemetry%2fexporter-trace-otlp-http attempt 3 failed with ECONNREFUSED
+77 silly fetch manifest @opentelemetry/sdk-node@^0.47.0
+78 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fsdk-node cache-miss
+79 http fetch GET https://registry.npmjs.org/@opentelemetry%2fsdk-node attempt 1 failed with ECONNREFUSED
+80 http fetch GET https://registry.npmjs.org/@opentelemetry%2fsdk-node attempt 2 failed with ECONNREFUSED
+81 http fetch GET https://registry.npmjs.org/@opentelemetry%2fsdk-node attempt 3 failed with ECONNREFUSED
+82 silly fetch manifest @opentelemetry/sdk-trace-base@^1.20.0
+83 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fsdk-trace-base cache-miss
+84 http fetch GET https://registry.npmjs.org/@opentelemetry%2fsdk-trace-base attempt 1 failed with ECONNREFUSED
+85 http fetch GET https://registry.npmjs.org/@opentelemetry%2fsdk-trace-base attempt 2 failed with ECONNREFUSED
+86 http fetch GET https://registry.npmjs.org/@opentelemetry%2fsdk-trace-base attempt 3 failed with ECONNREFUSED
+87 silly fetch manifest @prisma/client@^5.9.1
+88 silly packumentCache full:https://registry.npmjs.org/@prisma%2fclient cache-miss
+89 http fetch GET https://registry.npmjs.org/@prisma%2fclient attempt 1 failed with ECONNREFUSED
+90 http fetch GET https://registry.npmjs.org/@prisma%2fclient attempt 2 failed with ECONNREFUSED
+91 http fetch GET https://registry.npmjs.org/@prisma%2fclient attempt 3 failed with ECONNREFUSED
+92 silly fetch manifest axios@^1.6.7
+93 silly packumentCache full:https://registry.npmjs.org/axios cache-miss
+94 http fetch GET https://registry.npmjs.org/axios attempt 1 failed with ECONNREFUSED
+95 http fetch GET https://registry.npmjs.org/axios attempt 2 failed with ECONNREFUSED
+96 http fetch GET https://registry.npmjs.org/axios attempt 3 failed with ECONNREFUSED
+97 silly fetch manifest bcrypt@^5.1.1
+98 silly packumentCache full:https://registry.npmjs.org/bcrypt cache-miss
+99 http fetch GET https://registry.npmjs.org/bcrypt attempt 1 failed with ECONNREFUSED
+100 http fetch GET https://registry.npmjs.org/bcrypt attempt 2 failed with ECONNREFUSED
+101 http fetch GET https://registry.npmjs.org/bcrypt attempt 3 failed with ECONNREFUSED
+102 silly fetch manifest bullmq@^5.9.1
+103 silly packumentCache full:https://registry.npmjs.org/bullmq cache-miss
+104 http fetch GET https://registry.npmjs.org/bullmq attempt 1 failed with ECONNREFUSED
+105 http fetch GET https://registry.npmjs.org/bullmq attempt 2 failed with ECONNREFUSED
+106 http fetch GET https://registry.npmjs.org/bullmq attempt 3 failed with ECONNREFUSED
+107 silly fetch manifest date-fns@^3.3.1
+108 silly packumentCache full:https://registry.npmjs.org/date-fns cache-miss
+109 http fetch GET https://registry.npmjs.org/date-fns attempt 1 failed with ECONNREFUSED
+110 http fetch GET https://registry.npmjs.org/date-fns attempt 2 failed with ECONNREFUSED
+111 http fetch GET https://registry.npmjs.org/date-fns attempt 3 failed with ECONNREFUSED
+112 silly fetch manifest fastify-raw-body@^5.0.0
+113 silly packumentCache full:https://registry.npmjs.org/fastify-raw-body cache-miss
+114 http fetch GET https://registry.npmjs.org/fastify-raw-body attempt 1 failed with ECONNREFUSED
+115 http fetch GET https://registry.npmjs.org/fastify-raw-body attempt 2 failed with ECONNREFUSED
+116 http fetch GET https://registry.npmjs.org/fastify-raw-body attempt 3 failed with ECONNREFUSED
+117 silly fetch manifest ioredis@^5.3.2
+118 silly packumentCache full:https://registry.npmjs.org/ioredis cache-miss
+119 http fetch GET https://registry.npmjs.org/ioredis attempt 1 failed with ECONNREFUSED
+120 http fetch GET https://registry.npmjs.org/ioredis attempt 2 failed with ECONNREFUSED
+121 http fetch GET https://registry.npmjs.org/ioredis attempt 3 failed with ECONNREFUSED
+122 silly fetch manifest passport@^0.7.0
+123 silly packumentCache full:https://registry.npmjs.org/passport cache-miss
+124 http fetch GET https://registry.npmjs.org/passport attempt 1 failed with ECONNREFUSED
+125 http fetch GET https://registry.npmjs.org/passport attempt 2 failed with ECONNREFUSED
+126 http fetch GET https://registry.npmjs.org/passport attempt 3 failed with ECONNREFUSED
+127 silly fetch manifest passport-jwt@^4.0.1
+128 silly packumentCache full:https://registry.npmjs.org/passport-jwt cache-miss
+129 http fetch GET https://registry.npmjs.org/passport-jwt attempt 1 failed with ECONNREFUSED
+130 http fetch GET https://registry.npmjs.org/passport-jwt attempt 2 failed with ECONNREFUSED
+131 http fetch GET https://registry.npmjs.org/passport-jwt attempt 3 failed with ECONNREFUSED
+132 silly fetch manifest pino@^8.21.0
+133 silly packumentCache full:https://registry.npmjs.org/pino cache-miss
+134 http fetch GET https://registry.npmjs.org/pino attempt 1 failed with ECONNREFUSED
+135 http fetch GET https://registry.npmjs.org/pino attempt 2 failed with ECONNREFUSED
+136 http fetch GET https://registry.npmjs.org/pino attempt 3 failed with ECONNREFUSED
+137 silly fetch manifest reflect-metadata@^0.1.13
+138 silly packumentCache full:https://registry.npmjs.org/reflect-metadata cache-miss
+139 http fetch GET https://registry.npmjs.org/reflect-metadata attempt 1 failed with ECONNREFUSED
+140 http fetch GET https://registry.npmjs.org/reflect-metadata attempt 2 failed with ECONNREFUSED
+141 http fetch GET https://registry.npmjs.org/reflect-metadata attempt 3 failed with ECONNREFUSED
+142 silly fetch manifest rxjs@^7.8.1
+143 silly packumentCache full:https://registry.npmjs.org/rxjs cache-miss
+144 http fetch GET https://registry.npmjs.org/rxjs attempt 1 failed with ECONNREFUSED
+145 http fetch GET https://registry.npmjs.org/rxjs attempt 2 failed with ECONNREFUSED
+146 http fetch GET https://registry.npmjs.org/rxjs attempt 3 failed with ECONNREFUSED
+147 silly fetch manifest stripe@^14.21.0
+148 silly packumentCache full:https://registry.npmjs.org/stripe cache-miss
+149 http fetch GET https://registry.npmjs.org/stripe attempt 1 failed with ECONNREFUSED
+150 http fetch GET https://registry.npmjs.org/stripe attempt 2 failed with ECONNREFUSED
+151 http fetch GET https://registry.npmjs.org/stripe attempt 3 failed with ECONNREFUSED
+152 silly fetch manifest @nestjs/testing@^10.3.2
+153 silly packumentCache full:https://registry.npmjs.org/@nestjs%2ftesting cache-miss
+154 http fetch GET https://registry.npmjs.org/@nestjs%2ftesting attempt 1 failed with ECONNREFUSED
+155 http fetch GET https://registry.npmjs.org/@nestjs%2ftesting attempt 2 failed with ECONNREFUSED
+156 http fetch GET https://registry.npmjs.org/@nestjs%2ftesting attempt 3 failed with ECONNREFUSED
+157 silly fetch manifest @types/bcrypt@^5.0.2
+158 silly packumentCache full:https://registry.npmjs.org/@types%2fbcrypt cache-miss
+159 http fetch GET https://registry.npmjs.org/@types%2fbcrypt attempt 1 failed with ECONNREFUSED
+160 http fetch GET https://registry.npmjs.org/@types%2fbcrypt attempt 2 failed with ECONNREFUSED
+161 http fetch GET https://registry.npmjs.org/@types%2fbcrypt attempt 3 failed with ECONNREFUSED
+162 silly fetch manifest @types/jest@^29.5.12
+163 silly packumentCache full:https://registry.npmjs.org/@types%2fjest cache-miss
+164 http fetch GET https://registry.npmjs.org/@types%2fjest attempt 1 failed with ECONNREFUSED
+165 http fetch GET https://registry.npmjs.org/@types%2fjest attempt 2 failed with ECONNREFUSED
+166 http fetch GET https://registry.npmjs.org/@types%2fjest attempt 3 failed with ECONNREFUSED
+167 silly fetch manifest @types/node@^20.11.10
+168 silly packumentCache full:https://registry.npmjs.org/@types%2fnode cache-miss
+169 http fetch GET https://registry.npmjs.org/@types%2fnode attempt 1 failed with ECONNREFUSED
+170 http fetch GET https://registry.npmjs.org/@types%2fnode attempt 2 failed with ECONNREFUSED
+171 http fetch GET https://registry.npmjs.org/@types%2fnode attempt 3 failed with ECONNREFUSED
+172 silly fetch manifest @types/passport-jwt@^3.0.13
+173 silly packumentCache full:https://registry.npmjs.org/@types%2fpassport-jwt cache-miss
+174 http fetch GET https://registry.npmjs.org/@types%2fpassport-jwt attempt 1 failed with ECONNREFUSED
+175 http fetch GET https://registry.npmjs.org/@types%2fpassport-jwt attempt 2 failed with ECONNREFUSED
+176 http fetch GET https://registry.npmjs.org/@types%2fpassport-jwt attempt 3 failed with ECONNREFUSED
+177 silly fetch manifest @types/supertest@^2.0.16
+178 silly packumentCache full:https://registry.npmjs.org/@types%2fsupertest cache-miss
+179 http fetch GET https://registry.npmjs.org/@types%2fsupertest attempt 1 failed with ECONNREFUSED
+180 http fetch GET https://registry.npmjs.org/@types%2fsupertest attempt 2 failed with ECONNREFUSED
+181 http fetch GET https://registry.npmjs.org/@types%2fsupertest attempt 3 failed with ECONNREFUSED
+182 silly fetch manifest jest@^29.7.0
+183 silly packumentCache full:https://registry.npmjs.org/jest cache-miss
+184 http fetch GET https://registry.npmjs.org/jest attempt 1 failed with ECONNREFUSED
+185 http fetch GET https://registry.npmjs.org/jest attempt 2 failed with ECONNREFUSED
+186 http fetch GET https://registry.npmjs.org/jest attempt 3 failed with ECONNREFUSED
+187 silly fetch manifest prisma@^5.9.1
+188 silly packumentCache full:https://registry.npmjs.org/prisma cache-miss
+189 http fetch GET https://registry.npmjs.org/prisma attempt 1 failed with ECONNREFUSED
+190 http fetch GET https://registry.npmjs.org/prisma attempt 2 failed with ECONNREFUSED
+191 http fetch GET https://registry.npmjs.org/prisma attempt 3 failed with ECONNREFUSED
+192 silly fetch manifest supertest@^6.3.4
+193 silly packumentCache full:https://registry.npmjs.org/supertest cache-miss
+194 http fetch GET https://registry.npmjs.org/supertest attempt 1 failed with ECONNREFUSED
+195 http fetch GET https://registry.npmjs.org/supertest attempt 2 failed with ECONNREFUSED
+196 http fetch GET https://registry.npmjs.org/supertest attempt 3 failed with ECONNREFUSED
+197 silly fetch manifest ts-jest@^29.1.1
+198 silly packumentCache full:https://registry.npmjs.org/ts-jest cache-miss
+199 http fetch GET https://registry.npmjs.org/ts-jest attempt 1 failed with ECONNREFUSED
+200 http fetch GET https://registry.npmjs.org/ts-jest attempt 2 failed with ECONNREFUSED
+201 http fetch GET https://registry.npmjs.org/ts-jest attempt 3 failed with ECONNREFUSED
+202 silly fetch manifest ts-node@^10.9.2
+203 silly packumentCache full:https://registry.npmjs.org/ts-node cache-miss
+204 http fetch GET https://registry.npmjs.org/ts-node attempt 1 failed with ECONNREFUSED
+205 http fetch GET https://registry.npmjs.org/ts-node attempt 2 failed with ECONNREFUSED
+206 http fetch GET https://registry.npmjs.org/ts-node attempt 3 failed with ECONNREFUSED
+207 silly fetch manifest tsconfig-paths@^4.2.0
+208 silly packumentCache full:https://registry.npmjs.org/tsconfig-paths cache-miss
+209 http fetch GET https://registry.npmjs.org/tsconfig-paths attempt 1 failed with ECONNREFUSED
+210 http fetch GET https://registry.npmjs.org/tsconfig-paths attempt 2 failed with ECONNREFUSED
+211 http fetch GET https://registry.npmjs.org/tsconfig-paths attempt 3 failed with ECONNREFUSED
+212 silly fetch manifest typescript@^5.3.3
+213 silly packumentCache full:https://registry.npmjs.org/typescript cache-miss
+214 http fetch GET https://registry.npmjs.org/typescript attempt 1 failed with ECONNREFUSED
+215 http fetch GET https://registry.npmjs.org/typescript attempt 2 failed with ECONNREFUSED
+216 http fetch GET https://registry.npmjs.org/typescript attempt 3 failed with ECONNREFUSED
+217 silly placeDep ROOT @fastify/cors@ OK for: clover-books-api@0.1.0 want: ^9.0.1
+218 silly placeDep ROOT @fastify/helmet@ OK for: clover-books-api@0.1.0 want: ^11.1.1
+219 silly placeDep ROOT @fastify/rate-limit@ OK for: clover-books-api@0.1.0 want: ^9.1.0
+220 silly placeDep ROOT @nestjs/bullmq@ OK for: clover-books-api@0.1.0 want: ^10.0.3
+221 silly placeDep ROOT @nestjs/common@ OK for: clover-books-api@0.1.0 want: ^10.3.2
+222 silly placeDep ROOT @nestjs/core@ OK for: clover-books-api@0.1.0 want: ^10.3.2
+223 silly placeDep ROOT @nestjs/jwt@ OK for: clover-books-api@0.1.0 want: ^10.2.0
+224 silly placeDep ROOT @nestjs/passport@ OK for: clover-books-api@0.1.0 want: ^10.0.3
+225 silly placeDep ROOT @nestjs/platform-fastify@ OK for: clover-books-api@0.1.0 want: ^10.3.2
+226 silly placeDep ROOT @nestjs/swagger@ OK for: clover-books-api@0.1.0 want: ^7.2.0
+227 silly placeDep ROOT @nestjs/testing@ OK for: clover-books-api@0.1.0 want: ^10.3.2
+228 silly placeDep ROOT @opentelemetry/api@ OK for: clover-books-api@0.1.0 want: ^1.9.0
+229 silly placeDep ROOT @opentelemetry/exporter-trace-otlp-http@ OK for: clover-books-api@0.1.0 want: ^0.47.0
+230 silly placeDep ROOT @opentelemetry/sdk-node@ OK for: clover-books-api@0.1.0 want: ^0.47.0
+231 silly placeDep ROOT @opentelemetry/sdk-trace-base@ OK for: clover-books-api@0.1.0 want: ^1.20.0
+232 silly placeDep ROOT @prisma/client@ OK for: clover-books-api@0.1.0 want: ^5.9.1
+233 silly placeDep ROOT @types/bcrypt@ OK for: clover-books-api@0.1.0 want: ^5.0.2
+234 silly placeDep ROOT @types/jest@ OK for: clover-books-api@0.1.0 want: ^29.5.12
+235 silly placeDep ROOT @types/node@ OK for: clover-books-api@0.1.0 want: ^20.11.10
+236 silly placeDep ROOT @types/passport-jwt@ OK for: clover-books-api@0.1.0 want: ^3.0.13
+237 silly placeDep ROOT @types/supertest@ OK for: clover-books-api@0.1.0 want: ^2.0.16
+238 silly placeDep ROOT axios@ OK for: clover-books-api@0.1.0 want: ^1.6.7
+239 silly placeDep ROOT bcrypt@ OK for: clover-books-api@0.1.0 want: ^5.1.1
+240 silly placeDep ROOT bullmq@ OK for: clover-books-api@0.1.0 want: ^5.9.1
+241 silly placeDep ROOT date-fns@ OK for: clover-books-api@0.1.0 want: ^3.3.1
+242 silly placeDep ROOT fastify-raw-body@ OK for: clover-books-api@0.1.0 want: ^5.0.0
+243 silly placeDep ROOT ioredis@ OK for: clover-books-api@0.1.0 want: ^5.3.2
+244 silly placeDep ROOT jest@ OK for: clover-books-api@0.1.0 want: ^29.7.0
+245 silly placeDep ROOT passport@ OK for: clover-books-api@0.1.0 want: ^0.7.0
+246 silly placeDep ROOT passport-jwt@ OK for: clover-books-api@0.1.0 want: ^4.0.1
+247 silly placeDep ROOT pino@ OK for: clover-books-api@0.1.0 want: ^8.21.0
+248 silly placeDep ROOT prisma@ OK for: clover-books-api@0.1.0 want: ^5.9.1
+249 silly placeDep ROOT reflect-metadata@ OK for: clover-books-api@0.1.0 want: ^0.1.13
+250 silly placeDep ROOT rxjs@ OK for: clover-books-api@0.1.0 want: ^7.8.1
+251 silly placeDep ROOT stripe@ OK for: clover-books-api@0.1.0 want: ^14.21.0
+252 silly placeDep ROOT supertest@ OK for: clover-books-api@0.1.0 want: ^6.3.4
+253 silly placeDep ROOT ts-jest@ OK for: clover-books-api@0.1.0 want: ^29.1.1
+254 silly placeDep ROOT ts-node@ OK for: clover-books-api@0.1.0 want: ^10.9.2
+255 silly placeDep ROOT tsconfig-paths@ OK for: clover-books-api@0.1.0 want: ^4.2.0
+256 silly placeDep ROOT typescript@ OK for: clover-books-api@0.1.0 want: ^5.3.3
+257 verbose type system
+258 verbose stack FetchError: request to https://registry.npmjs.org/@fastify%2fcors failed, reason: connect ECONNREFUSED 127.0.0.1:9
+258 verbose stack     at ClientRequest.<anonymous> (C:\Program Files\nodejs\node_modules\npm\node_modules\minipass-fetch\lib\index.js:130:14)
+258 verbose stack     at ClientRequest.emit (node:events:508:20)
+258 verbose stack     at emitErrorEvent (node:_http_client:108:11)
+258 verbose stack     at _destroy (node:_http_client:963:9)
+258 verbose stack     at onSocketNT (node:_http_client:983:5)
+258 verbose stack     at process.processTicksAndRejections (node:internal/process/task_queues:91:21)
+259 error code ECONNREFUSED
+260 error syscall connect
+261 error errno ECONNREFUSED
+262 error FetchError: request to https://registry.npmjs.org/@fastify%2fcors failed, reason: connect ECONNREFUSED 127.0.0.1:9
+262 error     at ClientRequest.<anonymous> (C:\Program Files\nodejs\node_modules\npm\node_modules\minipass-fetch\lib\index.js:130:14)
+262 error     at ClientRequest.emit (node:events:508:20)
+262 error     at emitErrorEvent (node:_http_client:108:11)
+262 error     at _destroy (node:_http_client:963:9)
+262 error     at onSocketNT (node:_http_client:983:5)
+262 error     at process.processTicksAndRejections (node:internal/process/task_queues:91:21) {
+262 error   code: 'ECONNREFUSED',
+262 error   errno: 'ECONNREFUSED',
+262 error   syscall: 'connect',
+262 error   address: '127.0.0.1',
+262 error   port: 9,
+262 error   type: 'system',
+262 error   requiredBy: '.'
+262 error }
+263 error
+263 error If you are behind a proxy, please make sure that the
+263 error 'proxy' config is set properly.  See: 'npm help config'
+264 silly unfinished npm timer reify 1769534184351
+265 silly unfinished npm timer reify:loadTrees 1769534184352
+266 verbose cwd C:\Users\mbaho\OneDrive\Desktop\CLOVER\Clover\apps\api
+267 verbose os Windows_NT 10.0.26100
+268 verbose node v25.4.0
+269 verbose npm  v11.7.0
+270 verbose exit 1
+271 verbose code 1
+272 error A complete log of this run can be found in: C:\Users\mbaho\OneDrive\Desktop\CLOVER\Clover\apps\api\.npm-cache\_logs\2026-01-27T17_16_23_326Z-debug-0.log

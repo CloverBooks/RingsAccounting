@@ -53,6 +53,7 @@ interface SuggestionsPanelProps {
   agentFilter?: string | null;
   loading?: boolean;
   engineMode?: string | null;
+  workspaceId?: number;
 }
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
@@ -115,6 +116,7 @@ export default function SuggestionsPanel({
   agentFilter,
   loading = false,
   engineMode,
+  workspaceId,
 }: SuggestionsPanelProps) {
   const [tab, setTab] = useState<"all" | "ready" | "review" | "needs_attention">("all");
   const [q, setQ] = useState("");
@@ -147,10 +149,11 @@ export default function SuggestionsPanel({
 
   const applyBatch = async () => {
     if (!canBatchApply) return;
+    if (!workspaceId) return;
     setBatchBusy(true);
     try {
       const csrf = await ensureCsrfToken();
-      const headers: Record<string, string> = { Accept: "application/json" };
+      const headers: Record<string, string> = { Accept: "application/json", "Content-Type": "application/json" };
       if (csrf) headers["X-CSRFToken"] = csrf;
       const token = getAccessToken();
       if (token) headers.Authorization = `Bearer ${token}`;
@@ -159,6 +162,7 @@ export default function SuggestionsPanel({
           method: "POST",
           credentials: "same-origin",
           headers,
+          body: JSON.stringify({ workspace_id: workspaceId }),
         });
         if (res.ok) {
           onApplied(proposal.id);
@@ -237,6 +241,7 @@ export default function SuggestionsPanel({
                 proposal={p}
                 onApplied={onApplied}
                 onDismissed={onDismissed}
+                workspaceId={workspaceId}
               />
             ))
           )}
@@ -286,10 +291,12 @@ function SuggestionCard({
   proposal,
   onApplied,
   onDismissed,
+  workspaceId,
 }: {
   proposal: Proposal;
   onApplied: (id: string) => void;
   onDismissed: (id: string) => void;
+  workspaceId?: number;
 }) {
   const meta = surfaceMeta(proposal.surface);
   const chip = riskChip(proposal.risk);
@@ -319,10 +326,11 @@ function SuggestionCard({
 
   const apply = async () => {
     if (requiresNote && !applyNote.trim()) return;
+    if (!workspaceId) return;
     setBusy("apply");
     try {
       const csrf = await ensureCsrfToken();
-      const headers: Record<string, string> = { Accept: "application/json" };
+      const headers: Record<string, string> = { Accept: "application/json", "Content-Type": "application/json" };
       if (csrf) headers["X-CSRFToken"] = csrf;
       const token = getAccessToken();
       if (token) headers.Authorization = `Bearer ${token}`;
@@ -330,6 +338,7 @@ function SuggestionCard({
         method: "POST",
         credentials: "same-origin",
         headers,
+        body: JSON.stringify({ workspace_id: workspaceId }),
       });
       if (!res.ok) throw new Error("Failed to apply");
       onApplied(proposal.id);
@@ -343,6 +352,7 @@ function SuggestionCard({
   };
 
   const dismiss = async () => {
+    if (!workspaceId) return;
     setBusy("dismiss");
     try {
       const csrf = await ensureCsrfToken();
@@ -357,7 +367,7 @@ function SuggestionCard({
         method: "POST",
         credentials: "same-origin",
         headers,
-        body: JSON.stringify({ reason: note || "Dismissed" }),
+        body: JSON.stringify({ workspace_id: workspaceId, reason: note || "Dismissed" }),
       });
       if (!res.ok) throw new Error("Failed to dismiss");
       onDismissed(proposal.id);

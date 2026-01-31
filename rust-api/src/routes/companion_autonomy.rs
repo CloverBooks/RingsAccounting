@@ -3,11 +3,11 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
-use chrono::TimeZone;
+use chrono::{DateTime, TimeZone, Utc};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::companion_autonomy::{policy::BudgetConfig, store};
+use crate::companion_autonomy::{models::ApprovalRequest, policy::BudgetConfig, store};
 use crate::routes::auth::{extract_claims_from_header, Claims};
 use crate::AppState;
 
@@ -49,6 +49,7 @@ pub struct BatchApplyPayload {
 pub struct EngineRunPayload {
     pub tenant: Option<String>,
     pub tenant_id: Option<i64>,
+    pub business_id: Option<i64>,
     pub max_age_minutes: Option<i64>,
 }
 
@@ -63,20 +64,15 @@ pub struct PolicyUpdatePayload {
 pub async fn autonomy_status(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(_params): Query<TenantQuery>,
+    Query(params): Query<TenantQuery>,
 ) -> impl axum::response::IntoResponse {
-    let claims = match require_claims(&headers) {
+    let _claims = match require_claims(&headers) {
         Ok(claims) => claims,
         Err(response) => return response,
     };
-    let tenant_id = match claims.business_id {
-        Some(id) => id,
-        None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({ "ok": false, "error": "unauthorized" })),
-            );
-        }
+    let tenant_id = match resolve_tenant_id(&headers, params.tenant_id.or(params.business_id)) {
+        Ok(id) => id,
+        Err(response) => return response,
     };
     let queues = store::fetch_cockpit_queues(&state.db, tenant_id)
         .await
@@ -124,20 +120,15 @@ pub async fn autonomy_status(
 pub async fn cockpit_status(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(_params): Query<TenantQuery>,
+    Query(params): Query<TenantQuery>,
 ) -> impl axum::response::IntoResponse {
-    let claims = match require_claims(&headers) {
+    let _claims = match require_claims(&headers) {
         Ok(claims) => claims,
         Err(response) => return response,
     };
-    let tenant_id = match claims.business_id {
-        Some(id) => id,
-        None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({ "ok": false, "error": "unauthorized" })),
-            );
-        }
+    let tenant_id = match resolve_tenant_id(&headers, params.tenant_id.or(params.business_id)) {
+        Ok(id) => id,
+        Err(response) => return response,
     };
 
     let policy_mode = store::fetch_policy(&state.db, tenant_id)
@@ -186,20 +177,15 @@ pub async fn cockpit_status(
 pub async fn cockpit_queues(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(_params): Query<TenantQuery>,
+    Query(params): Query<TenantQuery>,
 ) -> impl axum::response::IntoResponse {
-    let claims = match require_claims(&headers) {
+    let _claims = match require_claims(&headers) {
         Ok(claims) => claims,
         Err(response) => return response,
     };
-    let tenant_id = match claims.business_id {
-        Some(id) => id,
-        None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({ "ok": false, "error": "unauthorized" })),
-            );
-        }
+    let tenant_id = match resolve_tenant_id(&headers, params.tenant_id.or(params.business_id)) {
+        Ok(id) => id,
+        Err(response) => return response,
     };
     if let Ok(Some(snapshot)) = store::latest_queue_snapshot(&state.db, tenant_id).await {
         let payload: serde_json::Value =
@@ -253,11 +239,27 @@ pub async fn engine_tick(
         Ok(claims) => claims,
         Err(response) => return response,
     };
-    let tenant_id = resolve_tenant_id_from_payload(&headers, &payload, params.business_id, params.tenant_id);
     let tenants = if payload.tenant.as_deref() == Some("all") {
-        store::list_business_ids(&state.db).await.unwrap_or_else(|_| vec![tenant_id])
+        let pairs = store::list_tenant_contexts(&state.db).await.unwrap_or_default();
+        if pairs.is_empty() {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "ok": false, "error": "no tenant contexts available" })),
+            );
+        }
+        pairs
+            .into_iter()
+            .map(|(tenant_id, business_id)| crate::companion_autonomy::scheduler::TenantContext {
+                tenant_id,
+                business_id,
+            })
+            .collect()
     } else {
-        vec![tenant_id]
+        let tenant = match resolve_tenant_context_from_payload(&headers, &payload, &params) {
+            Ok(tenant) => tenant,
+            Err(response) => return response,
+        };
+        vec![tenant]
     };
     match crate::companion_autonomy::scheduler::tick(&state.db, tenants, claims.sub.parse::<i64>().ok()).await {
         Ok(_) => (
@@ -281,11 +283,27 @@ pub async fn engine_materialize(
         Ok(claims) => claims,
         Err(response) => return response,
     };
-    let tenant_id = resolve_tenant_id_from_payload(&headers, &payload, params.business_id, params.tenant_id);
     let tenants = if payload.tenant.as_deref() == Some("all") {
-        store::list_business_ids(&state.db).await.unwrap_or_else(|_| vec![tenant_id])
+        let pairs = store::list_tenant_contexts(&state.db).await.unwrap_or_default();
+        if pairs.is_empty() {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "ok": false, "error": "no tenant contexts available" })),
+            );
+        }
+        pairs
+            .into_iter()
+            .map(|(tenant_id, business_id)| crate::companion_autonomy::scheduler::TenantContext {
+                tenant_id,
+                business_id,
+            })
+            .collect()
     } else {
-        vec![tenant_id]
+        let tenant = match resolve_tenant_context_from_payload(&headers, &payload, &params) {
+            Ok(tenant) => tenant,
+            Err(response) => return response,
+        };
+        vec![tenant]
     };
     let stale = payload
         .max_age_minutes
@@ -312,7 +330,10 @@ pub async fn update_policy(
         Ok(claims) => claims,
         Err(response) => return response,
     };
-    let tenant_id = resolve_tenant_id(&headers, params.business_id.or(params.tenant_id));
+    let tenant_id = match resolve_tenant_id(&headers, params.business_id.or(params.tenant_id)) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
     let breaker_thresholds = payload
         .breaker_thresholds
         .unwrap_or_else(|| serde_json::json!({}));
@@ -346,9 +367,13 @@ pub async fn update_policy(
 pub async fn list_runs(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(_params): Query<TenantQuery>,
+    Query(params): Query<TenantQuery>,
 ) -> impl axum::response::IntoResponse {
-    let tenant_id = match require_business_id(&headers) {
+    let _claims = match require_claims(&headers) {
+        Ok(claims) => claims,
+        Err(response) => return response,
+    };
+    let tenant_id = match resolve_tenant_id(&headers, params.tenant_id.or(params.business_id)) {
         Ok(id) => id,
         Err(response) => return response,
     };
@@ -368,9 +393,13 @@ pub async fn work_detail(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(work_item_id): Path<i64>,
-    Query(_params): Query<TenantQuery>,
+    Query(params): Query<TenantQuery>,
 ) -> impl axum::response::IntoResponse {
-    let tenant_id = match require_business_id(&headers) {
+    let _claims = match require_claims(&headers) {
+        Ok(claims) => claims,
+        Err(response) => return response,
+    };
+    let tenant_id = match resolve_tenant_id(&headers, params.tenant_id.or(params.business_id)) {
         Ok(id) => id,
         Err(response) => return response,
     };
@@ -445,14 +474,21 @@ pub async fn dismiss_work_item(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(work_item_id): Path<i64>,
-    Query(_params): Query<TenantQuery>,
+    Query(params): Query<TenantQuery>,
     Json(payload): Json<DismissPayload>,
 ) -> impl axum::response::IntoResponse {
-    let tenant_id = match require_business_id(&headers) {
+    let actor_id = match require_user_id(&headers) {
+        Ok(id) => Some(id),
+        Err(response) => return response,
+    };
+    let tenant_id = match resolve_tenant_id(&headers, params.tenant_id.or(params.business_id)) {
         Ok(id) => id,
         Err(response) => return response,
     };
-    let actor_id = require_user_id(&headers).ok();
+    let business_id = match resolve_business_id(&headers, params.business_id) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
     let dismissed = store::dismiss_work_item(&state.db, tenant_id, work_item_id)
         .await
         .unwrap_or(false);
@@ -460,7 +496,7 @@ pub async fn dismiss_work_item(
     let _ = store::insert_audit_log(
         &state.db,
         tenant_id,
-        tenant_id,
+        business_id,
         actor_id,
         "user",
         "work_item.dismiss",
@@ -486,10 +522,14 @@ pub async fn snooze_work_item(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(work_item_id): Path<i64>,
-    Query(_params): Query<TenantQuery>,
+    Query(params): Query<TenantQuery>,
     Json(payload): Json<SnoozePayload>,
 ) -> impl axum::response::IntoResponse {
-    let tenant_id = match require_business_id(&headers) {
+    let _actor_id = match require_user_id(&headers) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let tenant_id = match resolve_tenant_id(&headers, params.tenant_id.or(params.business_id)) {
         Ok(id) => id,
         Err(response) => return response,
     };
@@ -510,10 +550,14 @@ pub async fn request_approval(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(work_item_id): Path<i64>,
-    Query(_params): Query<TenantQuery>,
+    Query(params): Query<TenantQuery>,
     Json(payload): Json<ApprovalRequestPayload>,
 ) -> impl axum::response::IntoResponse {
-    let tenant_id = match require_business_id(&headers) {
+    let tenant_id = match resolve_tenant_id(&headers, params.tenant_id.or(params.business_id)) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let business_id = match resolve_business_id(&headers, params.business_id) {
         Ok(id) => id,
         Err(response) => return response,
     };
@@ -524,7 +568,7 @@ pub async fn request_approval(
     let request = store::create_approval_request(
         &state.db,
         tenant_id,
-        tenant_id,
+        business_id,
         work_item_id,
         &format!("user:{}", actor_id),
         payload.reason_required.unwrap_or(false),
@@ -554,9 +598,10 @@ pub async fn approve_request(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(approval_id): Path<i64>,
+    Query(params): Query<TenantQuery>,
     Json(payload): Json<ApprovalDecisionPayload>,
 ) -> impl axum::response::IntoResponse {
-    let tenant_id = match require_business_id(&headers) {
+    let tenant_id = match resolve_tenant_id(&headers, params.tenant_id.or(params.business_id)) {
         Ok(id) => id,
         Err(response) => return response,
     };
@@ -564,6 +609,55 @@ pub async fn approve_request(
         Ok(id) => id,
         Err(response) => return response,
     };
+
+    let request = match fetch_approval_request(&state.db, tenant_id, approval_id).await {
+        Ok(Some(request)) => request,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "ok": false, "error": "approval request not found" })),
+            );
+        }
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "ok": false, "error": "failed to load approval request" })),
+            );
+        }
+    };
+
+    if request.status != "pending" {
+        return (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "ok": false, "error": "approval request already processed" })),
+        );
+    }
+
+    if request.reason_required {
+        let reason = payload.reason_text.as_deref().unwrap_or("").trim();
+        if reason.is_empty() {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "ok": false, "error": "approval reason required" })),
+            );
+        }
+    }
+
+    if let Some(expires_at) = request.expires_at.as_deref() {
+        if let Some(expiry) = parse_expires_at(expires_at) {
+            if expiry <= Utc::now() {
+                return (
+                    StatusCode::CONFLICT,
+                    Json(serde_json::json!({ "ok": false, "error": "approval request expired" })),
+                );
+            }
+        } else {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "ok": false, "error": "invalid approval expiry" })),
+            );
+        }
+    }
 
     let updated = store::set_approval_status(
         &state.db,
@@ -582,6 +676,22 @@ pub async fn approve_request(
         }
     }
 
+    let _ = store::insert_audit_log(
+        &state.db,
+        tenant_id,
+        request.business_id,
+        Some(actor_id),
+        "user",
+        "approval.approve",
+        "approval_request",
+        &approval_id.to_string(),
+        &serde_json::json!({
+            "approved": updated,
+            "work_item_id": request.work_item_id
+        }),
+    )
+    .await;
+
     (
         StatusCode::OK,
         Json(serde_json::json!({
@@ -595,9 +705,10 @@ pub async fn reject_request(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(approval_id): Path<i64>,
+    Query(params): Query<TenantQuery>,
     Json(payload): Json<ApprovalDecisionPayload>,
 ) -> impl axum::response::IntoResponse {
-    let tenant_id = match require_business_id(&headers) {
+    let tenant_id = match resolve_tenant_id(&headers, params.tenant_id.or(params.business_id)) {
         Ok(id) => id,
         Err(response) => return response,
     };
@@ -605,6 +716,55 @@ pub async fn reject_request(
         Ok(id) => id,
         Err(response) => return response,
     };
+
+    let request = match fetch_approval_request(&state.db, tenant_id, approval_id).await {
+        Ok(Some(request)) => request,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "ok": false, "error": "approval request not found" })),
+            );
+        }
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "ok": false, "error": "failed to load approval request" })),
+            );
+        }
+    };
+
+    if request.status != "pending" {
+        return (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "ok": false, "error": "approval request already processed" })),
+        );
+    }
+
+    if request.reason_required {
+        let reason = payload.reason_text.as_deref().unwrap_or("").trim();
+        if reason.is_empty() {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "ok": false, "error": "rejection reason required" })),
+            );
+        }
+    }
+
+    if let Some(expires_at) = request.expires_at.as_deref() {
+        if let Some(expiry) = parse_expires_at(expires_at) {
+            if expiry <= Utc::now() {
+                return (
+                    StatusCode::CONFLICT,
+                    Json(serde_json::json!({ "ok": false, "error": "approval request expired" })),
+                );
+            }
+        } else {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "ok": false, "error": "invalid approval expiry" })),
+            );
+        }
+    }
 
     let updated = store::set_approval_status(
         &state.db,
@@ -623,6 +783,22 @@ pub async fn reject_request(
         }
     }
 
+    let _ = store::insert_audit_log(
+        &state.db,
+        tenant_id,
+        request.business_id,
+        Some(actor_id),
+        "user",
+        "approval.reject",
+        "approval_request",
+        &approval_id.to_string(),
+        &serde_json::json!({
+            "rejected": updated,
+            "work_item_id": request.work_item_id
+        }),
+    )
+    .await;
+
     (
         StatusCode::OK,
         Json(serde_json::json!({
@@ -636,12 +812,23 @@ pub async fn apply_action(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(action_id): Path<i64>,
-    Query(_params): Query<TenantQuery>,
+    Query(params): Query<TenantQuery>,
 ) -> impl axum::response::IntoResponse {
-    let tenant_id = match require_business_id(&headers) {
+    let actor_id = match require_user_id(&headers) {
         Ok(id) => id,
         Err(response) => return response,
     };
+    let tenant_id = match resolve_tenant_id(&headers, params.tenant_id.or(params.business_id)) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let business_id = match resolve_business_id(&headers, params.business_id) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    if let Err(response) = ensure_apply_enabled(&state.db, business_id).await {
+        return response;
+    }
     if !can_apply_action(&state.db, tenant_id, action_id).await.unwrap_or(false) {
         return (
             StatusCode::FORBIDDEN,
@@ -656,11 +843,32 @@ pub async fn apply_action(
         .await
         .unwrap_or(false);
 
+    let work_item_id = store::action_work_item_id(&state.db, tenant_id, action_id)
+        .await
+        .ok()
+        .flatten();
+
     if applied {
-        if let Ok(Some(work_item_id)) = store::action_work_item_id(&state.db, tenant_id, action_id).await {
+        if let Some(work_item_id) = work_item_id {
             let _ = store::update_work_item_status(&state.db, work_item_id, tenant_id, "applied").await;
         }
     }
+
+    let _ = store::insert_audit_log(
+        &state.db,
+        tenant_id,
+        business_id,
+        Some(actor_id),
+        "user",
+        "action.apply",
+        "action",
+        &action_id.to_string(),
+        &serde_json::json!({
+            "applied": applied,
+            "work_item_id": work_item_id
+        }),
+    )
+    .await;
 
     (
         StatusCode::OK,
@@ -674,13 +882,24 @@ pub async fn apply_action(
 pub async fn batch_apply_actions(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(_params): Query<TenantQuery>,
+    Query(params): Query<TenantQuery>,
     Json(payload): Json<BatchApplyPayload>,
 ) -> impl axum::response::IntoResponse {
-    let tenant_id = match require_business_id(&headers) {
+    let actor_id = match require_user_id(&headers) {
         Ok(id) => id,
         Err(response) => return response,
     };
+    let tenant_id = match resolve_tenant_id(&headers, params.tenant_id.or(params.business_id)) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let business_id = match resolve_business_id(&headers, params.business_id) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    if let Err(response) = ensure_apply_enabled(&state.db, business_id).await {
+        return response;
+    }
     let mut results = Vec::new();
     let mut applied_ids = Vec::new();
     for action_id in &payload.action_ids {
@@ -712,6 +931,22 @@ pub async fn batch_apply_actions(
         let _ = store::update_work_item_status(&state.db, work_item_id, tenant_id, "applied").await;
     }
 
+    let _ = store::insert_audit_log(
+        &state.db,
+        tenant_id,
+        business_id,
+        Some(actor_id),
+        "user",
+        "action.batch_apply",
+        "action",
+        "batch",
+        &serde_json::json!({
+            "applied_action_ids": applied_ids,
+            "results": results.clone()
+        }),
+    )
+    .await;
+
     (
         StatusCode::OK,
         Json(serde_json::json!({
@@ -721,22 +956,50 @@ pub async fn batch_apply_actions(
     )
 }
 
-fn resolve_tenant_id(headers: &HeaderMap, fallback: Option<i64>) -> i64 {
+fn resolve_tenant_id(
+    headers: &HeaderMap,
+    fallback: Option<i64>,
+) -> Result<i64, (StatusCode, Json<serde_json::Value>)> {
     if let Ok(claims) = extract_claims_from_header(headers) {
         if let Some(business_id) = claims.business_id {
-            return business_id;
+            return Ok(business_id);
         }
     }
-    fallback.unwrap_or(1)
+    if let Some(id) = fallback {
+        return Ok(id);
+    }
+    Err((StatusCode::BAD_REQUEST, Json(json!({ "ok": false, "error": "tenant_id required" }))))
 }
 
-fn resolve_tenant_id_from_payload(
+fn resolve_business_id(
+    headers: &HeaderMap,
+    fallback: Option<i64>,
+) -> Result<i64, (StatusCode, Json<serde_json::Value>)> {
+    if let Ok(claims) = extract_claims_from_header(headers) {
+        if let Some(business_id) = claims.business_id {
+            return Ok(business_id);
+        }
+    }
+    if let Some(id) = fallback {
+        return Ok(id);
+    }
+    Err((StatusCode::BAD_REQUEST, Json(json!({ "ok": false, "error": "business_id required" }))))
+}
+
+fn resolve_tenant_context_from_payload(
     headers: &HeaderMap,
     payload: &EngineRunPayload,
-    business_id: Option<i64>,
-    tenant_id: Option<i64>,
-) -> i64 {
-    resolve_tenant_id(headers, payload.tenant_id.or(tenant_id).or(business_id))
+    params: &TenantQuery,
+) -> Result<crate::companion_autonomy::scheduler::TenantContext, (StatusCode, Json<serde_json::Value>)> {
+    let tenant_id = resolve_tenant_id(
+        headers,
+        payload.tenant_id.or(params.tenant_id).or(params.business_id),
+    )?;
+    let business_id = resolve_business_id(headers, payload.business_id.or(params.business_id))?;
+    Ok(crate::companion_autonomy::scheduler::TenantContext {
+        tenant_id,
+        business_id,
+    })
 }
 
 fn require_claims(headers: &HeaderMap) -> Result<Claims, (StatusCode, Json<serde_json::Value>)> {
@@ -791,6 +1054,71 @@ fn is_queue_snapshot_stale(generated_at: &str, stale_after_seconds: i64) -> bool
     true
 }
 
+async fn ensure_apply_enabled(
+    pool: &sqlx::SqlitePool,
+    business_id: i64,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    let global_enabled = store::business_ai_enabled(pool, business_id)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(false);
+    if !global_enabled {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({ "ok": false, "error": "ai companion disabled" })),
+        ));
+    }
+
+    let settings = store::fetch_ai_settings(pool, business_id)
+        .await
+        .ok()
+        .flatten();
+    let settings = match settings {
+        Some(settings) => settings,
+        None => {
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(json!({ "ok": false, "error": "ai settings not configured" })),
+            ));
+        }
+    };
+
+    if !settings.ai_enabled || settings.kill_switch || settings.ai_mode == "shadow_only" {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({ "ok": false, "error": "ai apply disabled" })),
+        ));
+    }
+
+    Ok(())
+}
+
+fn parse_expires_at(raw: &str) -> Option<DateTime<Utc>> {
+    if let Ok(parsed) = DateTime::parse_from_rfc3339(raw) {
+        return Some(parsed.with_timezone(&Utc));
+    }
+    if let Ok(parsed) = chrono::NaiveDateTime::parse_from_str(raw, "%Y-%m-%d %H:%M:%S") {
+        return Some(Utc.from_utc_datetime(&parsed));
+    }
+    None
+}
+
+async fn fetch_approval_request(
+    pool: &sqlx::SqlitePool,
+    tenant_id: i64,
+    approval_id: i64,
+) -> Result<Option<ApprovalRequest>, sqlx::Error> {
+    sqlx::query_as::<_, ApprovalRequest>(
+        "SELECT * FROM companion_autonomy_approval_requests
+         WHERE id = ? AND tenant_id = ?"
+    )
+    .bind(approval_id)
+    .bind(tenant_id)
+    .fetch_optional(pool)
+    .await
+}
+
 async fn fetch_approval_work_item(
     pool: &sqlx::SqlitePool,
     approval_id: i64,
@@ -812,8 +1140,8 @@ pub async fn can_apply_action(
     tenant_id: i64,
     action_id: i64,
 ) -> Result<bool, sqlx::Error> {
-    let action = sqlx::query_as::<_, (i64, bool, String, String)>(
-        "SELECT a.work_item_id, a.requires_confirm, a.status, w.status
+    let action = sqlx::query_as::<_, (i64, bool, String, String, i64)>(
+        "SELECT a.work_item_id, a.requires_confirm, a.status, w.status, w.business_id
          FROM companion_autonomy_action_recommendations a
          JOIN companion_autonomy_work_items w ON w.id = a.work_item_id
          WHERE a.tenant_id = ? AND a.id = ? AND w.tenant_id = ?"
@@ -824,7 +1152,7 @@ pub async fn can_apply_action(
     .fetch_optional(pool)
     .await?;
 
-    let (work_item_id, requires_confirm, action_status, work_item_status) = match action {
+    let (work_item_id, requires_confirm, action_status, work_item_status, business_id) = match action {
         Some(row) => row,
         None => return Ok(false),
     };
@@ -841,13 +1169,25 @@ pub async fn can_apply_action(
         return Ok(false);
     }
 
-    if let Ok(Some(settings)) = store::fetch_ai_settings(pool, tenant_id).await {
-        if !settings.ai_enabled || settings.kill_switch {
-            return Ok(false);
-        }
-        if settings.ai_mode == "shadow_only" {
-            return Ok(false);
-        }
+    let global_enabled = store::business_ai_enabled(pool, business_id)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(false);
+    if !global_enabled {
+        return Ok(false);
+    }
+
+    let settings = store::fetch_ai_settings(pool, business_id)
+        .await
+        .ok()
+        .flatten();
+    let settings = match settings {
+        Some(settings) => settings,
+        None => return Ok(false),
+    };
+    if !settings.ai_enabled || settings.kill_switch || settings.ai_mode == "shadow_only" {
+        return Ok(false);
     }
 
     if !requires_confirm {
@@ -856,7 +1196,8 @@ pub async fn can_apply_action(
 
     let approved: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM companion_autonomy_approval_requests
-         WHERE work_item_id = ? AND status = 'approved'"
+         WHERE work_item_id = ? AND status = 'approved'
+           AND (expires_at IS NULL OR datetime(expires_at) > datetime('now'))"
     )
     .bind(work_item_id)
     .fetch_one(pool)
@@ -869,7 +1210,7 @@ pub async fn can_apply_action(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{routing::get, Router};
+    use axum::{http::HeaderMap, routing::get, Router};
     use axum_test::TestServer;
     use chrono::{Duration, Utc};
     use jsonwebtoken::{EncodingKey, Header};
@@ -1016,5 +1357,12 @@ mod tests {
         let (server, _pool) = setup().await;
         let response = server.get("/api/companion/autonomy/status").await;
         response.assert_status(StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn resolve_tenant_id_requires_context() {
+        let headers = HeaderMap::new();
+        let result = resolve_tenant_id(&headers, None);
+        assert!(matches!(result, Err((StatusCode::BAD_REQUEST, _))));
     }
 }

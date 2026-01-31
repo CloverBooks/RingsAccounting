@@ -11,10 +11,11 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 
 use crate::AppState;
 use crate::companion_autonomy::store as autonomy_store;
-use crate::companion_autonomy::models::{BusinessPolicyRow, AiSettingsRow, WorkItem};
+use crate::companion_autonomy::models::{ActionRecommendation, AiSettingsRow, BusinessPolicyRow, WorkItem};
 use crate::routes::auth::extract_claims_from_header;
 
 // ============================================================================
@@ -33,6 +34,55 @@ fn require_user_id(headers: &HeaderMap) -> Result<i64, (StatusCode, Json<Value>)
         .ok()
         .and_then(|claims| claims.sub.parse::<i64>().ok())
         .ok_or_else(|| (StatusCode::UNAUTHORIZED, Json(json!({ "ok": false, "error": "unauthorized" }))))
+}
+
+fn require_workspace_id(workspace_id: Option<i64>) -> Result<i64, (StatusCode, Json<Value>)> {
+    workspace_id.ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "ok": false, "error": "workspace_id required" })),
+        )
+    })
+}
+
+async fn ensure_apply_enabled(
+    pool: &sqlx::SqlitePool,
+    business_id: i64,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    let global_enabled = autonomy_store::business_ai_enabled(pool, business_id)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(false);
+    if !global_enabled {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({ "ok": false, "error": "ai companion disabled" })),
+        ));
+    }
+
+    let settings = autonomy_store::fetch_ai_settings(pool, business_id)
+        .await
+        .ok()
+        .flatten();
+    let settings = match settings {
+        Some(settings) => settings,
+        None => {
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(json!({ "ok": false, "error": "ai settings not configured" })),
+            ));
+        }
+    };
+
+    if !settings.ai_enabled || settings.kill_switch || settings.ai_mode == "shadow_only" {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({ "ok": false, "error": "ai apply disabled" })),
+        ));
+    }
+
+    Ok(())
 }
 
 // ============================================================================
@@ -661,8 +711,10 @@ pub struct RadarQuery {
 
 #[derive(Debug, Deserialize)]
 pub struct ShadowEventsQuery {
+    pub workspace_id: Option<i64>,
     pub status: Option<String>,
     pub limit: Option<i64>,
+    pub offset: Option<i64>,
     pub event_type: Option<String>,
     pub subject_object_id: Option<i64>,
 }
@@ -711,6 +763,7 @@ pub struct ProposalsQuery {
     pub event_type: Option<String>,
     pub subject_object_id: Option<i64>,
     pub limit: Option<i64>,
+    pub offset: Option<i64>,
 }
 
 fn parse_string_vec(raw: &str) -> Vec<String> {
@@ -1017,16 +1070,22 @@ pub async fn list_proposals(
     headers: HeaderMap,
     Query(params): Query<ProposalsQuery>,
 ) -> impl IntoResponse {
-    let business_id = match require_business_id(&headers) {
+    let _business_id = match require_business_id(&headers) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let tenant_id = match require_workspace_id(params.workspace_id) {
         Ok(id) => id,
         Err(response) => return response,
     };
     let limit = params.limit.unwrap_or(200);
+    let offset = params.offset.unwrap_or(0);
     let event_list = fetch_shadow_events(
         &state.db,
-        business_id,
+        tenant_id,
         "proposed",
         limit,
+        offset,
         params.event_type.as_deref(),
         params.subject_object_id,
     )
@@ -1040,18 +1099,26 @@ pub async fn apply_proposal(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(event_id): Path<i64>,
-    Json(_payload): Json<ProposalApplyPayload>,
+    Json(payload): Json<ProposalApplyPayload>,
 ) -> impl IntoResponse {
     let business_id = match require_business_id(&headers) {
         Ok(id) => id,
         Err(response) => return response,
     };
-    let _actor_id = match require_user_id(&headers) {
+    let actor_id = match require_user_id(&headers) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let tenant_id = match require_workspace_id(payload.workspace_id) {
         Ok(id) => id,
         Err(response) => return response,
     };
 
-    let action = autonomy_store::action_for_work_item(&state.db, business_id, event_id)
+    if let Err(response) = ensure_apply_enabled(&state.db, business_id).await {
+        return response;
+    }
+
+    let action = autonomy_store::action_for_work_item(&state.db, tenant_id, event_id)
         .await
         .ok()
         .flatten();
@@ -1065,7 +1132,7 @@ pub async fn apply_proposal(
         }
     };
 
-    let allowed = crate::routes::companion_autonomy::can_apply_action(&state.db, business_id, action_id)
+    let allowed = crate::routes::companion_autonomy::can_apply_action(&state.db, tenant_id, action_id)
         .await
         .unwrap_or(false);
     if !allowed {
@@ -1075,14 +1142,14 @@ pub async fn apply_proposal(
         );
     }
 
-    let applied = autonomy_store::apply_action(&state.db, business_id, action_id)
+    let applied = autonomy_store::apply_action(&state.db, tenant_id, action_id)
         .await
         .unwrap_or(false);
     if applied {
-        let _ = autonomy_store::update_work_item_status(&state.db, event_id, business_id, "applied").await;
+        let _ = autonomy_store::update_work_item_status(&state.db, event_id, tenant_id, "applied").await;
     }
 
-    let updated_item = autonomy_store::work_item_by_id(&state.db, business_id, event_id)
+    let updated_item = autonomy_store::work_item_by_id(&state.db, tenant_id, event_id)
         .await
         .ok()
         .flatten();
@@ -1090,6 +1157,22 @@ pub async fn apply_proposal(
         .as_ref()
         .map(|item| build_shadow_event(item, action.as_ref()))
         .unwrap_or_else(|| json!({}));
+
+    let _ = autonomy_store::insert_audit_log(
+        &state.db,
+        tenant_id,
+        business_id,
+        Some(actor_id),
+        "user",
+        "proposal.apply",
+        "work_item",
+        &event_id.to_string(),
+        &json!({
+            "action_id": action_id,
+            "applied": applied
+        }),
+    )
+    .await;
 
     (StatusCode::OK, Json(json!({ "shadow_event": event, "result": { "applied": applied } })))
 }
@@ -1099,18 +1182,22 @@ pub async fn reject_proposal(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(event_id): Path<i64>,
-    Json(_payload): Json<ProposalRejectPayload>,
+    Json(payload): Json<ProposalRejectPayload>,
 ) -> impl IntoResponse {
     let business_id = match require_business_id(&headers) {
         Ok(id) => id,
         Err(response) => return response,
     };
-    let _actor_id = match require_user_id(&headers) {
+    let actor_id = match require_user_id(&headers) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let tenant_id = match require_workspace_id(payload.workspace_id) {
         Ok(id) => id,
         Err(response) => return response,
     };
 
-    let exists = autonomy_store::work_item_by_id(&state.db, business_id, event_id)
+    let exists = autonomy_store::work_item_by_id(&state.db, tenant_id, event_id)
         .await
         .ok()
         .flatten();
@@ -1122,15 +1209,15 @@ pub async fn reject_proposal(
         );
     }
 
-    let _ = autonomy_store::dismiss_work_item(&state.db, business_id, event_id)
+    let dismissed = autonomy_store::dismiss_work_item(&state.db, tenant_id, event_id)
         .await
         .unwrap_or(false);
 
-    let updated_item = autonomy_store::work_item_by_id(&state.db, business_id, event_id)
+    let updated_item = autonomy_store::work_item_by_id(&state.db, tenant_id, event_id)
         .await
         .ok()
         .flatten();
-    let action = autonomy_store::action_for_work_item(&state.db, business_id, event_id)
+    let action = autonomy_store::action_for_work_item(&state.db, tenant_id, event_id)
         .await
         .ok()
         .flatten();
@@ -1138,6 +1225,22 @@ pub async fn reject_proposal(
         .as_ref()
         .map(|item| build_shadow_event(item, action.as_ref()))
         .unwrap_or_else(|| json!({}));
+
+    let _ = autonomy_store::insert_audit_log(
+        &state.db,
+        tenant_id,
+        business_id,
+        Some(actor_id),
+        "user",
+        "proposal.reject",
+        "work_item",
+        &event_id.to_string(),
+        &json!({
+            "dismissed": dismissed,
+            "reason": payload.reason
+        }),
+    )
+    .await;
 
     (StatusCode::OK, Json(event))
 }
@@ -1151,17 +1254,23 @@ pub async fn list_shadow_events(
     headers: HeaderMap,
     Query(params): Query<ShadowEventsQuery>,
 ) -> impl IntoResponse {
-    let business_id = match require_business_id(&headers) {
+    let _business_id = match require_business_id(&headers) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let tenant_id = match require_workspace_id(params.workspace_id) {
         Ok(id) => id,
         Err(response) => return response,
     };
     let status = params.status.as_deref().unwrap_or("proposed");
     let limit = params.limit.unwrap_or(50);
+    let offset = params.offset.unwrap_or(0);
     let event_list = fetch_shadow_events(
         &state.db,
-        business_id,
+        tenant_id,
         status,
         limit,
+        offset,
         params.event_type.as_deref(),
         params.subject_object_id,
     )
@@ -1180,47 +1289,100 @@ pub async fn list_shadow_events(
 
 async fn fetch_shadow_events(
     pool: &sqlx::SqlitePool,
-    business_id: i64,
+    tenant_id: i64,
     status: &str,
     limit: i64,
+    offset: i64,
     event_type: Option<&str>,
     subject_object_id: Option<i64>,
 ) -> Vec<serde_json::Value> {
     let statuses = work_item_statuses_for_shadow_status(status);
-    let mut items = autonomy_store::list_work_items_by_status(pool, business_id, &statuses, limit)
+    if statuses.is_empty() || limit <= 0 {
+        return Vec::new();
+    }
+
+    let status_placeholders = std::iter::repeat("?")
+        .take(statuses.len())
+        .collect::<Vec<_>>()
+        .join(",");
+    let work_type = event_type.and_then(work_type_for_event_type);
+
+    let mut query = format!(
+        "SELECT * FROM companion_autonomy_work_items w
+         WHERE w.tenant_id = ? AND w.status IN ({})",
+        status_placeholders
+    );
+    if work_type.is_some() {
+        query.push_str(" AND w.work_type = ?");
+    }
+    if subject_object_id.is_some() {
+        query.push_str(
+            " AND (
+                json_extract(w.inputs_json, '$.transaction_id') = ?
+                OR json_extract(w.inputs_json, '$.document_id') = ?
+                OR json_extract(w.inputs_json, '$.receipt_document_id') = ?
+                OR json_extract(w.inputs_json, '$.invoice_document_id') = ?
+            )",
+        );
+    }
+    query.push_str(" ORDER BY w.priority DESC, w.created_at DESC LIMIT ? OFFSET ?");
+
+    let mut q = sqlx::query_as::<_, WorkItem>(&query).bind(tenant_id);
+    for status in &statuses {
+        q = q.bind(*status);
+    }
+    if let Some(work_type) = work_type {
+        q = q.bind(work_type);
+    }
+    if let Some(subject_id) = subject_object_id {
+        q = q
+            .bind(subject_id)
+            .bind(subject_id)
+            .bind(subject_id)
+            .bind(subject_id);
+    }
+    let safe_offset = if offset < 0 { 0 } else { offset };
+    let items = q
+        .bind(limit)
+        .bind(safe_offset)
+        .fetch_all(pool)
         .await
         .unwrap_or_default();
 
-    if let Some(event_type) = event_type {
-        let work_type = work_type_for_event_type(event_type);
-        if let Some(work_type) = work_type {
-            items.retain(|item| item.work_type == work_type);
-        }
+    if items.is_empty() {
+        return Vec::new();
     }
 
-    if let Some(subject_id) = subject_object_id {
-        items.retain(|item| {
-            serde_json::from_str::<serde_json::Value>(&item.inputs_json)
-                .ok()
-                .and_then(|v| {
-                    v.get("transaction_id")
-                        .and_then(|id| id.as_i64())
-                        .or_else(|| v.get("document_id").and_then(|id| id.as_i64()))
-                        .or_else(|| v.get("receipt_document_id").and_then(|id| id.as_i64()))
-                        .or_else(|| v.get("invoice_document_id").and_then(|id| id.as_i64()))
-                })
-                .map(|id| id == subject_id)
-                .unwrap_or(false)
-        });
+    let ids: Vec<i64> = items.iter().map(|item| item.id).collect();
+    let id_placeholders = std::iter::repeat("?")
+        .take(ids.len())
+        .collect::<Vec<_>>()
+        .join(",");
+    let action_query = format!(
+        "SELECT * FROM companion_autonomy_action_recommendations
+         WHERE tenant_id = ? AND work_item_id IN ({})
+         ORDER BY work_item_id,
+           CASE action_kind WHEN 'apply' THEN 0 WHEN 'review' THEN 1 ELSE 2 END",
+        id_placeholders
+    );
+    let mut action_query_builder = sqlx::query_as::<_, ActionRecommendation>(&action_query).bind(tenant_id);
+    for id in &ids {
+        action_query_builder = action_query_builder.bind(*id);
+    }
+    let actions = action_query_builder
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+
+    let mut action_map: HashMap<i64, ActionRecommendation> = HashMap::new();
+    for action in actions {
+        action_map.entry(action.work_item_id).or_insert(action);
     }
 
     let mut event_list = Vec::new();
     for item in items {
-        let action = autonomy_store::action_for_work_item(pool, business_id, item.id)
-            .await
-            .ok()
-            .flatten();
-        event_list.push(build_shadow_event(&item, action.as_ref()));
+        let action = action_map.get(&item.id);
+        event_list.push(build_shadow_event(&item, action));
     }
     event_list
 }
@@ -1232,18 +1394,27 @@ pub async fn apply_shadow_event(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(event_id): Path<i64>,
+    Json(payload): Json<ProposalApplyPayload>,
 ) -> impl IntoResponse {
     let business_id = match require_business_id(&headers) {
         Ok(id) => id,
         Err(response) => return response,
     };
-    let _actor_id = match require_user_id(&headers) {
+    let actor_id = match require_user_id(&headers) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let tenant_id = match require_workspace_id(payload.workspace_id) {
         Ok(id) => id,
         Err(response) => return response,
     };
     tracing::info!("Applying shadow event id={}", event_id);
 
-    let action = autonomy_store::action_for_work_item(&state.db, business_id, event_id)
+    if let Err(response) = ensure_apply_enabled(&state.db, business_id).await {
+        return response;
+    }
+
+    let action = autonomy_store::action_for_work_item(&state.db, tenant_id, event_id)
         .await
         .ok()
         .flatten();
@@ -1260,7 +1431,7 @@ pub async fn apply_shadow_event(
         }
     };
 
-    let allowed = crate::routes::companion_autonomy::can_apply_action(&state.db, business_id, action_id)
+    let allowed = crate::routes::companion_autonomy::can_apply_action(&state.db, tenant_id, action_id)
         .await
         .unwrap_or(false);
     if !allowed {
@@ -1273,12 +1444,28 @@ pub async fn apply_shadow_event(
         );
     }
 
-    let applied = autonomy_store::apply_action(&state.db, business_id, action_id)
+    let applied = autonomy_store::apply_action(&state.db, tenant_id, action_id)
         .await
         .unwrap_or(false);
     if applied {
-        let _ = autonomy_store::update_work_item_status(&state.db, event_id, business_id, "applied").await;
+        let _ = autonomy_store::update_work_item_status(&state.db, event_id, tenant_id, "applied").await;
     }
+
+    let _ = autonomy_store::insert_audit_log(
+        &state.db,
+        tenant_id,
+        business_id,
+        Some(actor_id),
+        "user",
+        "shadow_event.apply",
+        "work_item",
+        &event_id.to_string(),
+        &json!({
+            "action_id": action_id,
+            "applied": applied
+        }),
+    )
+    .await;
 
     (
         StatusCode::OK,
@@ -1296,20 +1483,41 @@ pub async fn reject_shadow_event(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(event_id): Path<i64>,
+    Json(payload): Json<ProposalRejectPayload>,
 ) -> impl IntoResponse {
     let business_id = match require_business_id(&headers) {
         Ok(id) => id,
         Err(response) => return response,
     };
-    let _actor_id = match require_user_id(&headers) {
+    let actor_id = match require_user_id(&headers) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let tenant_id = match require_workspace_id(payload.workspace_id) {
         Ok(id) => id,
         Err(response) => return response,
     };
     tracing::info!("Rejecting shadow event id={}", event_id);
 
-    let dismissed = autonomy_store::dismiss_work_item(&state.db, business_id, event_id)
+    let dismissed = autonomy_store::dismiss_work_item(&state.db, tenant_id, event_id)
         .await
         .unwrap_or(false);
+
+    let _ = autonomy_store::insert_audit_log(
+        &state.db,
+        tenant_id,
+        business_id,
+        Some(actor_id),
+        "user",
+        "shadow_event.reject",
+        "work_item",
+        &event_id.to_string(),
+        &json!({
+            "dismissed": dismissed,
+            "reason": payload.reason
+        }),
+    )
+    .await;
 
     if dismissed {
         return (
@@ -1428,6 +1636,9 @@ fn build_shadow_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::companion_autonomy::models::{RecommendationSeed, WorkItemSeed};
+    use crate::companion_autonomy::schema;
+    use sqlx::SqlitePool;
 
     // =========================================================================
     // SeverityCounts Tests
@@ -1641,5 +1852,113 @@ mod tests {
         assert!(json.contains("\"pending_count\":5"));
         assert!(json.contains("\"approved_count\":10"));
         assert!(json.contains("\"rejected_count\":2"));
+    }
+
+    async fn seed_work_item(
+        pool: &SqlitePool,
+        tenant_id: i64,
+        business_id: i64,
+        work_type: &str,
+        transaction_id: i64,
+        priority: i64,
+    ) -> i64 {
+        let seed = WorkItemSeed {
+            tenant_id,
+            business_id,
+            work_type: work_type.to_string(),
+            surface: "bank".to_string(),
+            status: "open".to_string(),
+            priority,
+            dedupe_key: format!("{}:{}", work_type, transaction_id),
+            inputs: json!({
+                "transaction_id": transaction_id,
+                "description": "Test",
+                "amount": 100.0,
+                "date": "2025-01-15"
+            }),
+            state: json!({}),
+            due_at: None,
+            snoozed_until: None,
+            risk_level: "low".to_string(),
+            confidence_score: 0.85,
+            requires_approval: false,
+            customer_title: "Test".to_string(),
+            customer_summary: "Summary".to_string(),
+            internal_title: "Internal".to_string(),
+            internal_notes: "Notes".to_string(),
+            links: json!({ "target_url": "/banking" }),
+        };
+
+        let work_item = autonomy_store::upsert_work_item(pool, &seed).await.unwrap();
+        let recommendation = RecommendationSeed {
+            action_kind: "apply".to_string(),
+            payload: json!({ "work_item": work_item.dedupe_key }),
+            preview_effects: json!({ "title": "Test", "summary": "Summary" }),
+            status: "proposed".to_string(),
+            requires_confirm: false,
+        };
+        let _ = autonomy_store::upsert_action_recommendation(
+            pool,
+            work_item.id,
+            &recommendation,
+            tenant_id,
+            business_id,
+        )
+        .await
+        .unwrap();
+        work_item.id
+    }
+
+    #[tokio::test]
+    async fn fetch_shadow_events_filters_by_event_type_and_subject() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        schema::run_migrations(&pool).await.unwrap();
+
+        let tenant_id = 11;
+        let business_id = 22;
+        let match_id = seed_work_item(&pool, tenant_id, business_id, "match_bank", 101, 60).await;
+        let _ = seed_work_item(&pool, tenant_id, business_id, "categorize_tx", 202, 50).await;
+
+        let events = fetch_shadow_events(
+            &pool,
+            tenant_id,
+            "proposed",
+            20,
+            0,
+            Some("match_bank"),
+            Some(101),
+        )
+        .await;
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["event_type"], "BankMatchProposed");
+        assert_eq!(events[0]["id"], match_id.to_string());
+    }
+
+    #[tokio::test]
+    async fn fetch_shadow_events_respects_limit_offset() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        schema::run_migrations(&pool).await.unwrap();
+
+        let tenant_id = 33;
+        let business_id = 44;
+        let high = seed_work_item(&pool, tenant_id, business_id, "match_bank", 1, 90).await;
+        let mid = seed_work_item(&pool, tenant_id, business_id, "match_bank", 2, 70).await;
+        let low = seed_work_item(&pool, tenant_id, business_id, "match_bank", 3, 50).await;
+
+        let events = fetch_shadow_events(&pool, tenant_id, "proposed", 2, 1, None, None).await;
+        assert_eq!(events.len(), 2);
+
+        let first_id = events[0]["id"].as_str().unwrap_or_default();
+        let second_id = events[1]["id"].as_str().unwrap_or_default();
+        assert_eq!(first_id, mid.to_string());
+        assert_eq!(second_id, low.to_string());
+
+        let all = fetch_shadow_events(&pool, tenant_id, "proposed", 10, 0, None, None).await;
+        let ordered: Vec<String> = all
+            .iter()
+            .filter_map(|item| item["id"].as_str().map(|s| s.to_string()))
+            .collect();
+        assert_eq!(ordered, vec![high.to_string(), mid.to_string(), low.to_string()]);
     }
 }

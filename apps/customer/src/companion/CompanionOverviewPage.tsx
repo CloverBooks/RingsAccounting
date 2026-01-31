@@ -213,19 +213,12 @@ const CompanionOverviewPage: React.FC = () => {
       // Get health score from context-summary (same source as dashboard)
       if (healthRes.ok) {
         const healthJson = await healthRes.json();
-        console.log("[DEBUG] Health API response:", healthJson);
         const score = healthJson.health_index?.score;
         if (typeof score === "number") {
-          console.log("[DEBUG] Setting health score to:", score);
           setHealthScore(score);
-        } else {
-          console.log("[DEBUG] No valid health_index.score found, will use fallback");
         }
-      } else {
-        console.log("[DEBUG] Health API response not ok:", healthRes.status);
       }
     } catch (err: any) {
-      console.error("[DEBUG] Error loading summary:", err);
       setError(err?.message || "Failed to load summary");
     } finally {
       setLoading(false);

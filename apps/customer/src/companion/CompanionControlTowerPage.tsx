@@ -36,6 +36,7 @@ import PanelShell from "./PanelShell";
 import SuggestionsPanel from "./SuggestionsPanel";
 import { PanelType, toCustomerCopy } from "./companionCopy";
 import { buildApiUrl, getAccessToken } from "@/api/client";
+import { usePermissions } from "@/hooks/usePermissions";
 import {
   applyEngineBatch,
   fetchCockpitQueues,
@@ -403,12 +404,18 @@ async function fetchSummaryApi(): Promise<Summary> {
   };
 }
 
-async function fetchProposalsApi(): Promise<Proposal[]> {
+async function fetchProposalsApi(workspaceId?: number): Promise<Proposal[]> {
   try {
+    if (!workspaceId) return [];
     const headers: Record<string, string> = { Accept: "application/json" };
     const token = getAccessToken();
     if (token) headers.Authorization = `Bearer ${token}`;
-    const res = await fetch(buildApiUrl("/api/companion/v2/shadow-events/?status=proposed&limit=50"), {
+    const params = new URLSearchParams({
+      status: "proposed",
+      limit: "50",
+      workspace_id: String(workspaceId),
+    });
+    const res = await fetch(buildApiUrl(`/api/companion/v2/shadow-events/?${params.toString()}`), {
       credentials: "same-origin",
       headers,
     });
@@ -545,6 +552,7 @@ function usePanelRouting() {
 // Main Page
 // ---------------------------
 export default function AICompanionControlTower() {
+  const { workspace } = usePermissions();
   const { panel, surfaceFilter, surfaceLabel, agentFilter, open, close } = usePanelRouting();
 
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -564,7 +572,7 @@ export default function AICompanionControlTower() {
       setLoading(true);
       const [summaryResult, proposalsResult, issuesResult, engineResult, statusResult] = await Promise.allSettled([
         fetchSummaryApi(),
-        fetchProposalsApi(),
+        fetchProposalsApi(workspace?.businessId),
         fetchIssuesApi(),
         fetchCockpitQueues(),
         fetchCockpitStatus(),
@@ -589,7 +597,7 @@ export default function AICompanionControlTower() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [workspace?.businessId]);
 
   const radarData = useMemo(() => {
     if (!summary) return [];
@@ -611,7 +619,7 @@ export default function AICompanionControlTower() {
     try {
       const [summaryResult, proposalsResult, issuesResult, engineResult, statusResult] = await Promise.allSettled([
         fetchSummaryApi(),
-        fetchProposalsApi(),
+        fetchProposalsApi(workspace?.businessId),
         fetchIssuesApi(),
         fetchCockpitQueues(),
         fetchCockpitStatus(),
@@ -717,6 +725,7 @@ export default function AICompanionControlTower() {
             onDismissed={(id) => setProposals((prev) => prev.filter((p) => p.id !== id))}
             loading={loading}
             engineMode={engineStatus?.mode}
+            workspaceId={workspace?.businessId}
           />
         )}
         {panel === "issues" && <IssuesPanel issues={issues} surface={surfaceFilter} loading={loading} />}
@@ -1438,7 +1447,15 @@ function EngineQueuePanel({
   const [selected, setSelected] = useState<number[]>([]);
   const [applying, setApplying] = useState(false);
   const selectableReady = ready.filter((item) => item.action_id != null && item.risk_level === "low");
+  const selectableReadyIds = useMemo(
+    () => selectableReady.map((item) => item.action_id as number),
+    [selectableReady]
+  );
   const allSelected = selectableReady.length > 0 && selected.length === selectableReady.length;
+
+  useEffect(() => {
+    setSelected((prev) => prev.filter((id) => selectableReadyIds.includes(id)));
+  }, [selectableReadyIds]);
 
   const toggleSelection = (id: number) => {
     setSelected((prev) => (prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]));
@@ -1448,7 +1465,7 @@ function EngineQueuePanel({
     if (allSelected) {
       setSelected([]);
     } else {
-      setSelected(selectableReady.map((item) => item.action_id as number));
+      setSelected(selectableReadyIds);
     }
   };
 

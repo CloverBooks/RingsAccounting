@@ -17,6 +17,17 @@ pub async fn list_business_ids(pool: &SqlitePool) -> Result<Vec<i64>, sqlx::Erro
     Ok(rows)
 }
 
+pub async fn list_tenant_contexts(pool: &SqlitePool) -> Result<Vec<(i64, i64)>, sqlx::Error> {
+    let rows = sqlx::query_as::<_, (i64, i64)>(
+        "SELECT DISTINCT tenant_id, business_id FROM companion_autonomy_work_items
+         UNION
+         SELECT DISTINCT tenant_id, business_id FROM companion_autonomy_agent_runs"
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
 pub async fn business_ai_enabled(pool: &SqlitePool, business_id: i64) -> Result<Option<bool>, sqlx::Error> {
     sqlx::query_scalar::<_, i64>(
         "SELECT ai_companion_enabled FROM core_business WHERE id = ?"
@@ -398,6 +409,68 @@ pub async fn upsert_work_item(pool: &SqlitePool, seed: &WorkItemSeed) -> Result<
     .await
 }
 
+pub async fn upsert_work_item_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    seed: &WorkItemSeed,
+) -> Result<WorkItem, sqlx::Error> {
+    let inputs_json = serde_json::to_string(&seed.inputs).unwrap_or_else(|_| "{}".to_string());
+    let state_json = serde_json::to_string(&seed.state).unwrap_or_else(|_| "{}".to_string());
+    let links_json = serde_json::to_string(&seed.links).unwrap_or_else(|_| "{}".to_string());
+
+    sqlx::query(
+        "INSERT INTO companion_autonomy_work_items (
+            tenant_id, business_id, work_type, surface, status, priority, dedupe_key,
+            inputs_json, state_json, due_at, snoozed_until, risk_level, confidence_score,
+            requires_approval, customer_title, customer_summary, internal_title, internal_notes,
+            links_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+        ON CONFLICT(tenant_id, dedupe_key) DO UPDATE SET
+            status = excluded.status,
+            priority = excluded.priority,
+            state_json = excluded.state_json,
+            due_at = excluded.due_at,
+            snoozed_until = excluded.snoozed_until,
+            risk_level = excluded.risk_level,
+            confidence_score = excluded.confidence_score,
+            requires_approval = excluded.requires_approval,
+            customer_title = excluded.customer_title,
+            customer_summary = excluded.customer_summary,
+            internal_title = excluded.internal_title,
+            internal_notes = excluded.internal_notes,
+            links_json = excluded.links_json,
+            updated_at = datetime('now')"
+    )
+    .bind(seed.tenant_id)
+    .bind(seed.business_id)
+    .bind(&seed.work_type)
+    .bind(&seed.surface)
+    .bind(&seed.status)
+    .bind(seed.priority)
+    .bind(&seed.dedupe_key)
+    .bind(inputs_json)
+    .bind(state_json)
+    .bind(seed.due_at.as_deref())
+    .bind(seed.snoozed_until.as_deref())
+    .bind(&seed.risk_level)
+    .bind(seed.confidence_score)
+    .bind(seed.requires_approval)
+    .bind(&seed.customer_title)
+    .bind(&seed.customer_summary)
+    .bind(&seed.internal_title)
+    .bind(&seed.internal_notes)
+    .bind(links_json)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query_as::<_, WorkItem>(
+        "SELECT * FROM companion_autonomy_work_items WHERE tenant_id = ? AND dedupe_key = ?"
+    )
+    .bind(seed.tenant_id)
+    .bind(&seed.dedupe_key)
+    .fetch_one(&mut *tx)
+    .await
+}
+
 pub async fn upsert_action_recommendation(
     pool: &SqlitePool,
     work_item_id: i64,
@@ -437,6 +510,48 @@ pub async fn upsert_action_recommendation(
     .bind(work_item_id)
     .bind(&seed.action_kind)
     .fetch_one(pool)
+    .await
+}
+
+pub async fn upsert_action_recommendation_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    work_item_id: i64,
+    seed: &RecommendationSeed,
+    tenant_id: i64,
+    business_id: i64,
+) -> Result<ActionRecommendation, sqlx::Error> {
+    let payload_json = serde_json::to_string(&seed.payload).unwrap_or_else(|_| "{}".to_string());
+    let preview_json = serde_json::to_string(&seed.preview_effects).unwrap_or_else(|_| "{}".to_string());
+
+    sqlx::query(
+        "INSERT INTO companion_autonomy_action_recommendations (
+            tenant_id, business_id, work_item_id, action_kind, payload_json, preview_effects_json,
+            status, requires_confirm, approval_request_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, datetime('now'), datetime('now'))
+        ON CONFLICT(work_item_id, action_kind) DO UPDATE SET
+            payload_json = excluded.payload_json,
+            preview_effects_json = excluded.preview_effects_json,
+            status = excluded.status,
+            requires_confirm = excluded.requires_confirm,
+            updated_at = datetime('now')"
+    )
+    .bind(tenant_id)
+    .bind(business_id)
+    .bind(work_item_id)
+    .bind(&seed.action_kind)
+    .bind(payload_json)
+    .bind(preview_json)
+    .bind(&seed.status)
+    .bind(seed.requires_confirm)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query_as::<_, ActionRecommendation>(
+        "SELECT * FROM companion_autonomy_action_recommendations WHERE work_item_id = ? AND action_kind = ?"
+    )
+    .bind(work_item_id)
+    .bind(&seed.action_kind)
+    .fetch_one(&mut *tx)
     .await
 }
 
@@ -482,6 +597,48 @@ pub async fn insert_rationale_card(
     .await
 }
 
+pub async fn insert_rationale_card_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    work_item_id: i64,
+    tenant_id: i64,
+    business_id: i64,
+    sections: &Value,
+    customer_safe_text: &str,
+) -> Result<RationaleCard, sqlx::Error> {
+    let sections_json = serde_json::to_string(sections).unwrap_or_else(|_| "{}".to_string());
+    let version: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(version), 0) FROM companion_autonomy_rationale_cards WHERE work_item_id = ?"
+    )
+    .bind(work_item_id)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap_or(0);
+
+    let next_version = version + 1;
+
+    sqlx::query(
+        "INSERT INTO companion_autonomy_rationale_cards (
+            tenant_id, business_id, work_item_id, sections_json, customer_safe_text, generated_at, version
+        ) VALUES (?, ?, ?, ?, ?, datetime('now'), ?)"
+    )
+    .bind(tenant_id)
+    .bind(business_id)
+    .bind(work_item_id)
+    .bind(sections_json)
+    .bind(customer_safe_text)
+    .bind(next_version)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query_as::<_, RationaleCard>(
+        "SELECT * FROM companion_autonomy_rationale_cards WHERE work_item_id = ? AND version = ?"
+    )
+    .bind(work_item_id)
+    .bind(next_version)
+    .fetch_one(&mut *tx)
+    .await
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn insert_claim(
     pool: &SqlitePool,
@@ -507,6 +664,35 @@ pub async fn insert_claim(
     .bind(verification_status)
     .bind(source_quality_score)
     .execute(pool)
+    .await?;
+    Ok(result.last_insert_rowid())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn insert_claim_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    tenant_id: i64,
+    business_id: i64,
+    work_item_id: i64,
+    statement: &str,
+    confidence: f64,
+    verification_status: &str,
+    source_quality_score: f64,
+) -> Result<i64, sqlx::Error> {
+    let result = sqlx::query(
+        "INSERT INTO companion_autonomy_claims (
+            tenant_id, business_id, work_item_id, statement, confidence,
+            verification_status, source_quality_score, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))"
+    )
+    .bind(tenant_id)
+    .bind(business_id)
+    .bind(work_item_id)
+    .bind(statement)
+    .bind(confidence)
+    .bind(verification_status)
+    .bind(source_quality_score)
+    .execute(&mut *tx)
     .await?;
     Ok(result.last_insert_rowid())
 }
@@ -539,6 +725,34 @@ pub async fn insert_evidence(
     Ok(result.last_insert_rowid())
 }
 
+#[allow(clippy::too_many_arguments)]
+pub async fn insert_evidence_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    tenant_id: i64,
+    business_id: i64,
+    work_item_id: i64,
+    url: &str,
+    title: &str,
+    excerpt_hash: &str,
+    credibility_flags: &str,
+) -> Result<i64, sqlx::Error> {
+    let result = sqlx::query(
+        "INSERT INTO companion_autonomy_evidence (
+            tenant_id, business_id, work_item_id, url, title, retrieved_at, excerpt_hash, credibility_flags, created_at
+        ) VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?, datetime('now'))"
+    )
+    .bind(tenant_id)
+    .bind(business_id)
+    .bind(work_item_id)
+    .bind(url)
+    .bind(title)
+    .bind(excerpt_hash)
+    .bind(credibility_flags)
+    .execute(&mut *tx)
+    .await?;
+    Ok(result.last_insert_rowid())
+}
+
 pub async fn link_claim_evidence(
     pool: &SqlitePool,
     claim_id: i64,
@@ -551,6 +765,22 @@ pub async fn link_claim_evidence(
     .bind(claim_id)
     .bind(evidence_id)
     .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn link_claim_evidence_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    claim_id: i64,
+    evidence_id: i64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT OR IGNORE INTO companion_autonomy_claim_evidence (claim_id, evidence_id, created_at)
+         VALUES (?, ?, datetime('now'))"
+    )
+    .bind(claim_id)
+    .bind(evidence_id)
+    .execute(&mut *tx)
     .await?;
     Ok(())
 }
@@ -582,6 +812,37 @@ pub async fn insert_audit_log(
     .bind(target_id)
     .bind(payload_json)
     .execute(pool)
+    .await?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn insert_audit_log_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    tenant_id: i64,
+    business_id: i64,
+    actor_id: Option<i64>,
+    actor_label: &str,
+    action: &str,
+    target_type: &str,
+    target_id: &str,
+    payload: &Value,
+) -> Result<(), sqlx::Error> {
+    let payload_json = serde_json::to_string(payload).unwrap_or_else(|_| "{}".to_string());
+    sqlx::query(
+        "INSERT INTO companion_autonomy_audit_log (
+            tenant_id, business_id, actor_id, actor_label, action, target_type, target_id, payload_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))"
+    )
+    .bind(tenant_id)
+    .bind(business_id)
+    .bind(actor_id)
+    .bind(actor_label)
+    .bind(action)
+    .bind(target_type)
+    .bind(target_id)
+    .bind(payload_json)
+    .execute(&mut *tx)
     .await?;
     Ok(())
 }

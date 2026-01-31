@@ -289,12 +289,12 @@ async fn run_engine_command(cmd: &str, pool: &SqlitePool) -> bool {
                 .and_then(|v| v.parse::<i64>().ok());
             if let Some(agent_name) = agent_name {
                 if let Some(agent) = map_agent_name(&agent_name) {
-                    for tenant_id in tenants {
+                    for tenant in tenants {
                         let result = if let Some(work_item_id) = work_item_id {
-                            companion_autonomy::scheduler::run_agent_for_work_item(pool, tenant_id, agent, work_item_id)
+                            companion_autonomy::scheduler::run_agent_for_work_item(pool, tenant, agent, work_item_id)
                                 .await
                         } else {
-                            companion_autonomy::scheduler::run_agent_for_tenant(pool, tenant_id, agent).await
+                            companion_autonomy::scheduler::run_agent_for_tenant(pool, tenant, agent).await
                         };
                         if let Err(err) = result {
                             tracing::error!("Engine run-agent failed: {}", err);
@@ -322,16 +322,58 @@ async fn run_engine_command(cmd: &str, pool: &SqlitePool) -> bool {
     }
 }
 
-async fn resolve_tenants(args: &[String], pool: &SqlitePool) -> Vec<i64> {
-    if let Some(value) = parse_arg(args, "--tenant") {
+async fn resolve_tenants(
+    args: &[String],
+    pool: &SqlitePool,
+) -> Vec<companion_autonomy::scheduler::TenantContext> {
+    let tenant_arg = parse_arg(args, "--tenant");
+    let business_arg = parse_arg(args, "--business-id").or_else(|| parse_arg(args, "--business"));
+
+    if let Some(value) = tenant_arg {
         if value == "all" {
-            return companion_autonomy::store::list_business_ids(pool).await.unwrap_or_else(|_| vec![1]);
+            return companion_autonomy::store::list_tenant_contexts(pool)
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(tenant_id, business_id)| companion_autonomy::scheduler::TenantContext {
+                    tenant_id,
+                    business_id,
+                })
+                .collect();
         }
-        if let Ok(id) = value.parse::<i64>() {
-            return vec![id];
+        if let Ok(tenant_id) = value.parse::<i64>() {
+            let business_id = business_arg
+                .and_then(|v| v.parse::<i64>().ok())
+                .unwrap_or_else(|| {
+                    tracing::error!("Missing --business-id for tenant {}", tenant_id);
+                    0
+                });
+            if business_id > 0 {
+                return vec![companion_autonomy::scheduler::TenantContext {
+                    tenant_id,
+                    business_id,
+                }];
+            }
+            return vec![];
         }
     }
-    companion_autonomy::store::list_business_ids(pool).await.unwrap_or_else(|_| vec![1])
+
+    if let Some(business_id) = business_arg.and_then(|v| v.parse::<i64>().ok()) {
+        return vec![companion_autonomy::scheduler::TenantContext {
+            tenant_id: business_id,
+            business_id,
+        }];
+    }
+
+    companion_autonomy::store::list_tenant_contexts(pool)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(tenant_id, business_id)| companion_autonomy::scheduler::TenantContext {
+            tenant_id,
+            business_id,
+        })
+        .collect()
 }
 
 fn parse_arg(args: &[String], key: &str) -> Option<String> {

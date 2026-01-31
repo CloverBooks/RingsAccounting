@@ -1,28 +1,30 @@
 use serde_json::json;
+use sqlx::SqlitePool;
 
-use crate::companion_autonomy::agents::{categorization, reconciliation, AgentContext};
+use crate::companion_autonomy::agents::AgentContext;
 use crate::companion_autonomy::models::AgentOutput;
 
 pub async fn run(ctx: &AgentContext) -> Result<AgentOutput, String> {
+    let pending = pending_work_items(&ctx.pool, ctx.tenant_id).await.unwrap_or(0);
+    if pending == 0 {
+        return Ok(AgentOutput::empty());
+    }
+
     let mut output = AgentOutput::empty();
-
-    let reconciliation_output = reconciliation::run(ctx).await?;
-    merge_output(&mut output, reconciliation_output);
-
-    let categorization_output = categorization::run(ctx).await?;
-    merge_output(&mut output, categorization_output);
-
     output.signals.push(json!({
         "type": "orchestrator_summary",
-        "work_items": output.work_items.len()
+        "pending_work_items": pending
     }));
 
     Ok(output)
 }
 
-fn merge_output(target: &mut AgentOutput, other: AgentOutput) {
-    target.signals.extend(other.signals);
-    target.recommendations.extend(other.recommendations);
-    target.evidence_refs.extend(other.evidence_refs);
-    target.work_items.extend(other.work_items);
+async fn pending_work_items(pool: &SqlitePool, tenant_id: i64) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT COUNT(*) FROM companion_autonomy_work_items
+         WHERE tenant_id = ? AND status IN ('open', 'ready', 'waiting_approval')"
+    )
+    .bind(tenant_id)
+    .fetch_one(pool)
+    .await
 }

@@ -1,0 +1,225 @@
+0 verbose cli C:\Program Files\nodejs\node.exe C:\Program Files\nodejs\node_modules\npm\bin\npm-cli.js
+1 info using npm@11.7.0
+2 info using node@v25.4.0
+3 silly config load:file:C:\Program Files\nodejs\node_modules\npm\npmrc
+4 silly config load:file:C:\Users\mbaho\OneDrive\Desktop\CLOVER\Clover\apps\api\.npmrc
+5 silly config load:file:C:\Users\mbaho\.npmrc
+6 silly config load:file:C:\Users\mbaho\AppData\Roaming\npm\etc\npmrc
+7 verbose title npm install
+8 verbose argv "install" "--no-audit" "--no-fund" "--progress" "false"
+9 verbose logfile logs-max:10 dir:C:\Users\mbaho\OneDrive\Desktop\CLOVER\Clover\apps\api\.npm-cache\_logs\2026-01-27T18_11_01_564Z-
+10 verbose logfile C:\Users\mbaho\OneDrive\Desktop\CLOVER\Clover\apps\api\.npm-cache\_logs\2026-01-27T18_11_01_564Z-debug-0.log
+11 silly logfile done cleaning log files
+12 silly packumentCache heap:4496293888 maxSize:1124073472 maxEntrySize:562036736
+13 silly idealTree buildDeps
+14 silly fetch manifest @fastify/cors@^9.0.1
+15 silly packumentCache full:https://registry.npmjs.org/@fastify%2fcors cache-miss
+16 http fetch GET 200 https://registry.npmjs.org/@fastify%2fcors 915ms (cache miss)
+17 silly fetch manifest @fastify/helmet@^11.1.1
+18 silly packumentCache full:https://registry.npmjs.org/@fastify%2fhelmet cache-miss
+19 http fetch GET 200 https://registry.npmjs.org/@fastify%2fhelmet 327ms (cache miss)
+20 silly fetch manifest @fastify/rate-limit@^9.1.0
+21 silly packumentCache full:https://registry.npmjs.org/@fastify%2frate-limit cache-miss
+22 http fetch GET 200 https://registry.npmjs.org/@fastify%2frate-limit 337ms (cache miss)
+23 silly fetch manifest @nestjs/bullmq@^10.0.3
+24 silly packumentCache full:https://registry.npmjs.org/@nestjs%2fbullmq cache-miss
+25 http fetch GET 200 https://registry.npmjs.org/@nestjs%2fbullmq 385ms (cache miss)
+26 silly fetch manifest @nestjs/common@^10.3.2
+27 silly packumentCache full:https://registry.npmjs.org/@nestjs%2fcommon cache-miss
+28 http fetch GET 200 https://registry.npmjs.org/@nestjs%2fcommon 389ms (cache miss)
+29 silly fetch manifest @nestjs/core@^10.3.2
+30 silly packumentCache full:https://registry.npmjs.org/@nestjs%2fcore cache-miss
+31 http fetch GET 200 https://registry.npmjs.org/@nestjs%2fcore 180ms (cache miss)
+32 silly fetch manifest @nestjs/jwt@^10.2.0
+33 silly packumentCache full:https://registry.npmjs.org/@nestjs%2fjwt cache-miss
+34 http fetch GET 200 https://registry.npmjs.org/@nestjs%2fjwt 124ms (cache miss)
+35 silly fetch manifest @nestjs/passport@^10.0.3
+36 silly packumentCache full:https://registry.npmjs.org/@nestjs%2fpassport cache-miss
+37 http fetch GET 200 https://registry.npmjs.org/@nestjs%2fpassport 99ms (cache miss)
+38 silly fetch manifest @nestjs/platform-fastify@^10.3.2
+39 silly packumentCache full:https://registry.npmjs.org/@nestjs%2fplatform-fastify cache-miss
+40 http fetch GET 200 https://registry.npmjs.org/@nestjs%2fplatform-fastify 239ms (cache miss)
+41 silly fetch manifest @nestjs/swagger@^7.2.0
+42 silly packumentCache full:https://registry.npmjs.org/@nestjs%2fswagger cache-miss
+43 http fetch GET 200 https://registry.npmjs.org/@nestjs%2fswagger 178ms (cache miss)
+44 silly fetch manifest @opentelemetry/api@^1.9.0
+45 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fapi cache-miss
+46 http fetch GET 200 https://registry.npmjs.org/@opentelemetry%2fapi 134ms (cache miss)
+47 silly fetch manifest @opentelemetry/exporter-trace-otlp-http@^0.47.0
+48 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fexporter-trace-otlp-http cache-miss
+49 http fetch GET 200 https://registry.npmjs.org/@opentelemetry%2fexporter-trace-otlp-http 99ms (cache miss)
+50 silly fetch manifest @opentelemetry/sdk-node@^0.47.0
+51 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fsdk-node cache-miss
+52 http fetch GET 200 https://registry.npmjs.org/@opentelemetry%2fsdk-node 149ms (cache miss)
+53 silly fetch manifest @opentelemetry/sdk-trace-base@^1.20.0
+54 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fsdk-trace-base cache-miss
+55 http fetch GET 200 https://registry.npmjs.org/@opentelemetry%2fsdk-trace-base 118ms (cache miss)
+56 silly fetch manifest @prisma/client@^5.9.1
+57 silly packumentCache full:https://registry.npmjs.org/@prisma%2fclient cache-miss
+58 http fetch GET 200 https://registry.npmjs.org/@prisma%2fclient 3149ms (cache miss)
+59 silly fetch manifest axios@^1.6.7
+60 silly packumentCache full:https://registry.npmjs.org/axios cache-miss
+61 http fetch GET 200 https://registry.npmjs.org/axios 135ms (cache miss)
+62 silly fetch manifest bcrypt@^5.1.1
+63 silly packumentCache full:https://registry.npmjs.org/bcrypt cache-miss
+64 http fetch GET 200 https://registry.npmjs.org/bcrypt 132ms (cache miss)
+65 silly fetch manifest bullmq@^5.9.1
+66 silly packumentCache full:https://registry.npmjs.org/bullmq cache-miss
+67 http fetch GET 200 https://registry.npmjs.org/bullmq 324ms (cache miss)
+68 silly fetch manifest date-fns@^3.3.1
+69 silly packumentCache full:https://registry.npmjs.org/date-fns cache-miss
+70 http fetch GET 200 https://registry.npmjs.org/date-fns 228ms (cache miss)
+71 silly fetch manifest fastify-raw-body@^5.0.0
+72 silly packumentCache full:https://registry.npmjs.org/fastify-raw-body cache-miss
+73 http fetch GET 200 https://registry.npmjs.org/fastify-raw-body 137ms (cache miss)
+74 silly fetch manifest ioredis@^5.3.2
+75 silly packumentCache full:https://registry.npmjs.org/ioredis cache-miss
+76 http fetch GET 200 https://registry.npmjs.org/ioredis 133ms (cache miss)
+77 silly fetch manifest passport@^0.7.0
+78 silly packumentCache full:https://registry.npmjs.org/passport cache-miss
+79 http fetch GET 200 https://registry.npmjs.org/passport 96ms (cache miss)
+80 silly fetch manifest passport-jwt@^4.0.1
+81 silly packumentCache full:https://registry.npmjs.org/passport-jwt cache-miss
+82 http fetch GET 200 https://registry.npmjs.org/passport-jwt 152ms (cache miss)
+83 silly fetch manifest pino@^8.21.0
+84 silly packumentCache full:https://registry.npmjs.org/pino cache-miss
+85 http fetch GET 200 https://registry.npmjs.org/pino 133ms (cache miss)
+86 silly fetch manifest reflect-metadata@^0.1.13
+87 silly packumentCache full:https://registry.npmjs.org/reflect-metadata cache-miss
+88 http fetch GET 200 https://registry.npmjs.org/reflect-metadata 68ms (cache miss)
+89 silly fetch manifest rxjs@^7.8.1
+90 silly packumentCache full:https://registry.npmjs.org/rxjs cache-miss
+91 http fetch GET 200 https://registry.npmjs.org/rxjs 98ms (cache miss)
+92 silly fetch manifest stripe@^14.21.0
+93 silly packumentCache full:https://registry.npmjs.org/stripe cache-miss
+94 http fetch GET 200 https://registry.npmjs.org/stripe 153ms (cache miss)
+95 silly fetch manifest @nestjs/testing@^10.3.2
+96 silly packumentCache full:https://registry.npmjs.org/@nestjs%2ftesting cache-miss
+97 http fetch GET 200 https://registry.npmjs.org/@nestjs%2ftesting 149ms (cache miss)
+98 silly fetch manifest @types/bcrypt@^5.0.2
+99 silly packumentCache full:https://registry.npmjs.org/@types%2fbcrypt cache-miss
+100 http fetch GET 200 https://registry.npmjs.org/@types%2fbcrypt 88ms (cache miss)
+101 silly fetch manifest @types/jest@^29.5.12
+102 silly packumentCache full:https://registry.npmjs.org/@types%2fjest cache-miss
+103 http fetch GET 200 https://registry.npmjs.org/@types%2fjest 114ms (cache miss)
+104 silly fetch manifest @types/node@^20.11.10
+105 silly packumentCache full:https://registry.npmjs.org/@types%2fnode cache-miss
+106 http fetch GET 200 https://registry.npmjs.org/@types%2fnode 819ms (cache miss)
+107 silly fetch manifest @types/passport-jwt@^3.0.13
+108 silly packumentCache full:https://registry.npmjs.org/@types%2fpassport-jwt cache-miss
+109 http fetch GET 200 https://registry.npmjs.org/@types%2fpassport-jwt 83ms (cache miss)
+110 silly fetch manifest @types/supertest@^2.0.16
+111 silly packumentCache full:https://registry.npmjs.org/@types%2fsupertest cache-miss
+112 http fetch GET 200 https://registry.npmjs.org/@types%2fsupertest 70ms (cache miss)
+113 silly fetch manifest jest@^29.7.0
+114 silly packumentCache full:https://registry.npmjs.org/jest cache-miss
+115 http fetch GET 200 https://registry.npmjs.org/jest 112ms (cache miss)
+116 silly fetch manifest prisma@^5.9.1
+117 silly packumentCache full:https://registry.npmjs.org/prisma cache-miss
+118 http fetch GET 200 https://registry.npmjs.org/prisma 1551ms (cache miss)
+119 silly fetch manifest supertest@^6.3.4
+120 silly packumentCache full:https://registry.npmjs.org/supertest cache-miss
+121 http fetch GET 200 https://registry.npmjs.org/supertest 86ms (cache miss)
+122 silly fetch manifest ts-jest@^29.1.1
+123 silly packumentCache full:https://registry.npmjs.org/ts-jest cache-miss
+124 http fetch GET 200 https://registry.npmjs.org/ts-jest 119ms (cache miss)
+125 silly fetch manifest ts-node@^10.9.2
+126 silly packumentCache full:https://registry.npmjs.org/ts-node cache-miss
+127 http fetch GET 200 https://registry.npmjs.org/ts-node 441ms (cache miss)
+128 silly fetch manifest tsconfig-paths@^4.2.0
+129 silly packumentCache full:https://registry.npmjs.org/tsconfig-paths cache-miss
+130 http fetch GET 200 https://registry.npmjs.org/tsconfig-paths 117ms (cache miss)
+131 silly fetch manifest typescript@^5.3.3
+132 silly packumentCache full:https://registry.npmjs.org/typescript cache-miss
+133 http fetch GET 200 https://registry.npmjs.org/typescript 790ms (cache miss)
+134 silly placeDep ROOT @fastify/cors@ OK for: clover-books-api@0.1.0 want: ^9.0.1
+135 silly placeDep ROOT @fastify/helmet@ OK for: clover-books-api@0.1.0 want: ^11.1.1
+136 silly placeDep ROOT @fastify/rate-limit@ OK for: clover-books-api@0.1.0 want: ^9.1.0
+137 silly placeDep ROOT @nestjs/bullmq@ OK for: clover-books-api@0.1.0 want: ^10.0.3
+138 silly placeDep ROOT @nestjs/common@ OK for: clover-books-api@0.1.0 want: ^10.3.2
+139 silly placeDep ROOT @nestjs/core@ OK for: clover-books-api@0.1.0 want: ^10.3.2
+140 silly placeDep ROOT @nestjs/jwt@ OK for: clover-books-api@0.1.0 want: ^10.2.0
+141 silly placeDep ROOT @nestjs/passport@ OK for: clover-books-api@0.1.0 want: ^10.0.3
+142 silly placeDep ROOT @nestjs/platform-fastify@ OK for: clover-books-api@0.1.0 want: ^10.3.2
+143 silly placeDep ROOT @nestjs/swagger@ OK for: clover-books-api@0.1.0 want: ^7.2.0
+144 silly placeDep ROOT @nestjs/testing@ OK for: clover-books-api@0.1.0 want: ^10.3.2
+145 silly placeDep ROOT @opentelemetry/api@ OK for: clover-books-api@0.1.0 want: ^1.9.0
+146 silly placeDep ROOT @opentelemetry/exporter-trace-otlp-http@ OK for: clover-books-api@0.1.0 want: ^0.47.0
+147 silly placeDep ROOT @opentelemetry/sdk-node@ OK for: clover-books-api@0.1.0 want: ^0.47.0
+148 silly placeDep ROOT @opentelemetry/sdk-trace-base@ OK for: clover-books-api@0.1.0 want: ^1.20.0
+149 silly placeDep ROOT @prisma/client@ OK for: clover-books-api@0.1.0 want: ^5.9.1
+150 silly placeDep ROOT @types/bcrypt@ OK for: clover-books-api@0.1.0 want: ^5.0.2
+151 silly placeDep ROOT @types/jest@ OK for: clover-books-api@0.1.0 want: ^29.5.12
+152 silly placeDep ROOT @types/node@ OK for: clover-books-api@0.1.0 want: ^20.11.10
+153 silly placeDep ROOT @types/passport-jwt@ OK for: clover-books-api@0.1.0 want: ^3.0.13
+154 silly placeDep ROOT @types/supertest@ OK for: clover-books-api@0.1.0 want: ^2.0.16
+155 silly placeDep ROOT axios@ OK for: clover-books-api@0.1.0 want: ^1.6.7
+156 silly placeDep ROOT bcrypt@ OK for: clover-books-api@0.1.0 want: ^5.1.1
+157 silly placeDep ROOT bullmq@ OK for: clover-books-api@0.1.0 want: ^5.9.1
+158 silly placeDep ROOT date-fns@ OK for: clover-books-api@0.1.0 want: ^3.3.1
+159 silly placeDep ROOT fastify-raw-body@ OK for: clover-books-api@0.1.0 want: ^5.0.0
+160 silly placeDep ROOT ioredis@ OK for: clover-books-api@0.1.0 want: ^5.3.2
+161 silly placeDep ROOT jest@ OK for: clover-books-api@0.1.0 want: ^29.7.0
+162 silly placeDep ROOT passport@ OK for: clover-books-api@0.1.0 want: ^0.7.0
+163 silly placeDep ROOT passport-jwt@ OK for: clover-books-api@0.1.0 want: ^4.0.1
+164 silly placeDep ROOT pino@ OK for: clover-books-api@0.1.0 want: ^8.21.0
+165 silly placeDep ROOT prisma@ OK for: clover-books-api@0.1.0 want: ^5.9.1
+166 silly placeDep ROOT reflect-metadata@ OK for: clover-books-api@0.1.0 want: ^0.1.13
+167 silly placeDep ROOT rxjs@ OK for: clover-books-api@0.1.0 want: ^7.8.1
+168 silly placeDep ROOT stripe@ OK for: clover-books-api@0.1.0 want: ^14.21.0
+169 silly placeDep ROOT supertest@ OK for: clover-books-api@0.1.0 want: ^6.3.4
+170 silly placeDep ROOT ts-jest@ OK for: clover-books-api@0.1.0 want: ^29.1.1
+171 silly placeDep ROOT ts-node@ OK for: clover-books-api@0.1.0 want: ^10.9.2
+172 silly placeDep ROOT tsconfig-paths@ OK for: clover-books-api@0.1.0 want: ^4.2.0
+173 silly placeDep ROOT typescript@ OK for: clover-books-api@0.1.0 want: ^5.3.3
+174 verbose type system
+175 verbose stack FetchError: Invalid response body while trying to fetch https://registry.npmjs.org/@fastify%2fcors: EPERM: operation not permitted, unlink 'C:\Users\mbaho\OneDrive\Desktop\CLOVER\Clover\apps\api\.npm-cache\_cacache\tmp\f621941a'
+175 verbose stack     at C:\Program Files\nodejs\node_modules\npm\node_modules\minipass-fetch\lib\body.js:170:15
+175 verbose stack     at async Response.json (C:\Program Files\nodejs\node_modules\npm\node_modules\minipass-fetch\lib\body.js:75:17)
+175 verbose stack     at async RegistryFetcher.packument (C:\Program Files\nodejs\node_modules\npm\node_modules\pacote\lib\registry.js:98:25)
+175 verbose stack     at async RegistryFetcher.manifest (C:\Program Files\nodejs\node_modules\npm\node_modules\pacote\lib\registry.js:128:23)
+175 verbose stack     at async #fetchManifest (C:\Program Files\nodejs\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\build-ideal-tree.js:1216:20)
+175 verbose stack     at async #nodeFromEdge (C:\Program Files\nodejs\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\build-ideal-tree.js:1054:19)
+175 verbose stack     at async #buildDepStep (C:\Program Files\nodejs\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\build-ideal-tree.js:918:11)
+175 verbose stack     at async Arborist.buildIdealTree (C:\Program Files\nodejs\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\build-ideal-tree.js:170:7)
+175 verbose stack     at async Promise.all (index 1)
+175 verbose stack     at async Arborist.reify (C:\Program Files\nodejs\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:110:5)
+176 error code EPERM
+177 error syscall unlink
+178 error path C:\Users\mbaho\OneDrive\Desktop\CLOVER\Clover\apps\api\.npm-cache\_cacache\tmp\f621941a
+179 error errno EPERM
+180 error FetchError: Invalid response body while trying to fetch https://registry.npmjs.org/@fastify%2fcors: EPERM: operation not permitted, unlink 'C:\Users\mbaho\OneDrive\Desktop\CLOVER\Clover\apps\api\.npm-cache\_cacache\tmp\f621941a'
+180 error     at C:\Program Files\nodejs\node_modules\npm\node_modules\minipass-fetch\lib\body.js:170:15
+180 error     at async Response.json (C:\Program Files\nodejs\node_modules\npm\node_modules\minipass-fetch\lib\body.js:75:17)
+180 error     at async RegistryFetcher.packument (C:\Program Files\nodejs\node_modules\npm\node_modules\pacote\lib\registry.js:98:25)
+180 error     at async RegistryFetcher.manifest (C:\Program Files\nodejs\node_modules\npm\node_modules\pacote\lib\registry.js:128:23)
+180 error     at async #fetchManifest (C:\Program Files\nodejs\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\build-ideal-tree.js:1216:20)
+180 error     at async #nodeFromEdge (C:\Program Files\nodejs\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\build-ideal-tree.js:1054:19)
+180 error     at async #buildDepStep (C:\Program Files\nodejs\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\build-ideal-tree.js:918:11)
+180 error     at async Arborist.buildIdealTree (C:\Program Files\nodejs\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\build-ideal-tree.js:170:7)
+180 error     at async Promise.all (index 1)
+180 error     at async Arborist.reify (C:\Program Files\nodejs\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:110:5) {
+180 error   code: 'EPERM',
+180 error   errno: 'EPERM',
+180 error   syscall: 'unlink',
+180 error   path: 'C:\\Users\\mbaho\\OneDrive\\Desktop\\CLOVER\\Clover\\apps\\api\\.npm-cache\\_cacache\\tmp\\f621941a',
+180 error   type: 'system',
+180 error   requiredBy: '.'
+180 error }
+181 error
+181 error The operation was rejected by your operating system.
+181 error It's possible that the file was already in use (by a text editor or antivirus),
+181 error or that you lack permissions to access it.
+181 error
+181 error If you believe this might be a permissions issue, please double-check the
+181 error permissions of the file and its containing directories, or try running
+181 error the command again as root/Administrator.
+182 silly unfinished npm timer reify 1769537463346
+183 silly unfinished npm timer reify:loadTrees 1769537463348
+184 verbose cwd C:\Users\mbaho\OneDrive\Desktop\CLOVER\Clover\apps\api
+185 verbose os Windows_NT 10.0.26100
+186 verbose node v25.4.0
+187 verbose npm  v11.7.0
+188 verbose exit 1
+189 verbose code 1
+190 error A complete log of this run can be found in: C:\Users\mbaho\OneDrive\Desktop\CLOVER\Clover\apps\api\.npm-cache\_logs\2026-01-27T18_11_01_564Z-debug-0.log

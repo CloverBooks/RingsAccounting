@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import CompanionControlTowerPage from "./CompanionControlTowerPage";
+import { AuthProvider } from "../contexts/AuthContext";
 
 const summaryPayload = {
   ai_companion_enabled: true,
@@ -130,9 +131,11 @@ describe("CompanionControlTowerPage", () => {
 
   it("renders control tower cards and surfaces", async () => {
     render(
-      <MemoryRouter>
-        <CompanionControlTowerPage />
-      </MemoryRouter>
+      <AuthProvider>
+        <MemoryRouter>
+          <CompanionControlTowerPage />
+        </MemoryRouter>
+      </AuthProvider>
     );
     await waitFor(() => expect(screen.getByText(/Companion Control Tower/i)).toBeInTheDocument());
     expect(screen.getByText(/Health Pulse/i)).toBeInTheDocument();
@@ -145,18 +148,22 @@ describe("CompanionControlTowerPage", () => {
       Promise.resolve(new Response(JSON.stringify({ ...summaryPayload, ai_companion_enabled: false })))
     );
     render(
-      <MemoryRouter>
-        <CompanionControlTowerPage />
-      </MemoryRouter>
+      <AuthProvider>
+        <MemoryRouter>
+          <CompanionControlTowerPage />
+        </MemoryRouter>
+      </AuthProvider>
     );
     await waitFor(() => expect(screen.getByText(/Companion is disabled/i)).toBeInTheDocument());
   });
 
   it("renders engine queue snapshot", async () => {
     render(
-      <MemoryRouter>
-        <CompanionControlTowerPage />
-      </MemoryRouter>
+      <AuthProvider>
+        <MemoryRouter>
+          <CompanionControlTowerPage />
+        </MemoryRouter>
+      </AuthProvider>
     );
     await waitFor(() => expect(screen.getByText(/Autonomy Engine/i)).toBeInTheDocument());
     expect(screen.getByText(/Queue snapshot/i)).toBeInTheDocument();

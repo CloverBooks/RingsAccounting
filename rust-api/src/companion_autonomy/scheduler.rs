@@ -8,20 +8,30 @@ use crate::companion_autonomy::policy::{BudgetConfig, PolicyConfig};
 use crate::companion_autonomy::tool_gateway::ToolGateway;
 use crate::companion_autonomy::{hash_inputs, store};
 
-pub async fn tick(pool: &SqlitePool, tenant_ids: Vec<i64>, actor_id: Option<i64>) -> Result<(), String> {
-    for tenant_id in tenant_ids {
-        if let Ok(Some(enabled)) = store::business_ai_enabled(pool, tenant_id).await {
+#[derive(Debug, Clone, Copy)]
+pub struct TenantContext {
+    pub tenant_id: i64,
+    pub business_id: i64,
+}
+
+pub async fn tick(
+    pool: &SqlitePool,
+    tenants: Vec<TenantContext>,
+    actor_id: Option<i64>,
+) -> Result<(), String> {
+    for tenant in tenants {
+        if let Ok(Some(enabled)) = store::business_ai_enabled(pool, tenant.business_id).await {
             if !enabled {
                 continue;
             }
         }
-        if let Ok(Some(settings)) = store::fetch_ai_settings(pool, tenant_id).await {
+        if let Ok(Some(settings)) = store::fetch_ai_settings(pool, tenant.business_id).await {
             if !settings.ai_enabled || settings.kill_switch {
                 continue;
             }
         }
-        let ctx = build_context(pool, tenant_id)?;
-        ensure_policy_row(pool, tenant_id, &ctx).await?;
+        let ctx = build_context(pool, tenant)?;
+        ensure_policy_row(pool, tenant.tenant_id, &ctx).await?;
 
         let mut output = AgentOutput::empty();
         let reconciliation_output = run_agent_job(&ctx, AgentName::Reconciliation).await?;
@@ -29,6 +39,9 @@ pub async fn tick(pool: &SqlitePool, tenant_ids: Vec<i64>, actor_id: Option<i64>
 
         let categorization_output = run_agent_job(&ctx, AgentName::Categorization).await?;
         merge_output(&mut output, categorization_output);
+
+        let orchestrator_output = run_agent_job(&ctx, AgentName::Orchestrator).await?;
+        merge_output(&mut output, orchestrator_output);
 
         let narrative_job_id = store::insert_job(
             pool,
@@ -76,19 +89,18 @@ pub async fn tick(pool: &SqlitePool, tenant_ids: Vec<i64>, actor_id: Option<i64>
 
 pub async fn materialize(
     pool: &SqlitePool,
-    tenant_ids: Vec<i64>,
+    tenants: Vec<TenantContext>,
     stale_minutes: i64,
     actor_id: Option<i64>,
 ) -> Result<(), String> {
-    for tenant_id in tenant_ids {
-        let payload = store::fetch_cockpit_queues(pool, tenant_id)
+    for tenant in tenants {
+        let payload = store::fetch_cockpit_queues(pool, tenant.tenant_id)
             .await
             .map_err(|e| e.to_string())?;
-        let business_id = tenant_id;
         store::insert_snapshot(
             pool,
-            tenant_id,
-            business_id,
+            tenant.tenant_id,
+            tenant.business_id,
             &serde_json::to_value(&payload).unwrap_or_else(|_| json!({})),
             stale_minutes,
             "v1",
@@ -97,20 +109,20 @@ pub async fn materialize(
         .map_err(|e| e.to_string())?;
         let _ = store::insert_queue_snapshot(
             pool,
-            tenant_id,
+            tenant.tenant_id,
             &serde_json::to_value(&payload).unwrap_or_else(|_| json!({})),
             stale_minutes.saturating_mul(60),
         )
         .await;
         let _ = store::insert_audit_log(
             pool,
-            tenant_id,
-            business_id,
+            tenant.tenant_id,
+            tenant.business_id,
             actor_id,
             if actor_id.is_some() { "user" } else { "system" },
             "engine_materialize",
             "companion_autonomy",
-            &format!("tenant:{}", tenant_id),
+            &format!("tenant:{}", tenant.tenant_id),
             &serde_json::json!({ "snapshot": "queue" }),
         )
         .await;
@@ -120,17 +132,17 @@ pub async fn materialize(
 
 pub async fn run_agent_for_work_item(
     pool: &SqlitePool,
-    tenant_id: i64,
+    tenant: TenantContext,
     agent_name: AgentName,
     work_item_id: i64,
 ) -> Result<(), String> {
-    if let Ok(Some(settings)) = store::fetch_ai_settings(pool, tenant_id).await {
+    if let Ok(Some(settings)) = store::fetch_ai_settings(pool, tenant.business_id).await {
         if !settings.ai_enabled || settings.kill_switch {
             return Ok(());
         }
     }
-    let ctx = build_context(pool, tenant_id)?;
-    ensure_policy_row(pool, tenant_id, &ctx).await?;
+    let ctx = build_context(pool, tenant)?;
+    ensure_policy_row(pool, tenant.tenant_id, &ctx).await?;
     let output = run_agent_with_record(&ctx, agent_name, Some(work_item_id)).await?;
     apply_agent_output(pool, &output).await?;
     Ok(())
@@ -138,16 +150,16 @@ pub async fn run_agent_for_work_item(
 
 pub async fn run_agent_for_tenant(
     pool: &SqlitePool,
-    tenant_id: i64,
+    tenant: TenantContext,
     agent_name: AgentName,
 ) -> Result<(), String> {
-    if let Ok(Some(settings)) = store::fetch_ai_settings(pool, tenant_id).await {
+    if let Ok(Some(settings)) = store::fetch_ai_settings(pool, tenant.business_id).await {
         if !settings.ai_enabled || settings.kill_switch {
             return Ok(());
         }
     }
-    let ctx = build_context(pool, tenant_id)?;
-    ensure_policy_row(pool, tenant_id, &ctx).await?;
+    let ctx = build_context(pool, tenant)?;
+    ensure_policy_row(pool, tenant.tenant_id, &ctx).await?;
     let output = run_agent_with_record(&ctx, agent_name, None).await?;
     apply_agent_output(pool, &output).await?;
     Ok(())
@@ -164,13 +176,13 @@ pub async fn run_worker(pool: &SqlitePool, once: bool, limit: i64) -> Result<(),
             continue;
         }
 
-        for (run_id, tenant_id, agent_name) in runs {
-            if let Ok(Some(settings)) = store::fetch_ai_settings(pool, tenant_id).await {
+        for (run_id, tenant_id, business_id, agent_name) in runs {
+            if let Ok(Some(settings)) = store::fetch_ai_settings(pool, business_id).await {
                 if !settings.ai_enabled || settings.kill_switch {
                     continue;
                 }
             }
-            let ctx = build_context(pool, tenant_id)?;
+            let ctx = build_context(pool, TenantContext { tenant_id, business_id })?;
             ensure_policy_row(pool, tenant_id, &ctx).await?;
             if let Some(agent) = agent_from_str(&agent_name) {
                 store::mark_agent_run_started(pool, run_id)
@@ -204,13 +216,13 @@ pub async fn run_worker(pool: &SqlitePool, once: bool, limit: i64) -> Result<(),
     Ok(())
 }
 
-fn build_context(pool: &SqlitePool, tenant_id: i64) -> Result<AgentContext, String> {
+fn build_context(pool: &SqlitePool, tenant: TenantContext) -> Result<AgentContext, String> {
     let policy = PolicyConfig::from_env();
     let tool_gateway = ToolGateway::new(pool.clone());
     Ok(AgentContext {
         pool: pool.clone(),
-        tenant_id,
-        business_id: tenant_id,
+        tenant_id: tenant.tenant_id,
+        business_id: tenant.business_id,
         policy,
         tool_gateway,
     })
@@ -349,14 +361,16 @@ pub async fn apply_agent_output(
             seed.status = "waiting_approval".to_string();
         }
 
-        let work_item = store::upsert_work_item(pool, &seed)
+        let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+
+        let work_item = store::upsert_work_item_tx(&mut tx, &seed)
             .await
             .map_err(|e| e.to_string())?;
 
         let recommendations = default_recommendations(&seed);
         for rec in &recommendations {
-            store::upsert_action_recommendation(
-                pool,
+            store::upsert_action_recommendation_tx(
+                &mut tx,
                 work_item.id,
                 rec,
                 seed.tenant_id,
@@ -373,8 +387,8 @@ pub async fn apply_agent_output(
             &output.signals,
             &evidence_refs,
         );
-        store::insert_rationale_card(
-            pool,
+        store::insert_rationale_card_tx(
+            &mut tx,
             work_item.id,
             seed.tenant_id,
             seed.business_id,
@@ -384,8 +398,8 @@ pub async fn apply_agent_output(
         .await
         .map_err(|e| e.to_string())?;
 
-        let claim_id = store::insert_claim(
-            pool,
+        let claim_id = store::insert_claim_tx(
+            &mut tx,
             seed.tenant_id,
             seed.business_id,
             work_item.id,
@@ -399,8 +413,8 @@ pub async fn apply_agent_output(
 
         for evidence_ref in &evidence_refs {
             let url = format!("internal://{}", evidence_ref);
-            let evidence_id = store::insert_evidence(
-                pool,
+            let evidence_id = store::insert_evidence_tx(
+                &mut tx,
                 seed.tenant_id,
                 seed.business_id,
                 work_item.id,
@@ -411,13 +425,13 @@ pub async fn apply_agent_output(
             )
             .await
             .map_err(|e| e.to_string())?;
-            store::link_claim_evidence(pool, claim_id, evidence_id)
+            store::link_claim_evidence_tx(&mut tx, claim_id, evidence_id)
                 .await
                 .map_err(|e| e.to_string())?;
         }
 
-        store::insert_audit_log(
-            pool,
+        store::insert_audit_log_tx(
+            &mut tx,
             seed.tenant_id,
             seed.business_id,
             None,
@@ -429,6 +443,8 @@ pub async fn apply_agent_output(
         )
         .await
         .map_err(|e| e.to_string())?;
+
+        tx.commit().await.map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -469,9 +485,12 @@ fn seed_evidence_refs(seed: &WorkItemSeed) -> Vec<String> {
     refs
 }
 
-async fn fetch_queued_runs(pool: &SqlitePool, limit: i64) -> Result<Vec<(i64, i64, String)>, sqlx::Error> {
+async fn fetch_queued_runs(
+    pool: &SqlitePool,
+    limit: i64,
+) -> Result<Vec<(i64, i64, i64, String)>, sqlx::Error> {
     sqlx::query_as(
-        "SELECT id, tenant_id, agent_name
+        "SELECT id, tenant_id, business_id, agent_name
          FROM companion_autonomy_agent_runs
          WHERE status = 'queued'
          ORDER BY created_at ASC
@@ -549,7 +568,16 @@ mod tests {
         schema::run_migrations(&pool).await.unwrap();
         seed_core_bank_data(&pool, 1).await;
 
-        tick(&pool, vec![1], None).await.unwrap();
+        tick(
+            &pool,
+            vec![TenantContext {
+                tenant_id: 1,
+                business_id: 1,
+            }],
+            None,
+        )
+        .await
+        .unwrap();
 
         let job_count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM companion_autonomy_jobs WHERE tenant_id = ?"
@@ -575,9 +603,28 @@ mod tests {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         schema::run_migrations(&pool).await.unwrap();
         seed_core_bank_data(&pool, 1).await;
-        tick(&pool, vec![1], None).await.unwrap();
+        tick(
+            &pool,
+            vec![TenantContext {
+                tenant_id: 1,
+                business_id: 1,
+            }],
+            None,
+        )
+        .await
+        .unwrap();
 
-        materialize(&pool, vec![1], 10, None).await.unwrap();
+        materialize(
+            &pool,
+            vec![TenantContext {
+                tenant_id: 1,
+                business_id: 1,
+            }],
+            10,
+            None,
+        )
+        .await
+        .unwrap();
 
         let snapshot_count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM companion_autonomy_queue_snapshot WHERE tenant_id = ?"
@@ -587,5 +634,57 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(snapshot_count, 1);
+    }
+
+    #[tokio::test]
+    async fn apply_agent_output_rolls_back_on_failure() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        schema::run_migrations(&pool).await.unwrap();
+
+        sqlx::query("DROP TABLE companion_autonomy_rationale_cards")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let seed = WorkItemSeed {
+            tenant_id: 1,
+            business_id: 2,
+            work_type: "match_bank".to_string(),
+            surface: "bank".to_string(),
+            status: "open".to_string(),
+            priority: 60,
+            dedupe_key: "match_bank:1".to_string(),
+            inputs: json!({ "transaction_id": 1 }),
+            state: json!({}),
+            due_at: None,
+            snoozed_until: None,
+            risk_level: "low".to_string(),
+            confidence_score: 0.8,
+            requires_approval: false,
+            customer_title: "Title".to_string(),
+            customer_summary: "Summary".to_string(),
+            internal_title: "Internal".to_string(),
+            internal_notes: "Notes".to_string(),
+            links: json!({ "target_url": "/banking" }),
+        };
+
+        let output = AgentOutput {
+            signals: vec![],
+            recommendations: vec![],
+            evidence_refs: vec![],
+            work_items: vec![seed],
+        };
+
+        let result = apply_agent_output(&pool, &output).await;
+        assert!(result.is_err());
+
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM companion_autonomy_work_items WHERE tenant_id = ?"
+        )
+        .bind(1)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 0);
     }
 }
