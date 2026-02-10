@@ -4,6 +4,7 @@ use axum::{extract::{Path, State}, Json};
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use sqlx::{query, query_as};
+use uuid::Uuid;
 
 use crate::{
     error::{AppError, AppResult},
@@ -68,7 +69,8 @@ async fn pay_bill(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> AppResult<Json<PaymentResponse>> {
-    let bill_id = id.parse().map_err(|_| AppError::Validation("invalid bill id".to_string()))?;
+    let bill_id = Uuid::parse_str(&id)
+        .map_err(|_| AppError::Validation("invalid bill id".to_string()))?;
 
     let mut tx = state.db.begin().await?;
 

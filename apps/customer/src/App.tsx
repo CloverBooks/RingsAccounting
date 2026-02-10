@@ -1,4 +1,4 @@
-import React, { Suspense } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { CustomerLayout } from "./layouts/CustomerLayout";
@@ -9,6 +9,9 @@ import CloverBooksLoginPage from "./auth/LoginPage";
 import CloverBooksWelcomePage from "./auth/CloverBooksWelcomePage";
 import CloverBooksCreateAccount from "./auth/CloverBooksCreateAccount";
 import OAuthCallbackPage from "./auth/OAuthCallbackPage";
+import type { ChartOfAccountsBootPayload } from "./ChartOfAccountsPage";
+import { qboDefaultCoaPayload } from "./coa/qboDefaultCoa";
+import { buildApiUrl, fetchWithTimeout } from "./api/client";
 
 const LazyCompanionControlTowerPage = React.lazy(() => import("./companion/CompanionControlTowerPage"));
 const LazyCompanionOverviewPage = React.lazy(() => import("./companion/CompanionOverviewPage"));
@@ -21,7 +24,6 @@ const LazyTaxSettingsPage = React.lazy(() => import("./companion/TaxSettingsPage
 const LazyInvoicesPage = React.lazy(() => import("./invoices/InvoicesPage"));
 const LazyInvoicesListPage = React.lazy(() => import("./invoices/InvoicesListPage"));
 const LazyExpensesListPage = React.lazy(() => import("./expenses/ExpensesListPage"));
-const LazyReceiptsPage = React.lazy(() => import("./receipts/ReceiptsPage"));
 const LazyCustomersPage = React.lazy(() => import("./customers/CustomersPage"));
 const LazySuppliersPage = React.lazy(() => import("./suppliers/SuppliersPage"));
 const LazyProductsPage = React.lazy(() => import("./products/ProductsPage"));
@@ -80,32 +82,73 @@ const DashboardRoute: React.FC = () => {
   return <CloverBooksDashboard username={username} />;
 };
 
+const LegacyCompanionRedirect: React.FC = () => {
+  const location = useLocation();
+  const legacyPrefix = "/ai-companion";
+  const suffix = location.pathname.startsWith(legacyPrefix)
+    ? location.pathname.slice(legacyPrefix.length)
+    : "";
+  const rawTarget = `/companion${suffix}`;
+  const targetPath = rawTarget.replace(/\/{2,}/g, "/").replace(/\/$/, "") || "/companion";
+  return <Navigate to={`${targetPath}${location.search}`} replace />;
+};
+
 const CashflowReportRoute: React.FC = () => <LazyCashflowReportPage {...cashflowSample} />;
 const CashflowReportPrintRoute: React.FC = () => <LazyCashflowReportPrintPage {...cashflowSample} />;
 const ProfitAndLossReportRoute: React.FC = () => <LazyProfitAndLossReportPage {...profitAndLossSample} />;
 
-// Mock data for Chart of Accounts page
-const mockCOAPayload = {
-  accounts: [
-    { id: 1, code: "1000", name: "Cash", type: "ASSET" as const, detailType: "Cash and Cash Equivalents", isActive: true, balance: 45250.00, favorite: true },
-    { id: 2, code: "1100", name: "Accounts Receivable", type: "ASSET" as const, detailType: "Accounts Receivable", isActive: true, balance: 12500.00, favorite: false },
-    { id: 3, code: "1200", name: "Inventory", type: "ASSET" as const, detailType: "Inventory", isActive: true, balance: 8750.00, favorite: false },
-    { id: 4, code: "2000", name: "Accounts Payable", type: "LIABILITY" as const, detailType: "Accounts Payable", isActive: true, balance: 5200.00, favorite: false },
-    { id: 5, code: "2100", name: "Credit Card", type: "LIABILITY" as const, detailType: "Credit Card", isActive: true, balance: 1500.00, favorite: false },
-    { id: 6, code: "3000", name: "Owner's Equity", type: "EQUITY" as const, detailType: "Owner's Equity", isActive: true, balance: 50000.00, favorite: false },
-    { id: 7, code: "3100", name: "Retained Earnings", type: "EQUITY" as const, detailType: "Retained Earnings", isActive: true, balance: 8500.00, favorite: true },
-    { id: 8, code: "4000", name: "Sales Revenue", type: "INCOME" as const, detailType: "Sales", isActive: true, balance: 125000.00, favorite: true },
-    { id: 9, code: "4100", name: "Service Revenue", type: "INCOME" as const, detailType: "Service/Fee Income", isActive: true, balance: 35000.00, favorite: false },
-    { id: 10, code: "5000", name: "Cost of Goods Sold", type: "EXPENSE" as const, detailType: "Cost of Goods Sold", isActive: true, balance: 62000.00, favorite: false },
-    { id: 11, code: "6000", name: "Rent Expense", type: "EXPENSE" as const, detailType: "Rent or Lease", isActive: true, balance: 18000.00, favorite: false },
-    { id: 12, code: "6100", name: "Utilities", type: "EXPENSE" as const, detailType: "Utilities", isActive: true, balance: 4200.00, favorite: false },
-    { id: 13, code: "6200", name: "Salaries & Wages", type: "EXPENSE" as const, detailType: "Payroll Expenses", isActive: true, balance: 85000.00, favorite: true },
-  ],
-  currencyCode: "USD",
+const ChartOfAccountsRoute: React.FC = () => {
+  const [payload, setPayload] = useState<ChartOfAccountsBootPayload>(qboDefaultCoaPayload);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let aborted = false;
+    setIsLoading(true);
+
+    fetchWithTimeout(buildApiUrl("/api/chart-of-accounts/"), {
+      headers: { Accept: "application/json" },
+      credentials: "include",
+    }, 12_000)
+      .then(async (res) => {
+        if (!res.ok) {
+          throw new Error(`Failed to load chart of accounts (${res.status})`);
+        }
+        const data = await res.json();
+        if (aborted) return;
+        setPayload({
+          accounts: Array.isArray(data?.accounts) ? data.accounts : [],
+          currencyCode: typeof data?.currencyCode === "string" ? data.currencyCode : "USD",
+          totalsByType: typeof data?.totalsByType === "object" && data?.totalsByType ? data.totalsByType : {},
+        });
+      })
+      .catch((error) => {
+        if (aborted) {
+          return;
+        }
+        if (window.console) {
+          console.warn("Chart of accounts API unavailable, using fallback payload.", error);
+        }
+      })
+      .finally(() => {
+        if (!aborted) {
+          setIsLoading(false);
+        }
+      });
+    return () => {
+      aborted = true;
+    };
+  }, []);
+
+  if (isLoading && payload.accounts.length === 0) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-slate-600">
+        Loading chart of accounts...
+      </div>
+    );
+  }
+
+  return <LazyChartOfAccountsPage payload={payload} newAccountUrl="/chart-of-accounts/new" />;
 };
-const ChartOfAccountsRoute: React.FC = () => (
-  <LazyChartOfAccountsPage payload={mockCOAPayload} newAccountUrl="/chart-of-accounts/new" />
-);
 
 // Route wrappers for pages with required props
 const InvoicesRoute: React.FC = () => <LazyInvoicesPage defaultCurrency="USD" />;
@@ -176,6 +219,7 @@ export const AppRoutes: React.FC = () => (
       >
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<DashboardRoute />} />
+        <Route path="/ai-companion/*" element={<LegacyCompanionRedirect />} />
         <Route path="/companion" element={<LazyCompanionControlTowerPage />} />
         <Route path="/companion/overview" element={<LazyCompanionOverviewPage />} />
         <Route path="/companion/issues" element={<LazyCompanionIssuesPage />} />
@@ -187,7 +231,6 @@ export const AppRoutes: React.FC = () => (
         <Route path="/invoices" element={<InvoicesRoute />} />
         <Route path="/invoices/list" element={<LazyInvoicesListPage />} />
         <Route path="/expenses" element={<LazyExpensesListPage />} />
-        <Route path="/receipts" element={<LazyReceiptsPage />} />
         <Route path="/customers" element={<LazyCustomersPage />} />
         <Route path="/suppliers" element={<LazySuppliersPage />} />
         <Route path="/products" element={<LazyProductsPage />} />
@@ -200,6 +243,8 @@ export const AppRoutes: React.FC = () => (
         <Route path="/reports/pl" element={<ProfitAndLossReportRoute />} />
         <Route path="/reports/cashflow" element={<CashflowReportRoute />} />
         <Route path="/reports/cashflow/print" element={<CashflowReportPrintRoute />} />
+        <Route path="/accounts" element={<Navigate to="/chart-of-accounts" replace />} />
+        <Route path="/accounts/" element={<Navigate to="/chart-of-accounts" replace />} />
         <Route path="/chart-of-accounts" element={<ChartOfAccountsRoute />} />
         <Route path="/journal" element={<LazyJournalEntriesPage />} />
         <Route path="/transactions" element={<LazyTransactionsPage />} />

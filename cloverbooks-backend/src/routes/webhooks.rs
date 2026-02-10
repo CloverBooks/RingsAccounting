@@ -92,7 +92,7 @@ fn extract_signature(headers: &HeaderMap) -> AppResult<&str> {
 }
 
 fn verify_signature(secret: &str, body: &[u8], signature: &str) -> bool {
-    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes());
+    let mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes());
     if mac.is_err() {
         return false;
     }

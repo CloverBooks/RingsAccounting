@@ -90,10 +90,16 @@ class Account(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     business_id: Mapped[int] = mapped_column(ForeignKey("businesses.id"), nullable=False)
     code: Mapped[str] = mapped_column(String(20), default="")
+    account_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     type: Mapped[str] = mapped_column(String(10), nullable=False)  # ASSET/LIABILITY/EQUITY/INCOME/EXPENSE
+    detail_type: Mapped[str] = mapped_column(String(100), default="")
+    classification: Mapped[str] = mapped_column(String(50), default="")
+    system_account_kind: Mapped[str | None] = mapped_column(String(50), nullable=True)
     parent_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_favorite: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_suspense: Mapped[bool] = mapped_column(Boolean, default=False)
     description: Mapped[str] = mapped_column(Text, default="")
     legacy_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
 
