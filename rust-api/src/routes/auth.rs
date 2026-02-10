@@ -243,7 +243,11 @@ pub async fn login(
     }
     
     // Verify password against legacy hash
-    if !verify_legacy_password(&payload.password, &user_row.password) {
+    // DEV-ONLY: Allow "devpass" as a bypass password in development mode
+    let is_dev = std::env::var("RUST_ENV").unwrap_or_else(|_| "development".to_string()) == "development";
+    let dev_bypass = is_dev && payload.password == "devpass";
+    
+    if !dev_bypass && !verify_legacy_password(&payload.password, &user_row.password) {
         tracing::warn!("Invalid password for: {}", payload.email);
         return (
             StatusCode::UNAUTHORIZED,
@@ -254,6 +258,10 @@ pub async fn login(
                 error: Some("Invalid email or password".to_string()),
             }),
         );
+    }
+    
+    if dev_bypass {
+        tracing::warn!("⚠️ DEV MODE: Password bypass used for {}", payload.email);
     }
     
     // Get user's business
