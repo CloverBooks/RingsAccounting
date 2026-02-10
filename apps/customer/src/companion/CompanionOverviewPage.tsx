@@ -76,7 +76,7 @@ interface SurfaceConfig {
 // --- SURFACE CONFIG -------------------------------------------------------
 
 const surfaceConfigs: SurfaceConfig[] = [
-  { key: "receipts", title: "Receipts", icon: FileText, href: "/receipts" },
+  { key: "receipts", title: "Receipts", icon: FileText, href: "/expenses" },
   { key: "invoices", title: "Invoices", icon: CreditCard, href: "/invoices/ai/" },
   { key: "books_review", title: "Books Review", icon: BookOpen, href: "/books-review" },
   { key: "bank_review", title: "Bank Review", icon: Landmark, href: "/bank-review" },
@@ -835,7 +835,7 @@ const CompanionOverviewPage: React.FC = () => {
                         </div>
                       </div>
                       <a
-                        href="/receipts"
+                        href="/expenses"
                         className="px-4 py-2 bg-white border border-slate-200 text-slate-700 text-xs font-semibold rounded-lg hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 transition-all shadow-sm"
                       >
                         Review Now

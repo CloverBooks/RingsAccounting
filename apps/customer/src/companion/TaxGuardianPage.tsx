@@ -339,7 +339,9 @@ const TaxGuardianPage: React.FC = () => {
       if (statusFilter !== "all" && a.status !== statusFilter) return false;
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
-        return a.code.toLowerCase().includes(q) || a.description.toLowerCase().includes(q);
+        const code = String(a.code || "").toLowerCase();
+        const description = String(a.description || "").toLowerCase();
+        return code.includes(q) || description.includes(q);
       }
       return true;
     });
@@ -628,7 +630,7 @@ const TaxGuardianPage: React.FC = () => {
         <header className="mb-10 flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-xs font-medium text-slate-400">
-              <Link to="/ai-companion" className="hover:text-slate-600">Overview</Link>
+              <Link to="/companion" className="hover:text-slate-600">Overview</Link>
               <span className="text-slate-300">/</span>
               <span className="text-slate-600">Tax Guardian</span>
             </div>
