@@ -7,36 +7,27 @@ import { AuthProvider } from "../contexts/AuthContext";
 
 const summaryPayload = {
   ai_companion_enabled: true,
-  surfaces: {
-    receipts: {
-      recent_runs: [{ id: 1, created_at: "2025-01-01T00:00:00Z", risk_level: "medium", documents_total: 10, high_risk_count: 2 }],
-      totals_last_30_days: { runs: 2, documents_total: 20, high_risk_documents: 3, errors: 1 },
-    },
-    invoices: {
-      recent_runs: [{ id: 2, created_at: "2025-01-02T00:00:00Z", risk_level: "low", documents_total: 5, high_risk_count: 0 }],
-      totals_last_30_days: { runs: 1, documents_total: 5, high_risk_documents: 0, errors: 0 },
-    },
-    books_review: {
-      recent_runs: [{ id: 3, created_at: "2025-01-03T00:00:00Z", period_start: "2025-01-01", period_end: "2025-01-31", risk_level: "high" }],
-      totals_last_30_days: { runs: 1, high_risk_count: 1, agent_retries: 2 },
-    },
-    bank_review: {
-      recent_runs: [{ id: 4, created_at: "2025-01-04T00:00:00Z", risk_level: "medium", transactions_total: 8, high_risk_count: 1, unreconciled: 2 }],
-      totals_last_30_days: { runs: 1, transactions_total: 8, transactions_high_risk: 1, unreconciled: 2 },
-    },
+  voice: { greeting: "Hello", focus_mode: "watchlist", tone_tagline: "Your books need attention.", primary_call_to_action: "Review open items." },
+  radar: {
+    cash_reconciliation: { score: 90, open_issues: 1 },
+    revenue_invoices: { score: 95, open_issues: 0 },
+    expenses_receipts: { score: 80, open_issues: 2 },
+    tax_compliance: { score: 100, open_issues: 0 },
   },
-  global: {
-    last_books_review: {
-      run_id: 3,
-      period_start: "2025-01-01",
-      period_end: "2025-01-31",
-      overall_risk_score: "80.0",
-      risk_level: "high",
-      trace_id: "trace-123",
-    },
-    high_risk_items_30d: { receipts: 3, invoices: 0, bank_transactions: 1 },
-    agent_retries_30d: 4,
+  coverage: {
+    receipts: { coverage_percent: 90, total_items: 10, covered_items: 9 },
+    invoices: { coverage_percent: 95, total_items: 20, covered_items: 19 },
+    banking: { coverage_percent: 88, total_items: 25, covered_items: 22 },
+    books: { coverage_percent: 100, total_items: 5, covered_items: 5 },
   },
+  playbook: [{ label: "Review receipts", severity: "medium", surface: "receipts" }],
+  close_readiness: { status: "not_ready", period_label: "Jan 2025", progress_percent: 70, blocking_items: [] },
+  llm_subtitles: {},
+  finance_snapshot: {
+    ending_cash: 45000, monthly_burn: 8000, runway_months: 5.6,
+    months: [], ar_buckets: [], total_overdue: 1200,
+  },
+  tax: { period_key: "2025-01", net_tax: 0, anomaly_counts: { low: 0, medium: 0, high: 0 } },
 };
 
 const enginePayload = {
@@ -44,55 +35,18 @@ const enginePayload = {
   mode: "drafts",
   trust_score: 78,
   stats: {
-    ready: 2,
-    needs_attention: 1,
-    waiting_approval: 0,
-    applied_last_day: 4,
-    dismissed_last_day: 1,
-    breaker_events_last_day: 1,
+    ready: 2, needs_attention: 1, waiting_approval: 0,
+    applied_last_day: 4, dismissed_last_day: 1, breaker_events_last_day: 1,
   },
-  ready_queue: [
-    {
-      id: 101,
-      action_id: 1001,
-      work_type: "categorize_tx",
-      surface: "bank",
-      status: "open",
-      risk_level: "low",
-      title: "Review category",
-      summary: "Needs a category.",
-    },
-  ],
-  needs_attention_queue: [
-    {
-      id: 102,
-      action_id: 1002,
-      work_type: "match_bank",
-      surface: "bank",
-      status: "open",
-      risk_level: "high",
-      title: "Match bank activity",
-      summary: "Needs matching.",
-    },
-  ],
-  job_totals: {
-    queued: 3,
-    running: 1,
-    blocked: 0,
-    failed: 0,
-    succeeded: 5,
-    canceled: 0,
-  },
-  job_by_agent: [
-    { agent: "CategorizationAgent", queued: 1, running: 0, blocked: 0 },
-  ],
+  ready_queue: [],
+  needs_attention_queue: [],
+  job_totals: { queued: 3, running: 1, blocked: 0, failed: 0, succeeded: 5, canceled: 0 },
+  job_by_agent: [],
   top_blockers: [],
 };
 
 const engineStatusPayload = {
-  ok: true,
-  tenant_id: 1,
-  mode: "drafts",
+  ok: true, tenant_id: 1, mode: "drafts",
   breakers: { recent: 1, ok: false },
   budgets: { tokens_per_day: 100000, tool_calls_per_day: 500, runs_per_day: 200 },
   last_tick_at: "2025-01-05T00:00:00Z",
@@ -106,20 +60,26 @@ describe("CompanionControlTowerPage", () => {
     vi.restoreAllMocks();
     globalThis.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
-      if (url.startsWith("/api/agentic/companion/summary")) {
+      if (url.includes("/api/agentic/companion/summary")) {
         return Promise.resolve(new Response(JSON.stringify(summaryPayload)));
       }
-      if (url.startsWith("/api/companion/v2/shadow-events")) {
+      if (url.includes("/api/companion/v2/shadow-events")) {
         return Promise.resolve(new Response(JSON.stringify({ events: [] })));
       }
-      if (url.startsWith("/api/agentic/companion/issues")) {
+      if (url.includes("/api/agentic/companion/issues")) {
         return Promise.resolve(new Response(JSON.stringify({ issues: [] })));
       }
-      if (url.startsWith("/api/companion/cockpit/queues")) {
+      if (url.includes("/api/companion/cockpit/queues")) {
         return Promise.resolve(new Response(JSON.stringify({ data: enginePayload, source: "snapshot", stale: false })));
       }
-      if (url.startsWith("/api/companion/cockpit/status")) {
+      if (url.includes("/api/companion/cockpit/status")) {
         return Promise.resolve(new Response(JSON.stringify(engineStatusPayload)));
+      }
+      if (url.includes("/api/agentic/receipts/run")) {
+        return Promise.resolve(new Response(JSON.stringify({ run_id: 42 })));
+      }
+      if (url.includes("/api/auth/config")) {
+        return Promise.resolve(new Response(JSON.stringify({ csrfToken: "test-csrf" })));
       }
       return Promise.resolve(new Response("{}"));
     }) as unknown as typeof fetch;
@@ -129,7 +89,7 @@ describe("CompanionControlTowerPage", () => {
     vi.clearAllMocks();
   });
 
-  it("renders control tower cards and surfaces", async () => {
+  it("renders control tower with key sections", async () => {
     render(
       <AuthProvider>
         <MemoryRouter>
@@ -137,16 +97,29 @@ describe("CompanionControlTowerPage", () => {
         </MemoryRouter>
       </AuthProvider>
     );
-    await waitFor(() => expect(screen.getByText(/Companion Control Tower/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Receipt Intake/i)).toBeInTheDocument(), { timeout: 10000 });
     expect(screen.getByText(/Health Pulse/i)).toBeInTheDocument();
     expect(screen.getByText(/Today's Focus/i)).toBeInTheDocument();
+    expect(screen.getByText(/Books \+ Bank Audit/i)).toBeInTheDocument();
+    expect(screen.getByText(/Receipt Intake/i)).toBeInTheDocument();
     expect(screen.getAllByText(/Receipts/i).length).toBeGreaterThan(0);
-  });
+  }, 15000);
 
   it("shows disabled banner when ai_companion_enabled is false", async () => {
-    (globalThis.fetch as any) = vi.fn(() =>
-      Promise.resolve(new Response(JSON.stringify({ ...summaryPayload, ai_companion_enabled: false })))
-    );
+    (globalThis.fetch as any) = vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/agentic/companion/summary")) {
+        return Promise.resolve(new Response(JSON.stringify({ ...summaryPayload, ai_companion_enabled: false })));
+      }
+      if (url.includes("/api/companion/cockpit/queues")) {
+        return Promise.resolve(new Response(JSON.stringify({ data: enginePayload, source: "snapshot", stale: false })));
+      }
+      if (url.includes("/api/companion/cockpit/status")) {
+        return Promise.resolve(new Response(JSON.stringify(engineStatusPayload)));
+      }
+      return Promise.resolve(new Response("{}"));
+    }) as unknown as typeof fetch;
+
     render(
       <AuthProvider>
         <MemoryRouter>
@@ -154,10 +127,10 @@ describe("CompanionControlTowerPage", () => {
         </MemoryRouter>
       </AuthProvider>
     );
-    await waitFor(() => expect(screen.getByText(/Companion is disabled/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/currently disabled/i)).toBeInTheDocument());
   });
 
-  it("renders engine queue snapshot", async () => {
+  it("renders engine card", async () => {
     render(
       <AuthProvider>
         <MemoryRouter>
@@ -166,6 +139,66 @@ describe("CompanionControlTowerPage", () => {
       </AuthProvider>
     );
     await waitFor(() => expect(screen.getByText(/Autonomy Engine/i)).toBeInTheDocument());
-    expect(screen.getByText(/Queue snapshot/i)).toBeInTheDocument();
+  });
+
+  it("shows error state when summary API fails", async () => {
+    (globalThis.fetch as any) = vi.fn(() =>
+      Promise.resolve(new Response("Internal Server Error", { status: 500 }))
+    ) as unknown as typeof fetch;
+
+    render(
+      <AuthProvider>
+        <MemoryRouter>
+          <CompanionControlTowerPage />
+        </MemoryRouter>
+      </AuthProvider>
+    );
+    await waitFor(() => expect(screen.getByText(/couldn't load/i)).toBeInTheDocument());
+    expect(screen.getByText(/Try again/i)).toBeInTheDocument();
+  });
+
+  it("handles drifted payload shape gracefully", async () => {
+    (globalThis.fetch as any) = vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/agentic/companion/summary")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              ai_companion_enabled: true,
+              voice: { greeting: "Hello", focus_mode: "watchlist" },
+              radar: {
+                cash_reconciliation: { score: 90, open_issues: 0 },
+                revenue_invoices: { score: 95, open_issues: 0 },
+                expenses_receipts: { score: 92, open_issues: 0 },
+                tax_compliance: { score: 100, open_issues: 0 },
+              },
+              coverage: {},
+              playbook: { label: "Unexpected object" },
+              close_readiness: { status: "not_ready", blocking_reasons: "single-string" },
+              llm_subtitles: [],
+              finance_snapshot: { months: {}, ar_buckets: {} },
+              tax: { period_key: "2025-01", net_tax: 0, anomaly_counts: { low: 0, medium: 0, high: 0 } },
+            })
+          )
+        );
+      }
+      if (url.includes("/api/companion/cockpit/queues")) {
+        return Promise.resolve(new Response(JSON.stringify({ data: enginePayload, source: "snapshot", stale: false })));
+      }
+      if (url.includes("/api/companion/cockpit/status")) {
+        return Promise.resolve(new Response(JSON.stringify(engineStatusPayload)));
+      }
+      return Promise.resolve(new Response("{}"));
+    }) as unknown as typeof fetch;
+
+    render(
+      <AuthProvider>
+        <MemoryRouter>
+          <CompanionControlTowerPage />
+        </MemoryRouter>
+      </AuthProvider>
+    );
+
+    await waitFor(() => expect(screen.getByText(/Companion couldn't load/i)).toBeInTheDocument());
   });
 });

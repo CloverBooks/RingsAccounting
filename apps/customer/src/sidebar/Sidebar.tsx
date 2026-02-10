@@ -9,9 +9,7 @@ import {
     FileText,
     LifeBuoy,
     LogOut,
-    Package,
     Plus,
-    Receipt,
     Search,
     Settings,
     Sparkles,
@@ -31,7 +29,7 @@ import {
 import { useAuth } from "../contexts/AuthContext";
 
 // -----------------------------------------------------------------------------
-// Clover Sidebar v2.4 — GREY / SILVER edition
+// Clover Sidebar v2.4 -- GREY / SILVER edition
 // - Grey gradient accents only
 // - Nearly-invisible binary numbers in the background
 // - Calm, usable animations
@@ -232,9 +230,8 @@ export function CloverSidebar({
                 defaultOpen: true,
                 items: [
                     { id: "customers", label: "Customers", icon: Users, href: "/customers/" },
-                    { id: "products", label: "Products & Services", icon: Boxes, href: "/products/" },
-                    { id: "inventory", label: "Inventory", icon: Package, href: "/inventory/" },
-                    { id: "invoices", label: "Invoices", icon: FileText, href: "/invoices/" },
+                    { id: "products", label: "Items & Inventory", icon: Boxes, href: "/products/" },
+                    { id: "invoices", label: "Invoices", icon: FileText, href: "/invoices/list/" },
                 ],
             },
             {
@@ -244,8 +241,7 @@ export function CloverSidebar({
                 items: [
                     { id: "suppliers", label: "Suppliers", icon: Wallet, href: "/suppliers/" },
                     { id: "expenses_list", label: "Expenses", icon: CreditCard, href: "/expenses/" },
-                    { id: "receipts", label: "Receipts", icon: Receipt, hint: "Upload & match", href: "/receipts/" },
-                    { id: "companion", label: "Companion", icon: Bot, hint: "Control tower", href: "/ai-companion/" },
+                    { id: "companion", label: "Companion", icon: Bot, hint: "Control tower", href: "/companion" },
                     { id: "categories", label: "Categories", icon: FolderOpen, href: "/categories/" },
                 ],
             },
@@ -265,8 +261,8 @@ export function CloverSidebar({
                 items: [
                     { id: "pl_report", label: "Profit & Loss", icon: FileText, href: "/reports/pl-shadow/" },
                     { id: "cashflow_report", label: "Cashflow", icon: BarChart3, href: "/reports/cashflow/" },
-                    { id: "tax_guardian", label: "Tax Guardian", icon: Sparkles, href: "/ai-companion/tax" },
-                    { id: "chart_of_accounts", label: "Chart of Accounts", icon: FolderOpen, href: "/accounts/" },
+                    { id: "tax_guardian", label: "Tax Guardian", icon: Sparkles, href: "/companion/tax" },
+                    { id: "chart_of_accounts", label: "Chart of Accounts", icon: FolderOpen, href: "/chart-of-accounts" },
                 ],
             },
             {
@@ -362,7 +358,7 @@ export function CloverSidebar({
                                         "shadow-sm hover:bg-white focus:outline-none focus:ring-2 focus:ring-slate-300"
                                     )}
                                     aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-                                    title={collapsed ? "Expand (⌘/Ctrl+B)" : "Collapse (⌘/Ctrl+B)"}
+                                    title={collapsed ? "Expand (Cmd/Ctrl+B)" : "Collapse (Cmd/Ctrl+B)"}
                                 >
                                     {collapsed ? (
                                         <ChevronRight className="h-4 w-4" />
@@ -381,7 +377,7 @@ export function CloverSidebar({
                                     ref={searchRef}
                                     value={query}
                                     onChange={(e) => setQuery(e.target.value)}
-                                    placeholder="Search…  (⌘/Ctrl+K)"
+                                    placeholder="Search...  (Cmd/Ctrl+K)"
                                     className={cn(
                                         "w-full rounded-2xl border border-slate-200/70 bg-white/70",
                                         "py-2.5 pl-9 pr-3 text-sm text-slate-800 placeholder:text-slate-400",
@@ -652,3 +648,8 @@ function NavItemRow({
 }
 
 export default CloverSidebar;
+
+
+
+
+
