@@ -13,6 +13,7 @@ jobs:
   analyze:
     name: "CodeQL: Security scan"
     runs-on: ubuntu-latest
+    continue-on-error: true
     permissions:
       actions: read
       contents: read

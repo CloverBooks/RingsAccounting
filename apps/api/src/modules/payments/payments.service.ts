@@ -59,7 +59,7 @@ export class PaymentsService {
         currency: dto.currency,
         status: PAYMENT_INTENT_STATUS.CREATED,
         idempotency_key: crypto.randomUUID(),
-        metadata: dto.metadata ?? {},
+        metadata: (dto.metadata ?? {}) as any,
       },
     });
 
