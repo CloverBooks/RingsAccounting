@@ -422,7 +422,7 @@ pub async fn resolve_issue(
 pub async fn list_audits(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(params): Query<AuditQuery>,
+    Query(_params): Query<AuditQuery>,
 ) -> impl IntoResponse {
     let business_id = match require_business_id(&headers) {
         Ok(id) => id,
@@ -589,7 +589,7 @@ pub async fn reject_audit(
 pub async fn radar(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(params): Query<RadarQuery>,
+    Query(_params): Query<RadarQuery>,
 ) -> impl IntoResponse {
     let business_id = match require_business_id(&headers) {
         Ok(id) => id,
@@ -1301,8 +1301,7 @@ async fn fetch_shadow_events(
         return Vec::new();
     }
 
-    let status_placeholders = std::iter::repeat("?")
-        .take(statuses.len())
+    let status_placeholders = std::iter::repeat_n("?", statuses.len())
         .collect::<Vec<_>>()
         .join(",");
     let work_type = event_type.and_then(work_type_for_event_type);
@@ -1354,8 +1353,7 @@ async fn fetch_shadow_events(
     }
 
     let ids: Vec<i64> = items.iter().map(|item| item.id).collect();
-    let id_placeholders = std::iter::repeat("?")
-        .take(ids.len())
+    let id_placeholders = std::iter::repeat_n("?", ids.len())
         .collect::<Vec<_>>()
         .join(",");
     let action_query = format!(

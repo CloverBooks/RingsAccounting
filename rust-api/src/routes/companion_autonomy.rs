@@ -1007,6 +1007,7 @@ fn require_claims(headers: &HeaderMap) -> Result<Claims, (StatusCode, Json<serde
         .map_err(|_| (StatusCode::UNAUTHORIZED, Json(json!({ "ok": false, "error": "unauthorized" }))))
 }
 
+#[allow(dead_code)]
 fn require_business_id(headers: &HeaderMap) -> Result<i64, (StatusCode, Json<serde_json::Value>)> {
     require_claims(headers)?
         .business_id

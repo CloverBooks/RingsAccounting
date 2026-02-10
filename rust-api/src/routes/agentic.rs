@@ -1729,7 +1729,7 @@ async fn fetch_receipt_run_summaries(pool: &SqlitePool, business_id: i64, limit:
     }
 
     let run_ids: Vec<i64> = runs.iter().map(|r| r.id).collect();
-    let placeholders = std::iter::repeat("?").take(run_ids.len()).collect::<Vec<_>>().join(",");
+    let placeholders = std::iter::repeat_n("?", run_ids.len()).collect::<Vec<_>>().join(",");
     let query = format!(
         "SELECT run_id,
                 COUNT(*) as total,
@@ -1790,7 +1790,7 @@ async fn fetch_invoice_run_summaries(pool: &SqlitePool, business_id: i64, limit:
     }
 
     let run_ids: Vec<i64> = runs.iter().map(|r| r.id).collect();
-    let placeholders = std::iter::repeat("?").take(run_ids.len()).collect::<Vec<_>>().join(",");
+    let placeholders = std::iter::repeat_n("?", run_ids.len()).collect::<Vec<_>>().join(",");
     let query = format!(
         "SELECT run_id,
                 COUNT(*) as total,
@@ -2080,7 +2080,7 @@ pub async fn companion_summary(
     let progress_percent = if open_total == 0 {
         100
     } else {
-        (100 - (open_total * 5).min(90))
+        100 - (open_total * 5).min(90)
     };
 
     let mut blocking_items = Vec::new();
@@ -2104,7 +2104,7 @@ pub async fn companion_summary(
     });
 
     let monthly_burn = expenses_last_30d(&state.db, business_id).await;
-    let runway_months: Option<f64> = if monthly_burn > 0.0 { None } else { None };
+    let runway_months: Option<f64> = None;
     let months = revenue_expense_series(&state.db, business_id).await;
 
     let finance_snapshot = json!({

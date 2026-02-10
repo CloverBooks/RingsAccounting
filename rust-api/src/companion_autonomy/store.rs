@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use serde_json::Value;
 use sqlx::SqlitePool;
 use uuid::Uuid;
@@ -275,6 +277,7 @@ pub async fn fetch_business_policy(pool: &SqlitePool, business_id: i64) -> Resul
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn upsert_business_policy(
     pool: &SqlitePool,
     business_id: i64,
@@ -459,7 +462,7 @@ pub async fn upsert_work_item_tx(
     .bind(&seed.internal_title)
     .bind(&seed.internal_notes)
     .bind(links_json)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
 
     sqlx::query_as::<_, WorkItem>(
@@ -467,7 +470,7 @@ pub async fn upsert_work_item_tx(
     )
     .bind(seed.tenant_id)
     .bind(&seed.dedupe_key)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await
 }
 
@@ -543,7 +546,7 @@ pub async fn upsert_action_recommendation_tx(
     .bind(preview_json)
     .bind(&seed.status)
     .bind(seed.requires_confirm)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
 
     sqlx::query_as::<_, ActionRecommendation>(
@@ -551,7 +554,7 @@ pub async fn upsert_action_recommendation_tx(
     )
     .bind(work_item_id)
     .bind(&seed.action_kind)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await
 }
 
@@ -610,7 +613,7 @@ pub async fn insert_rationale_card_tx(
         "SELECT COALESCE(MAX(version), 0) FROM companion_autonomy_rationale_cards WHERE work_item_id = ?"
     )
     .bind(work_item_id)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await
     .unwrap_or(0);
 
@@ -627,7 +630,7 @@ pub async fn insert_rationale_card_tx(
     .bind(sections_json)
     .bind(customer_safe_text)
     .bind(next_version)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
 
     sqlx::query_as::<_, RationaleCard>(
@@ -635,7 +638,7 @@ pub async fn insert_rationale_card_tx(
     )
     .bind(work_item_id)
     .bind(next_version)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await
 }
 
@@ -692,7 +695,7 @@ pub async fn insert_claim_tx(
     .bind(confidence)
     .bind(verification_status)
     .bind(source_quality_score)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
     Ok(result.last_insert_rowid())
 }
@@ -748,7 +751,7 @@ pub async fn insert_evidence_tx(
     .bind(title)
     .bind(excerpt_hash)
     .bind(credibility_flags)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
     Ok(result.last_insert_rowid())
 }
@@ -780,7 +783,7 @@ pub async fn link_claim_evidence_tx(
     )
     .bind(claim_id)
     .bind(evidence_id)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
     Ok(())
 }
@@ -842,7 +845,7 @@ pub async fn insert_audit_log_tx(
     .bind(target_type)
     .bind(target_id)
     .bind(payload_json)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
     Ok(())
 }
@@ -1521,7 +1524,7 @@ pub async fn list_work_items_by_status(
     if statuses.is_empty() {
         return Ok(Vec::new());
     }
-    let placeholders = std::iter::repeat("?").take(statuses.len()).collect::<Vec<_>>().join(",");
+    let placeholders = std::iter::repeat_n("?", statuses.len()).collect::<Vec<_>>().join(",");
     let query = format!(
         "SELECT * FROM companion_autonomy_work_items
          WHERE tenant_id = ? AND status IN ({})

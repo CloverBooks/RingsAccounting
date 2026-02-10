@@ -2,9 +2,9 @@ name: Backend CI
 
 on:
   pull_request:
-    branches: [main, develop]
+    branches: [develop]
   push:
-    branches: [main, develop]
+    branches: [develop]
 
 jobs:
   fastapi-tests:
@@ -16,7 +16,7 @@ jobs:
         working-directory: backend
 
     env:
-      PYTHONPATH: backend
+      PYTHONPATH: .
 
     steps:
       - name: Checkout code

@@ -1,7 +1,7 @@
+import { FastifyLoggerOptions } from 'fastify';
 import pino from 'pino';
 
-export const createLogger = () =>
-  pino({
+export const createLogger = (): FastifyLoggerOptions & pino.LoggerOptions => ({
     level: process.env.LOG_LEVEL ?? 'info',
     redact: {
       paths: [

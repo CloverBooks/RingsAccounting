@@ -14,7 +14,7 @@ const bootstrap = async () => {
   const sdk = initializeTelemetry();
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter({ logger: createLogger() }),
+    new FastifyAdapter({ logger: createLogger() as any }),
   );
 
   await app.register(rawBodyPlugin, {

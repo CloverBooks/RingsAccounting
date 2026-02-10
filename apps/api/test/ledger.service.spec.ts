@@ -1,5 +1,4 @@
 import { LedgerService } from '../src/modules/ledger/ledger.service';
-import { JournalEntryStatus } from '@prisma/client';
 
 const createPrismaMock = () => ({
   $transaction: jest.fn(),
@@ -35,7 +34,7 @@ describe('LedgerService', () => {
     const prisma = createPrismaMock();
     prisma.journalEntry.findUnique.mockResolvedValue({
       id: 'entry',
-      status: JournalEntryStatus.POSTED,
+      status: 'POSTED',
     });
 
     const service = new LedgerService(prisma as any);

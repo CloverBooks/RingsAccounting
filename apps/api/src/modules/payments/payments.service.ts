@@ -1,11 +1,29 @@
 import { Injectable } from '@nestjs/common';
-import { PaymentIntentStatus, PaymentIntent, WebhookProvider } from '@prisma/client';
 import crypto from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { LedgerService } from '../ledger/ledger.service';
 import { CanadaPadPolicy } from './canada-pad.policy';
 import { NotificationsService } from '../notifications/notifications.service';
-import { PaymentsRouter } from './payments.router';
+import { IntentType, PaymentsRouter } from './payments.router';
+
+type Currency = 'USD' | 'CAD' | 'RWF';
+type WebhookProvider = 'STRIPE' | 'FLUTTERWAVE';
+type PaymentIntentStatus =
+  | 'CREATED'
+  | 'REQUIRES_ACTION'
+  | 'PENDING'
+  | 'SUCCEEDED'
+  | 'FAILED'
+  | 'CANCELED';
+
+const PAYMENT_INTENT_STATUS: Record<PaymentIntentStatus, PaymentIntentStatus> = {
+  CREATED: 'CREATED',
+  REQUIRES_ACTION: 'REQUIRES_ACTION',
+  PENDING: 'PENDING',
+  SUCCEEDED: 'SUCCEEDED',
+  FAILED: 'FAILED',
+  CANCELED: 'CANCELED',
+};
 
 @Injectable()
 export class PaymentsService {
@@ -19,9 +37,9 @@ export class PaymentsService {
 
   async createPaymentIntent(dto: {
     orgId: string;
-    intentType: PaymentIntent['intent_type'];
+    intentType: IntentType;
     amount: number;
-    currency: PaymentIntent['currency'];
+    currency: Currency;
     metadata?: Record<string, unknown>;
   }) {
     const org = await this.prisma.organization.findUnique({ where: { id: dto.orgId } });
@@ -39,7 +57,7 @@ export class PaymentsService {
         rail: route.rail,
         amount: BigInt(dto.amount),
         currency: dto.currency,
-        status: PaymentIntentStatus.CREATED,
+        status: PAYMENT_INTENT_STATUS.CREATED,
         idempotency_key: crypto.randomUUID(),
         metadata: dto.metadata ?? {},
       },
@@ -113,15 +131,15 @@ export class PaymentsService {
   private mapProviderStatus(provider: WebhookProvider, event: any): PaymentIntentStatus {
     if (provider === 'STRIPE') {
       const status = event?.data?.object?.status;
-      if (status === 'succeeded') return PaymentIntentStatus.SUCCEEDED;
-      if (status === 'requires_action') return PaymentIntentStatus.REQUIRES_ACTION;
-      if (status === 'processing') return PaymentIntentStatus.PENDING;
-      return PaymentIntentStatus.FAILED;
+      if (status === 'succeeded') return PAYMENT_INTENT_STATUS.SUCCEEDED;
+      if (status === 'requires_action') return PAYMENT_INTENT_STATUS.REQUIRES_ACTION;
+      if (status === 'processing') return PAYMENT_INTENT_STATUS.PENDING;
+      return PAYMENT_INTENT_STATUS.FAILED;
     }
 
     const flwStatus = event?.data?.status;
-    if (flwStatus === 'successful') return PaymentIntentStatus.SUCCEEDED;
-    if (flwStatus === 'pending') return PaymentIntentStatus.PENDING;
-    return PaymentIntentStatus.FAILED;
+    if (flwStatus === 'successful') return PAYMENT_INTENT_STATUS.SUCCEEDED;
+    if (flwStatus === 'pending') return PAYMENT_INTENT_STATUS.PENDING;
+    return PAYMENT_INTENT_STATUS.FAILED;
   }
 }

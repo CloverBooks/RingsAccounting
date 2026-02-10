@@ -165,8 +165,6 @@ model Posting {
 
   journal_entry JournalEntry @relation(fields: [journal_entry_id], references: [id])
   account       Account      @relation(fields: [account_id], references: [id])
-
-  @@check([amount <> 0])
 }
 
 model PaymentIntent {
