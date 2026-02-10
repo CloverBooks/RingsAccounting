@@ -393,6 +393,7 @@ fn env_list(key: &str) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::companion_autonomy::schema;
+    use sqlx::sqlite::SqlitePoolOptions;
 
     struct PanicProvider;
 
@@ -408,7 +409,11 @@ mod tests {
 
     #[tokio::test]
     async fn tool_gateway_default_deny() {
-        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
         schema::run_migrations(&pool).await.unwrap();
 
         let mut gateway = ToolGateway::new(pool.clone());
@@ -423,7 +428,11 @@ mod tests {
 
     #[tokio::test]
     async fn tool_gateway_mock_mode_skips_provider() {
-        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
         schema::run_migrations(&pool).await.unwrap();
 
         let mut gateway = ToolGateway::new(pool.clone()).with_provider(Box::new(PanicProvider));
@@ -438,7 +447,11 @@ mod tests {
 
     #[tokio::test]
     async fn tool_gateway_default_deny_domains() {
-        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
         schema::run_migrations(&pool).await.unwrap();
 
         let mut gateway = ToolGateway::new(pool.clone());
@@ -451,7 +464,11 @@ mod tests {
 
     #[tokio::test]
     async fn tool_gateway_enforces_budget() {
-        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
         schema::run_migrations(&pool).await.unwrap();
 
         let mut gateway = ToolGateway::new(pool.clone());
@@ -470,7 +487,11 @@ mod tests {
 
     #[tokio::test]
     async fn tool_gateway_blocks_non_allowlisted_model() {
-        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
         schema::run_migrations(&pool).await.unwrap();
 
         let mut gateway = ToolGateway::new(pool.clone());
@@ -485,7 +506,11 @@ mod tests {
 
     #[tokio::test]
     async fn tool_gateway_mock_mode_is_deterministic() {
-        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
         schema::run_migrations(&pool).await.unwrap();
 
         let mut gateway = ToolGateway::new(pool.clone());

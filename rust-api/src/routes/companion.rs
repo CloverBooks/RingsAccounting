@@ -422,7 +422,7 @@ pub async fn resolve_issue(
 pub async fn list_audits(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(params): Query<AuditQuery>,
+    Query(_params): Query<AuditQuery>,
 ) -> impl IntoResponse {
     let business_id = match require_business_id(&headers) {
         Ok(id) => id,
@@ -589,7 +589,7 @@ pub async fn reject_audit(
 pub async fn radar(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(params): Query<RadarQuery>,
+    Query(_params): Query<RadarQuery>,
 ) -> impl IntoResponse {
     let business_id = match require_business_id(&headers) {
         Ok(id) => id,
@@ -1638,7 +1638,7 @@ mod tests {
     use super::*;
     use crate::companion_autonomy::models::{RecommendationSeed, WorkItemSeed};
     use crate::companion_autonomy::schema;
-    use sqlx::SqlitePool;
+    use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 
     // =========================================================================
     // SeverityCounts Tests
@@ -1911,7 +1911,11 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_shadow_events_filters_by_event_type_and_subject() {
-        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
         schema::run_migrations(&pool).await.unwrap();
 
         let tenant_id = 11;
@@ -1937,7 +1941,11 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_shadow_events_respects_limit_offset() {
-        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
         schema::run_migrations(&pool).await.unwrap();
 
         let tenant_id = 33;

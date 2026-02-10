@@ -73,9 +73,23 @@ pub async fn get_user_by_username(pool: &SqlitePool, username: &str) -> Result<O
 
 pub async fn get_accounts_by_business(pool: &SqlitePool, business_id: i64) -> Result<Vec<Account>, sqlx::Error> {
     sqlx::query_as::<_, Account>(
-        "SELECT id, business_id, code, name, type as account_type, parent_id, 
-                is_active, description, is_favorite, is_suspense
-         FROM core_account WHERE business_id = ? ORDER BY type, code, name"
+        "SELECT id,
+                business_id,
+                code,
+                account_number,
+                name,
+                type as account_type,
+                detail_type,
+                classification,
+                system_account_kind,
+                parent_id,
+                is_active,
+                description,
+                is_favorite,
+                is_suspense
+         FROM accounts
+         WHERE business_id = ?
+         ORDER BY type, code, name"
     )
     .bind(business_id)
     .fetch_all(pool)
@@ -84,9 +98,22 @@ pub async fn get_accounts_by_business(pool: &SqlitePool, business_id: i64) -> Re
 
 pub async fn get_account_by_id(pool: &SqlitePool, id: i64) -> Result<Option<Account>, sqlx::Error> {
     sqlx::query_as::<_, Account>(
-        "SELECT id, business_id, code, name, type as account_type, parent_id, 
-                is_active, description, is_favorite, is_suspense
-         FROM core_account WHERE id = ?"
+        "SELECT id,
+                business_id,
+                code,
+                account_number,
+                name,
+                type as account_type,
+                detail_type,
+                classification,
+                system_account_kind,
+                parent_id,
+                is_active,
+                description,
+                is_favorite,
+                is_suspense
+         FROM accounts
+         WHERE id = ?"
     )
     .bind(id)
     .fetch_optional(pool)
