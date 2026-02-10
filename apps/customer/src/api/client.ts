@@ -187,3 +187,17 @@ export const logout = () =>
   });
 
 export const fetchMe = () => apiJson<AuthResponse>("/api/auth/me");
+
+export const fetchWithTimeout = (
+  url: string,
+  options: RequestInit = {},
+  timeoutMs: number = 5000
+): Promise<Response> => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  return fetch(url, {
+    ...options,
+    signal: controller.signal,
+  }).finally(() => clearTimeout(timeoutId));
+};

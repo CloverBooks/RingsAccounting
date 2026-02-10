@@ -82,6 +82,7 @@ jobs:
       - name: Run SQLx migrations
         run: |
           mkdir -p target
+          touch target/ci.db
           sqlx migrate run
 
       - name: Run tests
@@ -111,6 +112,7 @@ jobs:
           node-version: "20"
           cache: "npm"
           cache-dependency-path: apps/api/package-lock.json
+        continue-on-error: true
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
@@ -131,7 +133,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [apps/customer, apps/admin]
+        include:
+          - app: apps/customer
+            short_name: customer
+          - app: apps/admin
+            short_name: admin
 
     defaults:
       run:
@@ -160,6 +166,6 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: frontend-build-${{ matrix.app }}
+          name: frontend-build-${{ matrix.short_name }}
           path: ${{ matrix.app }}/dist/
           retention-days: 7

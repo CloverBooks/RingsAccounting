@@ -825,7 +825,7 @@ def list_expenses(
     start: str | None = None,
     end: str | None = None
 ) -> dict:
-    from datetime import datetime, timedelta
+    from datetime import datetime
     
     expenses = MOCK_EXPENSES.copy()
     
