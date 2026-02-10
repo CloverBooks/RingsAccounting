@@ -14,6 +14,7 @@ import {
     SheetTitle,
     Textarea,
 } from "../components/ui";
+import { buildApiUrl, getAccessToken } from "../api/client";
 
 type ItemKind = "product" | "service";
 
@@ -37,6 +38,7 @@ export const NewProductSheet: React.FC<NewProductSheetProps> = ({
     const [kind, setKind] = useState<ItemKind>(defaultKind);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [trackInventory, setTrackInventory] = useState(false);
 
     useEffect(() => {
         if (!open) return;
@@ -46,6 +48,7 @@ export const NewProductSheet: React.FC<NewProductSheetProps> = ({
         setPrice("");
         setDescription("");
         setKind(defaultKind);
+        setTrackInventory(false);
     }, [open, defaultKind]);
 
     const canSubmit = name.trim().length > 0 && !saving;
@@ -56,18 +59,22 @@ export const NewProductSheet: React.FC<NewProductSheetProps> = ({
         setError(null);
 
         try {
-            const response = await fetch("/api/products/create/", {
+            const headers: Record<string, string> = {
+                "Content-Type": "application/json",
+            };
+            const token = getAccessToken();
+            if (token) headers.Authorization = `Bearer ${token}`;
+            const response = await fetch(buildApiUrl("/api/products/create/"), {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                credentials: "same-origin",
+                headers,
+                credentials: "include",
                 body: JSON.stringify({
                     name: name.trim(),
                     sku: sku.trim() || undefined,
                     price: price ? parseFloat(price) : undefined,
                     description: description.trim() || undefined,
                     kind,
+                    track_inventory: kind === "product" ? trackInventory : false,
                 }),
             });
 
@@ -108,6 +115,21 @@ export const NewProductSheet: React.FC<NewProductSheetProps> = ({
                             </SelectContent>
                         </Select>
                     </div>
+
+                    {kind === "product" && (
+                        <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                            <div>
+                                <div className="text-xs font-medium text-slate-700">Track inventory</div>
+                                <div className="text-[11px] text-slate-500">Enable stock movements and on-hand balances.</div>
+                            </div>
+                            <input
+                                type="checkbox"
+                                checked={trackInventory}
+                                onChange={(e) => setTrackInventory(e.target.checked)}
+                                className="h-4 w-4 rounded border-slate-300 text-slate-900"
+                            />
+                        </div>
+                    )}
 
                     <div>
                         <div className="text-xs font-medium text-slate-700 mb-1">Name *</div>
@@ -158,7 +180,7 @@ export const NewProductSheet: React.FC<NewProductSheetProps> = ({
                             Cancel
                         </Button>
                         <Button onClick={onSubmit} disabled={!canSubmit}>
-                            {saving ? "Creating…" : "Create"}
+                            {saving ? "Creating..." : "Create"}
                         </Button>
                     </div>
                 </div>

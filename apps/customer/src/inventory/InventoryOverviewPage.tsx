@@ -1,12 +1,14 @@
-import React, { useMemo, useState, useCallback } from "react";
+import React, { useMemo, useState, useCallback, useEffect } from "react";
 import { Search, Plus, Package2, AlertTriangle, Warehouse, ArrowUpRight, Filter, X } from "lucide-react";
 import { ReceiveStockSheet, AdjustStockSheet } from "./InventoryMovementSheets";
-import type { InventoryLocation } from "./api";
-
-// NOTE:
-// - TailwindCSS assumed to be available.
-// - JetBrains Mono should be registered in your global CSS as `font-mono`.
-// - Replace placeholder data + hooks with real API wiring when ready.
+import { usePermissions } from "../hooks/usePermissions";
+import {
+  listInventoryBalances,
+  listInventoryEvents,
+  listInventoryItems,
+  listInventoryLocations,
+  type InventoryLocation,
+} from "./api";
 
 // -----------------------------
 // Types
@@ -28,13 +30,13 @@ export interface InventoryItem {
     name: string;
     onHand: number;
   }[];
-  lastMovement: string; // e.g. "2025-12-20"
+  lastMovement: string;
 }
 
 export interface InventoryOverviewStats {
   totalSkus: number;
   totalOnHandUnits: number;
-  totalOnHandValue?: number; // optional until GL wiring is done
+  totalOnHandValue?: number;
   lowStockCount: number;
   outOfStockCount: number;
   locationsCount: number;
@@ -45,92 +47,23 @@ interface InventoryOverviewData {
   items: InventoryItem[];
 }
 
-// -----------------------------
-// Demo hook (replace with real API later)
-// -----------------------------
+const LOW_STOCK_THRESHOLD = 5;
 
-function useInventoryOverviewDemo(): { data: InventoryOverviewData | null; isLoading: boolean } {
-  const [isLoading] = useState(false);
+const parseQty = (value: string | number | null | undefined): number => {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (typeof value === "string") {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  }
+  return 0;
+};
 
-  const data = useMemo<InventoryOverviewData>(() => {
-    const items: InventoryItem[] = [
-      {
-        id: "1",
-        name: "Blue Hoodie Premium",
-        sku: "HD-BLUE-XS-2025",
-        category: "Apparel",
-        status: "in_stock",
-        onHand: 128,
-        committed: 34,
-        available: 94,
-        daysOfCover: 32,
-        locations: [
-          { name: "Main", onHand: 90 },
-          { name: "Outlet", onHand: 38 },
-        ],
-        lastMovement: "2025-12-21",
-      },
-      {
-        id: "2",
-        name: "Black Hoodie Premium",
-        sku: "HD-BLACK-M-2025",
-        category: "Apparel",
-        status: "low_stock",
-        onHand: 22,
-        committed: 18,
-        available: 4,
-        daysOfCover: 5,
-        locations: [
-          { name: "Main", onHand: 18 },
-          { name: "Outlet", onHand: 4 },
-        ],
-        lastMovement: "2025-12-20",
-      },
-      {
-        id: "3",
-        name: "Everyday Notebook A5",
-        sku: "NB-A5-GRID-001",
-        category: "Stationery",
-        status: "out_of_stock",
-        onHand: 0,
-        committed: 0,
-        available: 0,
-        daysOfCover: null,
-        locations: [],
-        lastMovement: "2025-12-12",
-      },
-      {
-        id: "4",
-        name: "Wireless Mouse Pro",
-        sku: "MS-WL-PRO-2025",
-        category: "Accessories",
-        status: "in_stock",
-        onHand: 64,
-        committed: 9,
-        available: 55,
-        daysOfCover: 21,
-        locations: [
-          { name: "Main", onHand: 40 },
-          { name: "Online", onHand: 24 },
-        ],
-        lastMovement: "2025-12-22",
-      },
-    ];
-
-    const stats: InventoryOverviewStats = {
-      totalSkus: items.length,
-      totalOnHandUnits: items.reduce((acc, item) => acc + item.onHand, 0),
-      totalOnHandValue: undefined,
-      lowStockCount: items.filter((i) => i.status === "low_stock").length,
-      outOfStockCount: items.filter((i) => i.status === "out_of_stock").length,
-      locationsCount: new Set(items.flatMap((i) => i.locations.map((l) => l.name))).size,
-    };
-
-    return { stats, items };
-  }, []);
-
-  return { data, isLoading };
-}
+const formatDate = (iso: string | null | undefined): string => {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString();
+};
 
 // -----------------------------
 // Small UI helpers
@@ -184,7 +117,6 @@ interface MetricCardProps {
 const MetricCard: React.FC<MetricCardProps> = ({ label, value, helper, icon }) => {
   return (
     <div className="relative overflow-hidden rounded-3xl border border-slate-100 bg-slate-50/80 shadow-[0_16px_60px_rgba(15,23,42,0.06)]">
-      {/* liquid metal background */}
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 opacity-70">
         <div className="absolute -top-16 -right-10 h-40 w-40 rounded-full bg-gradient-to-br from-slate-50 via-white to-slate-200 blur-2xl" />
         <div className="absolute -bottom-14 -left-20 h-40 w-40 rounded-full bg-gradient-to-tr from-white via-slate-50 to-slate-200 blur-2xl" />
@@ -221,7 +153,14 @@ const MetricCard: React.FC<MetricCardProps> = ({ label, value, helper, icon }) =
 // -----------------------------
 
 const InventoryPage: React.FC = () => {
-  const { data, isLoading } = useInventoryOverviewDemo();
+  const { workspace } = usePermissions();
+  const workspaceId = workspace?.businessId ?? null;
+
+  const [data, setData] = useState<InventoryOverviewData | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [locations, setLocations] = useState<InventoryLocation[]>([]);
+
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<InventoryStatus | "all">("all");
@@ -229,6 +168,91 @@ const InventoryPage: React.FC = () => {
   const [adjustSheetOpen, setAdjustSheetOpen] = useState(false);
   const [savedViewsOpen, setSavedViewsOpen] = useState(false);
   const [movementLogOpen, setMovementLogOpen] = useState(false);
+
+  const loadOverview = useCallback(async () => {
+    if (!workspaceId) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const [itemsRes, locationsRes, balancesRes, eventsRes] = await Promise.all([
+        listInventoryItems(workspaceId),
+        listInventoryLocations(workspaceId),
+        listInventoryBalances(workspaceId),
+        listInventoryEvents(workspaceId, { limit: 200 }),
+      ]);
+
+      const locationNameById = new Map<number, string>();
+      for (const loc of locationsRes) {
+        locationNameById.set(loc.id, loc.code ? `${loc.code} - ${loc.name}` : loc.name);
+      }
+
+      const balanceByItem = new Map<number, { total: number; locations: { name: string; onHand: number }[] }>();
+      for (const b of balancesRes) {
+        const qty = parseQty(b.qty_on_hand);
+        const entry = balanceByItem.get(b.item) || { total: 0, locations: [] };
+        entry.total += qty;
+        entry.locations.push({ name: locationNameById.get(b.location) || `Location #${b.location}`, onHand: qty });
+        balanceByItem.set(b.item, entry);
+      }
+
+      const lastMovementByItem = new Map<number, string>();
+      for (const e of eventsRes) {
+        if (!lastMovementByItem.has(e.item)) {
+          lastMovementByItem.set(e.item, e.created_at);
+        }
+      }
+
+      const items: InventoryItem[] = itemsRes.map((item) => {
+        const summary = balanceByItem.get(item.id);
+        const onHand = summary ? summary.total : parseQty(item.qty_on_hand);
+        const available = onHand;
+        const category = (item.kind || "product").toLowerCase() === "service" ? "Service" : "Product";
+        let status: InventoryStatus = "in_stock";
+        if (!item.is_active) {
+          status = "discontinued";
+        } else if (onHand <= 0) {
+          status = "out_of_stock";
+        } else if (onHand <= LOW_STOCK_THRESHOLD) {
+          status = "low_stock";
+        }
+
+        return {
+          id: String(item.id),
+          name: item.name,
+          sku: item.sku,
+          category,
+          status,
+          onHand,
+          committed: 0,
+          available,
+          daysOfCover: null,
+          locations: summary ? summary.locations.filter((loc) => loc.onHand !== 0) : [],
+          lastMovement: formatDate(lastMovementByItem.get(item.id) || item.last_movement_at),
+        };
+      });
+
+      const stats: InventoryOverviewStats = {
+        totalSkus: items.length,
+        totalOnHandUnits: items.reduce((acc, item) => acc + item.onHand, 0),
+        totalOnHandValue: undefined,
+        lowStockCount: items.filter((i) => i.status === "low_stock").length,
+        outOfStockCount: items.filter((i) => i.status === "out_of_stock").length,
+        locationsCount: locationsRes.length,
+      };
+
+      setLocations(locationsRes);
+      setData({ stats, items });
+      setSelectedId((prev) => (prev && items.some((i) => i.id === prev) ? prev : items[0]?.id ?? null));
+    } catch (e: any) {
+      setError(e?.message || "Failed to load inventory overview");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [workspaceId]);
+
+  useEffect(() => {
+    loadOverview();
+  }, [loadOverview]);
 
   const selectedItem = useMemo(
     () => data?.items.find((i) => i.id === selectedId) ?? data?.items[0] ?? null,
@@ -251,13 +275,6 @@ const InventoryPage: React.FC = () => {
     });
   }, [data, search, statusFilter]);
 
-  // Mock locations for demo - in production, this would come from API
-  const mockLocations: InventoryLocation[] = useMemo(() => [
-    { id: 1, workspace: 1, name: "Main Warehouse", code: "MAIN", location_type: "warehouse", parent: null, created_at: "", updated_at: "" },
-    { id: 2, workspace: 1, name: "Retail Outlet", code: "OUTLET", location_type: "retail", parent: null, created_at: "", updated_at: "" },
-    { id: 3, workspace: 1, name: "Online Fulfillment", code: "ONLINE", location_type: "virtual", parent: null, created_at: "", updated_at: "" },
-  ], []);
-
   const handleReceiveStock = useCallback(() => {
     setReceiveSheetOpen(true);
   }, []);
@@ -267,13 +284,21 @@ const InventoryPage: React.FC = () => {
   }, []);
 
   const handleSheetComplete = useCallback(() => {
-    // In production, this would refetch data
-    console.log("Sheet action completed - would refresh data");
-  }, []);
+    loadOverview();
+  }, [loadOverview]);
+
+  if (!workspaceId) {
+    return (
+      <div className="min-h-screen bg-[#f5f7fb] px-4 pb-10 pt-6 md:px-8 lg:px-12">
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
+          Select a workspace to view inventory.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#f5f7fb] px-4 pb-10 pt-6 md:px-8 lg:px-12">
-      {/* Page header */}
       <header className="mb-6 flex flex-col gap-4 md:mb-8 md:flex-row md:items-center md:justify-between">
         <div className="space-y-1">
           <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-400">
@@ -305,11 +330,24 @@ const InventoryPage: React.FC = () => {
         </div>
       </header>
 
-      {/* Top metrics row */}
+      {error && (
+        <div className="mb-6 rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span>{error}</span>
+            <button
+              onClick={loadOverview}
+              className="rounded-full border border-rose-200 bg-white px-3 py-1 text-xs font-medium text-rose-700 hover:border-rose-300"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      )}
+
       <section className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 md:gap-5 xl:gap-6">
         <MetricCard
           label="Total SKUs"
-          value={isLoading || !data ? "—" : data.stats.totalSkus.toString()}
+          value={isLoading || !data ? "-" : data.stats.totalSkus.toString()}
           helper="Tracked inventory items in this workspace."
           icon={<Package2 className="h-4 w-4 text-slate-600" />}
         />
@@ -317,7 +355,7 @@ const InventoryPage: React.FC = () => {
           label="On-hand units"
           value={
             isLoading || !data
-              ? "—"
+              ? "-"
               : data.stats.totalOnHandUnits.toLocaleString()
           }
           helper="Physical units currently available across locations."
@@ -327,8 +365,8 @@ const InventoryPage: React.FC = () => {
           label="Low & out of stock"
           value={
             isLoading || !data
-              ? "—"
-              : `${data.stats.lowStockCount} low • ${data.stats.outOfStockCount} out`
+              ? "-"
+              : `${data.stats.lowStockCount} low - ${data.stats.outOfStockCount} out`
           }
           helper="Items that may need reordering soon."
           icon={<AlertTriangle className="h-4 w-4 text-amber-500" />}
@@ -337,7 +375,7 @@ const InventoryPage: React.FC = () => {
           label="Locations"
           value={
             isLoading || !data
-              ? "—"
+              ? "-"
               : data.stats.locationsCount.toString()
           }
           helper="Warehouses, stores, and virtual locations."
@@ -345,9 +383,7 @@ const InventoryPage: React.FC = () => {
         />
       </section>
 
-      {/* Filters + layout */}
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
-        {/* Left: table */}
         <div className="rounded-3xl border border-slate-100 bg-white/80 shadow-[0_18px_55px_rgba(15,23,42,0.05)]">
           <div className="flex flex-col gap-4 border-b border-slate-100 px-4 py-4 md:flex-row md:items-center md:justify-between md:px-5">
             <div className="flex items-center gap-3">
@@ -369,7 +405,6 @@ const InventoryPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Controls */}
           <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-3 md:flex-row md:items-center md:justify-between md:px-5">
             <div className="flex flex-1 items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
               <Search className="h-4 w-4 flex-none text-slate-400" />
@@ -404,7 +439,6 @@ const InventoryPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Table */}
           <div className="overflow-x-auto">
             <table className="min-w-full border-separate border-spacing-y-1 px-2 py-3 text-xs md:px-4">
               <thead>
@@ -423,7 +457,7 @@ const InventoryPage: React.FC = () => {
                 {isLoading || !data ? (
                   <tr>
                     <td colSpan={8} className="px-3 py-10 text-center text-xs text-slate-400">
-                      Loading inventory…
+                      Loading inventory...
                     </td>
                   </tr>
                 ) : filteredItems.length === 0 ? (
@@ -441,7 +475,7 @@ const InventoryPage: React.FC = () => {
                         "cursor-pointer rounded-2xl bg-white align-middle shadow-[0_6px_20px_rgba(15,23,42,0.03)] transition",
                         "hover:-translate-y-0.5 hover:shadow-[0_10px_32px_rgba(15,23,42,0.10)]",
                         selectedItem?.id === item.id &&
-                        "ring-1 ring-slate-900/5 ring-offset-1 ring-offset-slate-100"
+                          "ring-1 ring-slate-900/5 ring-offset-1 ring-offset-slate-100"
                       )}
                     >
                       <td className="px-3 py-3 text-left">
@@ -450,7 +484,7 @@ const InventoryPage: React.FC = () => {
                             {item.name}
                           </span>
                           <span className="mt-0.5 text-[11px] text-slate-400">
-                            Last movement · {item.lastMovement}
+                            Last movement - {item.lastMovement}
                           </span>
                         </div>
                       </td>
@@ -479,7 +513,7 @@ const InventoryPage: React.FC = () => {
                       </td>
                       <td className="px-3 py-3 text-right">
                         <span className="font-mono-soft text-xs text-slate-500">
-                          {item.daysOfCover ?? "—"}
+                          {item.daysOfCover ?? "-"}
                         </span>
                       </td>
                       <td className="px-3 py-3 text-right">
@@ -501,7 +535,6 @@ const InventoryPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Right: detail panel */}
         <aside className="flex flex-col gap-4 rounded-3xl border border-slate-100 bg-white/80 p-5 shadow-[0_18px_55px_rgba(15,23,42,0.05)]">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -513,7 +546,7 @@ const InventoryPage: React.FC = () => {
               </h2>
               {selectedItem && (
                 <p className="mt-1 text-[11px] text-slate-500">
-                  {selectedItem.category} · SKU
+                  {selectedItem.category} - SKU
                   <span className="font-mono"> {selectedItem.sku}</span>
                 </p>
               )}
@@ -555,7 +588,7 @@ const InventoryPage: React.FC = () => {
                     Days cover
                   </p>
                   <p className="mt-1 font-mono-soft text-sm font-semibold text-slate-900">
-                    {selectedItem.daysOfCover ?? "—"}
+                    {selectedItem.daysOfCover ?? "-"}
                   </p>
                 </div>
               </div>
@@ -592,8 +625,8 @@ const InventoryPage: React.FC = () => {
               </div>
 
               <div className="mt-1 space-y-1 text-[11px] text-slate-400">
-                <p>Last movement · {selectedItem.lastMovement}</p>
-                <p>Inventory v1 · Event-sourced, GL-linked.</p>
+                <p>Last movement - {selectedItem.lastMovement}</p>
+                <p>Inventory v1 - Event-sourced, GL-linked.</p>
               </div>
 
               <div className="mt-2 flex flex-wrap gap-2">
@@ -623,36 +656,33 @@ const InventoryPage: React.FC = () => {
                 Select an item to see its inventory story.
               </p>
               <p className="mt-1 text-xs text-slate-400">
-                You&apos;ll see locations, days of cover, and movement history here.
+                You'll see locations, days of cover, and movement history here.
               </p>
             </div>
           )}
         </aside>
       </section>
 
-      {/* Receive Stock Sheet */}
       <ReceiveStockSheet
         open={receiveSheetOpen}
         onOpenChange={setReceiveSheetOpen}
-        workspaceId={1}
+        workspaceId={workspaceId}
         itemId={selectedItem ? parseInt(selectedItem.id, 10) : 0}
-        locations={mockLocations}
-        defaultLocationId={mockLocations[0]?.id || null}
+        locations={locations}
+        defaultLocationId={locations[0]?.id || null}
         onCompleted={handleSheetComplete}
       />
 
-      {/* Adjust Stock Sheet */}
       <AdjustStockSheet
         open={adjustSheetOpen}
         onOpenChange={setAdjustSheetOpen}
-        workspaceId={1}
+        workspaceId={workspaceId}
         itemId={selectedItem ? parseInt(selectedItem.id, 10) : 0}
-        locations={mockLocations}
-        defaultLocationId={mockLocations[0]?.id || null}
+        locations={locations}
+        defaultLocationId={locations[0]?.id || null}
         onCompleted={handleSheetComplete}
       />
 
-      {/* Saved Views Modal */}
       {savedViewsOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="fixed inset-0 bg-black/50" onClick={() => setSavedViewsOpen(false)} />
@@ -685,7 +715,6 @@ const InventoryPage: React.FC = () => {
         </div>
       )}
 
-      {/* Movement Log Modal */}
       {movementLogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="fixed inset-0 bg-black/50" onClick={() => setMovementLogOpen(false)} />
