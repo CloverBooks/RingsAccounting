@@ -116,7 +116,7 @@ export const InventoryItemDetailPage: React.FC = () => {
   const locationNameById = useMemo(() => {
     const map = new Map<number, string>();
     for (const l of locations) {
-      map.set(l.id, l.code ? `${l.code} · ${l.name}` : l.name);
+      map.set(l.id, l.code ? `${l.code} - ${l.name}` : l.name);
     }
     return map;
   }, [locations]);
@@ -139,7 +139,7 @@ export const InventoryItemDetailPage: React.FC = () => {
       <Card className="border-none bg-white/90 shadow-sm">
         <CardHeader>
           <CardTitle>Not authorized</CardTitle>
-          <CardDescription>You don’t have permission to view inventory in this workspace.</CardDescription>
+          <CardDescription>You don't have permission to view inventory in this workspace.</CardDescription>
         </CardHeader>
       </Card>
     );
@@ -170,16 +170,16 @@ export const InventoryItemDetailPage: React.FC = () => {
               <span className="text-slate-500">Item detail</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
-              {item?.name || (loading ? "Loading…" : "Item not found")}
+              {item?.name || (loading ? "Loading..." : "Item not found")}
             </h1>
             <p className="text-sm text-slate-500">
               {item?.sku ? (
                 <>
                   SKU <span className="font-mono text-xs text-slate-700">{item.sku}</span>
-                  <span className="text-slate-300"> · </span>
+                  <span className="text-slate-300"> - </span>
                 </>
               ) : null}
-              Costing: <span className="font-medium text-slate-700">{(item?.costing_method || "—").toUpperCase()}</span>
+              Costing: <span className="font-medium text-slate-700">{(item?.costing_method || "-").toUpperCase()}</span>
             </p>
           </div>
 
@@ -314,13 +314,13 @@ export const InventoryItemDetailPage: React.FC = () => {
                             {fmtDateTime(e.created_at)}
                             {ref ? (
                               <>
-                                <span className="text-slate-300"> · </span>
+                                <span className="text-slate-300"> - </span>
                                 <span className="font-mono">{ref}</span>
                               </>
                             ) : null}
                             {reason ? (
                               <>
-                                <span className="text-slate-300"> · </span>
+                                <span className="text-slate-300"> - </span>
                                 <span className="font-mono">{String(reason)}</span>
                               </>
                             ) : null}
