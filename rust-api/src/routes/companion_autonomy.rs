@@ -7,7 +7,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::companion_autonomy::{models::ApprovalRequest, policy::BudgetConfig, store};
+use crate::companion_autonomy::{models::ApprovalRequest, policy::{BudgetConfig, PolicyConfig}, store};
 use crate::routes::auth::{extract_claims_from_header, Claims};
 use crate::AppState;
 
@@ -179,7 +179,7 @@ pub async fn cockpit_queues(
     headers: HeaderMap,
     Query(params): Query<TenantQuery>,
 ) -> impl axum::response::IntoResponse {
-    let _claims = match require_claims(&headers) {
+    let claims = match require_claims(&headers) {
         Ok(claims) => claims,
         Err(response) => return response,
     };
@@ -187,7 +187,50 @@ pub async fn cockpit_queues(
         Ok(id) => id,
         Err(response) => return response,
     };
+    let business_id = match resolve_business_id(&headers, params.business_id.or(params.tenant_id)) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let actor_id = claims.sub.parse::<i64>().ok();
+    let stale_minutes = PolicyConfig::from_env().snapshot_stale_minutes;
+    let mut engine_error: Option<String> = None;
+
     if let Ok(Some(snapshot)) = store::latest_queue_snapshot(&state.db, tenant_id).await {
+        let payload: serde_json::Value =
+            serde_json::from_str(&snapshot.snapshot_json).unwrap_or_else(|_| serde_json::json!({}));
+        let stale = is_queue_snapshot_stale(&snapshot.generated_at, snapshot.stale_after_seconds);
+        if !stale {
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "ok": true,
+                    "source": "snapshot",
+                    "stale": false,
+                    "data": payload
+                })),
+            );
+        }
+        if let Err(err) = refresh_engine_snapshot_for_tenant(&state, tenant_id, business_id, actor_id, stale_minutes).await {
+            engine_error = Some(err);
+        } else if let Ok(Some(fresh_snapshot)) = store::latest_queue_snapshot(&state.db, tenant_id).await {
+            let fresh_payload: serde_json::Value =
+                serde_json::from_str(&fresh_snapshot.snapshot_json).unwrap_or_else(|_| serde_json::json!({}));
+            let fresh_stale = is_queue_snapshot_stale(&fresh_snapshot.generated_at, fresh_snapshot.stale_after_seconds);
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "ok": true,
+                    "source": "snapshot",
+                    "stale": fresh_stale,
+                    "data": fresh_payload
+                })),
+            );
+        }
+    } else if let Err(err) =
+        refresh_engine_snapshot_for_tenant(&state, tenant_id, business_id, actor_id, stale_minutes).await
+    {
+        engine_error = Some(err);
+    } else if let Ok(Some(snapshot)) = store::latest_queue_snapshot(&state.db, tenant_id).await {
         let payload: serde_json::Value =
             serde_json::from_str(&snapshot.snapshot_json).unwrap_or_else(|_| serde_json::json!({}));
         let stale = is_queue_snapshot_stale(&snapshot.generated_at, snapshot.stale_after_seconds);
@@ -224,7 +267,8 @@ pub async fn cockpit_queues(
             "ok": true,
             "source": "live",
             "stale": false,
-            "data": queues
+            "data": queues,
+            "engine_error": engine_error
         })),
     )
 }
@@ -1007,6 +1051,7 @@ fn require_claims(headers: &HeaderMap) -> Result<Claims, (StatusCode, Json<serde
         .map_err(|_| (StatusCode::UNAUTHORIZED, Json(json!({ "ok": false, "error": "unauthorized" }))))
 }
 
+#[allow(dead_code)]
 fn require_business_id(headers: &HeaderMap) -> Result<i64, (StatusCode, Json<serde_json::Value>)> {
     require_claims(headers)?
         .business_id
@@ -1052,6 +1097,22 @@ fn is_queue_snapshot_stale(generated_at: &str, stale_after_seconds: i64) -> bool
         return age_seconds > stale_after_seconds;
     }
     true
+}
+
+async fn refresh_engine_snapshot_for_tenant(
+    state: &AppState,
+    tenant_id: i64,
+    business_id: i64,
+    actor_id: Option<i64>,
+    stale_minutes: i64,
+) -> Result<(), String> {
+    let tenant = crate::companion_autonomy::scheduler::TenantContext {
+        tenant_id,
+        business_id,
+    };
+    crate::companion_autonomy::scheduler::tick(&state.db, vec![tenant], actor_id).await?;
+    crate::companion_autonomy::scheduler::materialize(&state.db, vec![tenant], stale_minutes, actor_id).await?;
+    Ok(())
 }
 
 async fn ensure_apply_enabled(
@@ -1214,11 +1275,15 @@ mod tests {
     use axum_test::TestServer;
     use chrono::{Duration, Utc};
     use jsonwebtoken::{EncodingKey, Header};
-    use sqlx::SqlitePool;
+    use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 
     async fn setup() -> (TestServer, SqlitePool) {
         std::env::set_var("JWT_SECRET", "test-secret");
-        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
         crate::companion_autonomy::schema::run_migrations(&pool).await.unwrap();
 
         let state = AppState { db: pool.clone() };

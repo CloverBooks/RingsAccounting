@@ -1,10 +1,10 @@
-//! Clover Books - 100% Rust API
+﻿//! Clover Books - 100% Rust API
 //!
 //! Native Rust API with no legacy framework dependencies.
 //! All endpoints read directly from the SQLite database.
 
 use axum::{
-    routing::{get, post},
+    routing::{get, post, patch, delete, put},
     Router,
 };
 use sqlx::SqlitePool;
@@ -41,28 +41,33 @@ async fn main() {
     // Initialize database connection pool
     let db_pool = match db::DbPool::new().await {
         Ok(pool) => {
-            tracing::info!("✅ Database connected successfully");
+            tracing::info!("âœ… Database connected successfully");
             pool
         }
         Err(e) => {
-            tracing::error!("❌ Failed to connect to database: {}", e);
+            tracing::error!("âŒ Failed to connect to database: {}", e);
             panic!("Database connection required: {}", e);
         }
     };
 
     if let Err(e) = companion_autonomy::schema::auto_init(&db_pool.pool).await {
-        tracing::error!("❌ Failed to auto-init autonomy schema: {}", e);
+        tracing::error!("âŒ Failed to auto-init autonomy schema: {}", e);
         panic!("Autonomy schema auto-init failed: {}", e);
     }
 
     // Verify onboarding tables exist (fail-fast if migrations not run)
     if let Err(e) = routes::onboarding::verify_schema(&db_pool.pool).await {
-        tracing::error!("❌ Onboarding schema verification failed: {}", e);
-        tracing::error!("💡 Run: cd rust-api && sqlx migrate run");
+        tracing::error!("âŒ Onboarding schema verification failed: {}", e);
+        tracing::error!("ðŸ’¡ Run: cd rust-api && sqlx migrate run");
         panic!("Onboarding schema missing: {}", e);
     }
-    tracing::info!("✅ Onboarding schema verified");
+    tracing::info!("Onboarding schema verified");
 
+    if let Err(e) = db::ensure_coa_qbo_parity(&db_pool.pool).await {
+        tracing::error!("COA parity bootstrap failed: {}", e);
+        panic!("COA parity bootstrap failed: {}", e);
+    }
+    tracing::info!("COA parity schema verified");
 
     if let Some(cmd) = std::env::args().nth(1) {
         if run_engine_command(&cmd, &db_pool.pool).await {
@@ -78,14 +83,14 @@ async fn main() {
         .collect();
     
     let cors = if allowed_origins.is_empty() {
-        tracing::warn!("⚠️  No valid CORS origins configured, using localhost defaults");
+        tracing::warn!("âš ï¸  No valid CORS origins configured, using localhost defaults");
         CorsLayer::new()
             .allow_origin("http://localhost:5173".parse::<HeaderValue>().unwrap())
             .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::PATCH])
             .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::ACCEPT])
             .allow_credentials(true)
     } else {
-        tracing::info!("✅ CORS configured for {} origin(s)", allowed_origins.len());
+        tracing::info!("âœ… CORS configured for {} origin(s)", allowed_origins.len());
         CorsLayer::new()
             .allow_origin(AllowOrigin::list(allowed_origins))
             .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::PATCH])
@@ -127,9 +132,18 @@ async fn main() {
         .route("/api/customers/list/", get(routes::dashboard::list_customers_full)) // Legacy alias
         .route("/api/products/list/", get(routes::dashboard::list_products)) // Products endpoint
         .route("/api/products/create/", post(routes::dashboard::create_product)) // Create product
+        // Inventory APIs (item ledger)
+        .route("/api/inventory/items/", get(routes::inventory::list_inventory_items))
+        .route("/api/inventory/locations/", get(routes::inventory::list_inventory_locations))
+        .route("/api/inventory/balances/", get(routes::inventory::list_inventory_balances))
+        .route("/api/inventory/events/", get(routes::inventory::list_inventory_events))
+        .route("/api/inventory/receive/", post(routes::inventory::receive_inventory))
+        .route("/api/inventory/ship/", post(routes::inventory::ship_inventory))
+        .route("/api/inventory/adjust/", post(routes::inventory::adjust_inventory))
         .route("/api/suppliers", get(routes::dashboard::list_suppliers))
         .route("/api/suppliers/list/", get(routes::dashboard::list_suppliers_full)) // Full list for Suppliers page
         .route("/api/categories/list/", get(routes::dashboard::list_categories)) // Categories endpoint
+        .route("/api/chart-of-accounts/", get(routes::dashboard::list_chart_of_accounts)) // Chart of Accounts endpoint
         .route("/api/banking/overview/", get(routes::dashboard::banking_overview)) // Banking overview
         .route("/api/banking/feed/transactions/", get(routes::dashboard::list_feed_transactions)) // Banking feed transactions
         .route("/api/banking/feed/transactions/:id/exclude/", post(routes::dashboard::exclude_feed_transaction))
@@ -150,9 +164,9 @@ async fn main() {
         .route("/api/companion/v2/shadow-events/:id/apply/", post(routes::companion::apply_shadow_event))
         .route("/api/companion/v2/shadow-events/:id/reject/", post(routes::companion::reject_shadow_event))
         .route("/api/companion/v2/settings/", get(routes::companion::get_ai_settings_v2))
-        .route("/api/companion/v2/settings/", axum::routing::patch(routes::companion::patch_ai_settings_v2))
+        .route("/api/companion/v2/settings/", patch(routes::companion::patch_ai_settings_v2))
         .route("/api/companion/v2/policy/", get(routes::companion::get_business_policy_v2))
-        .route("/api/companion/v2/policy/", axum::routing::patch(routes::companion::patch_business_policy_v2))
+        .route("/api/companion/v2/policy/", patch(routes::companion::patch_business_policy_v2))
         .route("/api/companion/v2/proposals/", get(routes::companion::list_proposals))
         .route("/api/companion/v2/proposals/:id/apply/", post(routes::companion::apply_proposal))
         .route("/api/companion/v2/proposals/:id/reject/", post(routes::companion::reject_proposal))
@@ -202,7 +216,7 @@ async fn main() {
         // Agentic Companion APIs (for Control Tower)
         .route("/api/agentic/companion/summary", get(routes::agentic::companion_summary))
         .route("/api/agentic/companion/issues", get(routes::agentic::companion_issues))
-        .route("/api/agentic/companion/issues/:id", axum::routing::patch(routes::agentic::update_companion_issue))
+        .route("/api/agentic/companion/issues/:id", patch(routes::agentic::update_companion_issue))
         .route("/api/agentic/companion/context-summary/", get(routes::agentic::companion_context_summary))
         // Reconciliation APIs
         .route("/api/reconciliation/accounts/", get(routes::reconciliation::list_accounts))
@@ -220,7 +234,7 @@ async fn main() {
         .route("/api/reconciliation/create-adjustment/", post(routes::reconciliation::create_adjustment))
         // Onboarding APIs
         .route("/api/onboarding/profile", get(routes::onboarding::get_profile))
-        .route("/api/onboarding/profile", axum::routing::put(routes::onboarding::update_profile))
+        .route("/api/onboarding/profile", put(routes::onboarding::update_profile))
         .route("/api/onboarding/event", post(routes::onboarding::log_event))
         .route("/api/consents/grant", post(routes::onboarding::grant_consent))
         .route("/api/consents/revoke", post(routes::onboarding::revoke_consent))
@@ -231,28 +245,26 @@ async fn main() {
         .route("/api/tax/periods/:period_key/anomalies/", get(routes::tax::list_anomalies))
         .route("/api/tax/periods/:period_key/refresh/", post(routes::tax::refresh_period))
         .route("/api/tax/periods/:period_key/status/", post(routes::tax::update_status))
-        .route("/api/tax/periods/:period_key/anomalies/:anomaly_id/", axum::routing::patch(routes::tax::update_anomaly))
+        .route("/api/tax/periods/:period_key/anomalies/:anomaly_id/", patch(routes::tax::update_anomaly))
         .route("/api/tax/periods/:period_key/llm-enrich/", post(routes::tax::llm_enrich))
         .route("/api/tax/periods/:period_key/reset/", post(routes::tax::reset_period))
         .route("/api/tax/periods/:period_key/payments/", post(routes::tax::create_payment))
-        .route("/api/tax/periods/:period_key/payments/:payment_id/", axum::routing::patch(routes::tax::update_payment))
-        .route("/api/tax/periods/:period_key/payments/:payment_id/delete/", post(routes::tax::delete_payment))
+        .route("/api/tax/periods/:period_key/payments/:payment_id/", patch(routes::tax::update_payment))
+        .route("/api/tax/periods/:period_key/payments/:payment_id/", delete(routes::tax::delete_payment))
         // Add shared state for all routes
         .with_state(app_state)
 
         // Add middleware
         .layer(cors)
         .layer(TraceLayer::new_for_http());
-
-    // Start server
     let addr = SocketAddr::from(([0, 0, 0, 0], 3001));
-    tracing::info!("🚀 Clover API starting on http://{}", addr);
-    tracing::info!("🦀 100% Native Rust - No legacy framework dependencies");
-    tracing::info!("🔐 Auth: /api/auth/*");
-    tracing::info!("💰 Banking: /api/banking/* (native matching engine)");
-    tracing::info!("📋 Core: /api/dashboard, invoices, expenses, customers, suppliers");
-    tracing::info!("🤖 Companion: /api/companion/*");
-    tracing::info!("🗄️ Database: SQLite");
+    tracing::info!("ðŸš€ Clover API starting on http://{}", addr);
+    tracing::info!("ðŸ¦€ 100% Native Rust - No legacy framework dependencies");
+    tracing::info!("ðŸ” Auth: /api/auth/*");
+    tracing::info!("ðŸ’° Banking: /api/banking/* (native matching engine)");
+    tracing::info!("ðŸ“‹ Core: /api/dashboard, invoices, expenses, customers, suppliers");
+    tracing::info!("ðŸ¤– Companion: /api/companion/*");
+    tracing::info!("ðŸ—„ï¸ Database: SQLite");
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
@@ -400,3 +412,4 @@ fn map_agent_name(name: &str) -> Option<companion_autonomy::agents::AgentName> {
         _ => None,
     }
 }
+
