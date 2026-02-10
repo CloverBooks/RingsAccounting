@@ -1,5 +1,7 @@
+#![allow(dead_code)]
+
 use serde_json::Value;
-use sqlx::{Sqlite, SqlitePool};
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::companion_autonomy::models::{
@@ -10,7 +12,6 @@ use crate::companion_autonomy::models::{
 use crate::companion_autonomy::policy::{derive_engine_mode, trust_score};
 use crate::companion_autonomy::now_utc_str;
 
-#[allow(dead_code)]
 pub async fn list_business_ids(pool: &SqlitePool) -> Result<Vec<i64>, sqlx::Error> {
     let rows = sqlx::query_scalar::<_, i64>("SELECT id FROM core_business WHERE is_deleted = 0")
         .fetch_all(pool)
@@ -276,6 +277,7 @@ pub async fn fetch_business_policy(pool: &SqlitePool, business_id: i64) -> Resul
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn upsert_business_policy(
     pool: &SqlitePool,
     business_id: i64,
@@ -351,7 +353,6 @@ pub async fn upsert_policy(
     Ok(())
 }
 
-#[allow(dead_code)]
 pub async fn upsert_work_item(pool: &SqlitePool, seed: &WorkItemSeed) -> Result<WorkItem, sqlx::Error> {
     let inputs_json = serde_json::to_string(&seed.inputs).unwrap_or_else(|_| "{}".to_string());
     let state_json = serde_json::to_string(&seed.state).unwrap_or_else(|_| "{}".to_string());
@@ -419,7 +420,7 @@ pub async fn upsert_work_item_tx(
     let state_json = serde_json::to_string(&seed.state).unwrap_or_else(|_| "{}".to_string());
     let links_json = serde_json::to_string(&seed.links).unwrap_or_else(|_| "{}".to_string());
 
-    sqlx::query::<Sqlite>(
+    sqlx::query(
         "INSERT INTO companion_autonomy_work_items (
             tenant_id, business_id, work_type, surface, status, priority, dedupe_key,
             inputs_json, state_json, due_at, snoozed_until, risk_level, confidence_score,
@@ -464,7 +465,7 @@ pub async fn upsert_work_item_tx(
     .execute(&mut **tx)
     .await?;
 
-    sqlx::query_as::<Sqlite, WorkItem>(
+    sqlx::query_as::<_, WorkItem>(
         "SELECT * FROM companion_autonomy_work_items WHERE tenant_id = ? AND dedupe_key = ?"
     )
     .bind(seed.tenant_id)
@@ -473,7 +474,6 @@ pub async fn upsert_work_item_tx(
     .await
 }
 
-#[allow(dead_code)]
 pub async fn upsert_action_recommendation(
     pool: &SqlitePool,
     work_item_id: i64,
@@ -526,7 +526,7 @@ pub async fn upsert_action_recommendation_tx(
     let payload_json = serde_json::to_string(&seed.payload).unwrap_or_else(|_| "{}".to_string());
     let preview_json = serde_json::to_string(&seed.preview_effects).unwrap_or_else(|_| "{}".to_string());
 
-    sqlx::query::<Sqlite>(
+    sqlx::query(
         "INSERT INTO companion_autonomy_action_recommendations (
             tenant_id, business_id, work_item_id, action_kind, payload_json, preview_effects_json,
             status, requires_confirm, approval_request_id, created_at, updated_at
@@ -549,7 +549,7 @@ pub async fn upsert_action_recommendation_tx(
     .execute(&mut **tx)
     .await?;
 
-    sqlx::query_as::<Sqlite, ActionRecommendation>(
+    sqlx::query_as::<_, ActionRecommendation>(
         "SELECT * FROM companion_autonomy_action_recommendations WHERE work_item_id = ? AND action_kind = ?"
     )
     .bind(work_item_id)
@@ -558,7 +558,6 @@ pub async fn upsert_action_recommendation_tx(
     .await
 }
 
-#[allow(dead_code)]
 pub async fn insert_rationale_card(
     pool: &SqlitePool,
     work_item_id: i64,
@@ -620,7 +619,7 @@ pub async fn insert_rationale_card_tx(
 
     let next_version = version + 1;
 
-    sqlx::query::<Sqlite>(
+    sqlx::query(
         "INSERT INTO companion_autonomy_rationale_cards (
             tenant_id, business_id, work_item_id, sections_json, customer_safe_text, generated_at, version
         ) VALUES (?, ?, ?, ?, ?, datetime('now'), ?)"
@@ -634,7 +633,7 @@ pub async fn insert_rationale_card_tx(
     .execute(&mut **tx)
     .await?;
 
-    sqlx::query_as::<Sqlite, RationaleCard>(
+    sqlx::query_as::<_, RationaleCard>(
         "SELECT * FROM companion_autonomy_rationale_cards WHERE work_item_id = ? AND version = ?"
     )
     .bind(work_item_id)
@@ -644,7 +643,6 @@ pub async fn insert_rationale_card_tx(
 }
 
 #[allow(clippy::too_many_arguments)]
-#[allow(dead_code)]
 pub async fn insert_claim(
     pool: &SqlitePool,
     tenant_id: i64,
@@ -684,7 +682,7 @@ pub async fn insert_claim_tx(
     verification_status: &str,
     source_quality_score: f64,
 ) -> Result<i64, sqlx::Error> {
-    let result = sqlx::query::<Sqlite>(
+    let result = sqlx::query(
         "INSERT INTO companion_autonomy_claims (
             tenant_id, business_id, work_item_id, statement, confidence,
             verification_status, source_quality_score, created_at
@@ -703,7 +701,6 @@ pub async fn insert_claim_tx(
 }
 
 #[allow(clippy::too_many_arguments)]
-#[allow(dead_code)]
 pub async fn insert_evidence(
     pool: &SqlitePool,
     tenant_id: i64,
@@ -742,7 +739,7 @@ pub async fn insert_evidence_tx(
     excerpt_hash: &str,
     credibility_flags: &str,
 ) -> Result<i64, sqlx::Error> {
-    let result = sqlx::query::<Sqlite>(
+    let result = sqlx::query(
         "INSERT INTO companion_autonomy_evidence (
             tenant_id, business_id, work_item_id, url, title, retrieved_at, excerpt_hash, credibility_flags, created_at
         ) VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?, datetime('now'))"
@@ -759,7 +756,6 @@ pub async fn insert_evidence_tx(
     Ok(result.last_insert_rowid())
 }
 
-#[allow(dead_code)]
 pub async fn link_claim_evidence(
     pool: &SqlitePool,
     claim_id: i64,
@@ -781,7 +777,7 @@ pub async fn link_claim_evidence_tx(
     claim_id: i64,
     evidence_id: i64,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query::<Sqlite>(
+    sqlx::query(
         "INSERT OR IGNORE INTO companion_autonomy_claim_evidence (claim_id, evidence_id, created_at)
          VALUES (?, ?, datetime('now'))"
     )
@@ -836,7 +832,7 @@ pub async fn insert_audit_log_tx(
     payload: &Value,
 ) -> Result<(), sqlx::Error> {
     let payload_json = serde_json::to_string(payload).unwrap_or_else(|_| "{}".to_string());
-    sqlx::query::<Sqlite>(
+    sqlx::query(
         "INSERT INTO companion_autonomy_audit_log (
             tenant_id, business_id, actor_id, actor_label, action, target_type, target_id, payload_json, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))"
@@ -1528,7 +1524,7 @@ pub async fn list_work_items_by_status(
     if statuses.is_empty() {
         return Ok(Vec::new());
     }
-    let placeholders = std::iter::repeat("?").take(statuses.len()).collect::<Vec<_>>().join(",");
+    let placeholders = std::iter::repeat_n("?", statuses.len()).collect::<Vec<_>>().join(",");
     let query = format!(
         "SELECT * FROM companion_autonomy_work_items
          WHERE tenant_id = ? AND status IN ({})
@@ -1571,7 +1567,6 @@ pub async fn work_item_by_id(
     .await
 }
 
-#[allow(dead_code)]
 pub async fn update_work_item_status_by_dedupe_key(
     pool: &SqlitePool,
     tenant_id: i64,

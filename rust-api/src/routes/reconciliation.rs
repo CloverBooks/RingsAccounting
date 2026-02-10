@@ -11,6 +11,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use chrono::Datelike;
 use serde::{Deserialize, Serialize};
 
 use crate::AppState;
@@ -78,33 +79,32 @@ pub struct MatchQuery {
 /// GET /api/reconciliation/accounts/
 /// List bank accounts available for reconciliation
 pub async fn list_accounts(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
 ) -> impl IntoResponse {
     tracing::info!("Listing reconciliation accounts");
     
-    let account_list = serde_json::json!([
-        {
-            "id": "1",
-            "name": "1000 · Cash (Main)",
-            "bankLabel": "RBC Business #1",
-            "currency": "CAD",
-            "isDefault": true,
-        },
-        {
-            "id": "2",
-            "name": "1010 · Business Savings",
-            "bankLabel": "RBC Savings #2",
-            "currency": "CAD",
-            "isDefault": false,
-        },
-        {
-            "id": "3",
-            "name": "2000 · AMEX Corporate",
-            "bankLabel": "AMEX Corporate Gold",
-            "currency": "CAD",
-            "isDefault": false,
-        },
-    ]);
+    // Try to get bank accounts from database
+    let accounts = sqlx::query_as::<_, (i64, String, String)>(
+        "SELECT id, name, bank_name FROM core_bankaccount 
+         WHERE is_active = 1
+         ORDER BY name"
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+    
+    let account_list: Vec<serde_json::Value> = accounts
+        .into_iter()
+        .map(|(id, name, bank_name)| {
+            serde_json::json!({
+                "id": id,
+                "name": name,
+                "bank_name": bank_name,
+                "last_reconciled_date": null,
+                "unreconciled_count": 0
+            })
+        })
+        .collect();
     
     (StatusCode::OK, Json(account_list))
 }
@@ -113,26 +113,53 @@ pub async fn list_accounts(
 /// Get available reconciliation periods for an account
 pub async fn list_periods(
     State(_state): State<AppState>,
-    Path(account_id): Path<String>,
+    Path(account_id): Path<i64>,
 ) -> impl IntoResponse {
     tracing::info!("Listing reconciliation periods for account {}", account_id);
     
-    let periods = match account_id.as_str() {
-        "1" => serde_json::json!([
-            {"id": "p1", "label": "January 2026", "startDate": "2026-01-01", "endDate": "2026-01-31", "isCurrent": true, "isLocked": false},
-            {"id": "p2", "label": "December 2025", "startDate": "2025-12-01", "endDate": "2025-12-31", "isCurrent": false, "isLocked": true},
-        ]),
-        "2" => serde_json::json!([
-            {"id": "p3", "label": "Q4 2025", "startDate": "2025-10-01", "endDate": "2025-12-31", "isCurrent": true, "isLocked": false},
-        ]),
-        "3" => serde_json::json!([
-            {"id": "p4", "label": "January 2026", "startDate": "2026-01-01", "endDate": "2026-01-31", "isCurrent": true, "isLocked": false},
-        ]),
-        _ => serde_json::json!([]),
-    };
+    // Generate mock periods for the last 6 months
+    let today = chrono::Local::now().date_naive();
+    let mut periods = Vec::new();
+    
+    for i in 0..6 {
+        let period_date = today - chrono::Duration::days(30 * i as i64);
+        let year = period_date.format("%Y").to_string();
+        let month = period_date.format("%m").to_string();
+        
+        // Calculate start and end of month
+        let start_of_month = chrono::NaiveDate::from_ymd_opt(
+            period_date.year(),
+            period_date.month(),
+            1
+        ).unwrap_or(period_date);
+        
+        let end_of_month = {
+            let next_month = if period_date.month() == 12 {
+                chrono::NaiveDate::from_ymd_opt(period_date.year() + 1, 1, 1)
+            } else {
+                chrono::NaiveDate::from_ymd_opt(period_date.year(), period_date.month() + 1, 1)
+            };
+            next_month.map(|d| d - chrono::Duration::days(1)).unwrap_or(period_date)
+        };
+        
+        let month_names = ["", "January", "February", "March", "April", "May", "June",
+                          "July", "August", "September", "October", "November", "December"];
+        let month_idx = period_date.month() as usize;
+        let label = format!("{} {}", month_names.get(month_idx).unwrap_or(&""), year);
+        
+        periods.push(serde_json::json!({
+            "id": format!("{}-{}", year, month),
+            "label": label,
+            "start_date": start_of_month.format("%Y-%m-%d").to_string(),
+            "end_date": end_of_month.format("%Y-%m-%d").to_string(),
+            "is_current": i == 0,
+            "is_locked": i > 2  // Older periods are locked
+        }));
+    }
     
     (StatusCode::OK, Json(serde_json::json!({
-        "periods": periods
+        "periods": periods,
+        "bank_account_id": account_id
     })))
 }
 
@@ -140,61 +167,23 @@ pub async fn list_periods(
 /// Get or create a reconciliation session
 pub async fn get_session(
     State(_state): State<AppState>,
-    Query(params): Query<std::collections::HashMap<String, String>>,
+    Query(params): Query<SessionQuery>,
 ) -> impl IntoResponse {
     tracing::info!("Getting reconciliation session: {:?}", params);
     
-    let account = params.get("account").map(|s| s.as_str()).unwrap_or("1");
-    let start = params.get("start").map(|s| s.as_str()).unwrap_or("2026-01-01");
-    let end = params.get("end").map(|s| s.as_str()).unwrap_or("2026-01-31");
-
-    let period = serde_json::json!({
-        "id": "p1", 
-        "label": "January 2026", 
-        "startDate": start, 
-        "endDate": end, 
-        "isCurrent": true, 
-        "isLocked": false
-    });
-
-    let session = serde_json::json!({
-        "id": "s1",
-        "status": "DRAFT",
-        "opening_balance": 45000.00,
-        "statement_ending_balance": 52000.00,
-        "cleared_balance": 45000.00,
-        "difference": 7000.00,
-        "total_transactions": 5,
-        "reconciled_count": 0,
-        "excluded_count": 0,
-        "unreconciled_count": 5,
-        "reconciled_percent": 0.0,
-    });
-
-    let txs = serde_json::json!([
-        {"id": 1001, "date": "2026-01-15", "description": "Client Payment - Acme Corp", "amount": 5000.00, "status": "new", "ui_status": "NEW", "is_cleared": false},
-        {"id": 1002, "date": "2026-01-16", "description": "Starbucks Coffee", "amount": -15.50, "status": "new", "ui_status": "NEW", "is_cleared": false},
-        {"id": 1003, "date": "2026-01-18", "description": "AWS Hosting Plans", "amount": -240.00, "status": "new", "ui_status": "NEW", "is_cleared": false},
-        {"id": 1004, "date": "2026-01-20", "description": "Office Rent - Downtown", "amount": -2500.00, "status": "new", "ui_status": "NEW", "is_cleared": false},
-        {"id": 1005, "date": "2026-01-22", "description": "Apple Store - Laptop", "amount": -1800.00, "status": "new", "ui_status": "NEW", "is_cleared": false},
-    ]);
-
-    let bank_acc = serde_json::json!({
-        "id": account, 
-        "name": if account == "1" { "1000 · Cash (Main)" } else { "Unknown" }, 
-        "currency": "CAD"
-    });
-
+    // Return stub session
     (StatusCode::OK, Json(serde_json::json!({
-        "session": session,
-        "period": period,
-        "bank_account": bank_acc,
-        "feed": {
-            "new": txs,
-            "matched": [],
-            "partial": [],
-            "excluded": [],
-        }
+        "session": {
+            "id": 0,
+            "bank_account_id": params.bank_account_id.unwrap_or(0),
+            "status": "open",
+            "statement_balance": null,
+            "calculated_balance": 0.0,
+            "difference": 0.0,
+            "transactions": []
+        },
+        "transactions": [],
+        "message": "No transactions to reconcile"
     })))
 }
 

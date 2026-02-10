@@ -286,29 +286,8 @@ fn generate_mock_snapshot(period_key: &str) -> TaxSnapshot {
 pub async fn list_periods(
     State(_state): State<AppState>,
 ) -> impl IntoResponse {
-    let periods = serde_json::json!([
-        {
-            "period_key": "2026-01",
-            "status": "DRAFT",
-            "net_tax": 4250.00,
-            "anomaly_counts": {"low": 5, "medium": 2, "high": 0},
-            "due_date": "2026-02-28",
-            "is_due_soon": true,
-            "is_overdue": false,
-            "payment_status": "UNPAID",
-        },
-        {
-            "period_key": "2025-12",
-            "status": "FILED",
-            "net_tax": 3800.00,
-            "anomaly_counts": {"low": 2, "medium": 0, "high": 0},
-            "due_date": "2026-01-31",
-            "is_due_soon": false,
-            "is_overdue": false,
-            "payment_status": "PAID",
-        },
-    ]);
-    Json(serde_json::json!({ "periods": periods }))
+    let periods = generate_mock_periods();
+    Json(TaxPeriodsResponse { periods })
 }
 
 /// GET /api/tax/periods/:period_key/
@@ -317,49 +296,7 @@ pub async fn get_snapshot(
     State(_state): State<AppState>,
     Path(period_key): Path<String>,
 ) -> impl IntoResponse {
-    let snapshot = if period_key == "2026-01" {
-        serde_json::json!({
-            "period_key": "2026-01",
-            "country": "CA",
-            "status": "DRAFT",
-            "due_date": "2026-02-28",
-            "is_due_soon": true,
-            "is_overdue": false,
-            "llm_summary": "Your GST/HST position for January is mostly clear. I found 2 medium anomalies related to missing jurisdiction markers on Ontario sales. Filing is due in 28 days.",
-            "summary_by_jurisdiction": {
-                "CA-ON": {"name": "Ontario (HST)", "net_tax": 4250.00, "sales_total": 32692.30}
-            },
-            "net_tax": 4250.00,
-            "payment_status": "UNPAID",
-            "payments": [],
-            "payments_total": 0.0,
-            "balance": 4250.00,
-            "remaining_balance": 4250.00,
-            "anomaly_counts": {"low": 5, "medium": 2, "high": 0},
-            "has_high_severity_blockers": false,
-        })
-    } else {
-        serde_json::json!({
-            "period_key": period_key,
-            "country": "CA",
-            "status": "FILED",
-            "due_date": "2026-01-31",
-            "is_due_soon": false,
-            "is_overdue": false,
-            "llm_summary": "December period is filed and paid.",
-            "summary_by_jurisdiction": {
-                "CA-ON": {"name": "Ontario (HST)", "net_tax": 3800.00, "sales_total": 29230.77}
-            },
-            "net_tax": 3800.00,
-            "payment_status": "PAID",
-            "payments": [],
-            "payments_total": 3800.00,
-            "balance": 0.0,
-            "remaining_balance": 0.0,
-            "anomaly_counts": {"low": 2, "medium": 0, "high": 0},
-            "has_high_severity_blockers": false,
-        })
-    };
+    let snapshot = generate_mock_snapshot(&period_key);
     Json(snapshot)
 }
 
@@ -368,52 +305,11 @@ pub async fn get_snapshot(
 pub async fn list_anomalies(
     State(_state): State<AppState>,
     Path(_period_key): Path<String>,
-    Query(params): Query<std::collections::HashMap<String, String>>,
+    Query(_params): Query<AnomaliesQuery>,
 ) -> impl IntoResponse {
-    let mut anomalies = vec![
-        serde_json::json!({
-            "id": "tax-1",
-            "code": "HIGH_VALUE_WITHOUT_TAX",
-            "severity": "high",
-            "status": "OPEN",
-            "description": "Subscription payment to 'Cloud Provider' ($1,280) has no tax assigned but usually does.",
-            "task_code": "REVIEW_TX",
-            "created_at": "2026-01-30T10:00:00Z",
-        }),
-        serde_json::json!({
-            "id": "tax-2",
-            "code": "MISSING_JURISDICTION",
-            "severity": "medium",
-            "status": "OPEN",
-            "description": "Sale to 'Client X' in Ontario has no HST recorded.",
-            "task_code": "ASSIGN_TAX",
-            "created_at": "2026-01-29T15:00:00Z",
-        }),
-        serde_json::json!({
-            "id": "tax-3",
-            "code": "RATE_MISMATCH",
-            "severity": "low",
-            "status": "RESOLVED",
-            "description": "Tax rate 12.5% differs from standard 13% for HST.",
-            "task_code": "CONFIRM_RATE",
-            "created_at": "2026-01-28T09:00:00Z",
-            "resolved_at": "2026-01-28T14:00:00Z",
-        })
-    ];
-
-    if let Some(severity) = params.get("severity") {
-        if severity != "all" {
-            anomalies.retain(|a| a["severity"].as_str() == Some(severity.as_str()));
-        }
-    }
-
-    if let Some(status) = params.get("status") {
-        if status != "all" {
-            anomalies.retain(|a| a["status"].as_str() == Some(status.as_str()));
-        }
-    }
-
-    Json(serde_json::json!({ "anomalies": anomalies }))
+    // Return empty anomalies for now (demo data)
+    let anomalies: Vec<TaxAnomaly> = Vec::new();
+    Json(TaxAnomaliesResponse { anomalies })
 }
 
 /// POST /api/tax/periods/:period_key/refresh/

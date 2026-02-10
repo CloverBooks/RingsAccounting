@@ -3,7 +3,6 @@ pub mod auth;
 pub mod companion;
 pub mod companion_autonomy;
 pub mod dashboard;
-pub mod inventory;
 pub mod matching;
 pub mod onboarding;
 pub mod reconciliation;

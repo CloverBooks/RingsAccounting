@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, JournalEntryStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+
+const JOURNAL_ENTRY_STATUS = {
+  PENDING: 'PENDING',
+  POSTED: 'POSTED',
+} as const;
+
+type JournalEntryUpdateInput = Record<string, unknown>;
 
 @Injectable()
 export class LedgerService {
@@ -18,14 +24,14 @@ export class LedgerService {
       throw new Error('Postings must balance to zero.');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx: any) => {
       const entry = await tx.journalEntry.create({
         data: {
           ledger_id: dto.ledgerId,
           description: dto.description,
           external_reference: dto.externalReference ?? null,
           idempotency_key: dto.idempotencyKey,
-          status: JournalEntryStatus.PENDING,
+          status: JOURNAL_ENTRY_STATUS.PENDING,
         },
       });
 
@@ -39,19 +45,19 @@ export class LedgerService {
 
       const posted = await tx.journalEntry.update({
         where: { id: entry.id },
-        data: { status: JournalEntryStatus.POSTED, posted_at: new Date() },
+        data: { status: JOURNAL_ENTRY_STATUS.POSTED, posted_at: new Date() },
       });
 
       return posted;
     });
   }
 
-  async updateEntry(entryId: string, data: Prisma.JournalEntryUpdateInput) {
+  async updateEntry(entryId: string, data: JournalEntryUpdateInput) {
     const entry = await this.prisma.journalEntry.findUnique({ where: { id: entryId } });
     if (!entry) {
       throw new Error('Entry not found');
     }
-    if (entry.status === JournalEntryStatus.POSTED) {
+    if (entry.status === JOURNAL_ENTRY_STATUS.POSTED) {
       throw new Error('Posted journal entries are immutable.');
     }
     return this.prisma.journalEntry.update({ where: { id: entryId }, data });

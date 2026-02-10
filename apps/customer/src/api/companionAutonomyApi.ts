@@ -1,4 +1,4 @@
-import { buildApiUrl, getAccessToken, fetchWithTimeout } from "@/api/client";
+import { buildApiUrl, getAccessToken } from "@/api/client";
 import { ensureCsrfToken } from "@/utils/csrf";
 
 export type EngineQueueItem = {
@@ -61,21 +61,6 @@ export type EngineStatusPayload = {
   mock_mode: { llm: string; tools: string };
 };
 
-export type ReceiptRunUploadOptions = {
-  defaultCurrency?: string;
-  defaultCategory?: string;
-  defaultVendor?: string;
-  defaultDate?: string;
-};
-
-export type ReceiptRunUploadResult =
-  | { ok: true; runId: number | null }
-  | { ok: false; error: string };
-
-export type TriggerReviewResult =
-  | { ok: true; runId: number | null }
-  | { ok: false; error: string };
-
 const buildHeaders = async (method: "GET" | "POST") => {
   const headers: Record<string, string> = { Accept: "application/json" };
   const token = getAccessToken();
@@ -90,130 +75,10 @@ const buildHeaders = async (method: "GET" | "POST") => {
   return headers;
 };
 
-export async function uploadReceiptRun(
-  files: File[],
-  options: ReceiptRunUploadOptions = {},
-): Promise<ReceiptRunUploadResult> {
-  if (!Array.isArray(files) || files.length === 0) {
-    return { ok: false, error: "Please select at least one receipt." };
-  }
-  try {
-    const headers: Record<string, string> = {};
-    const token = getAccessToken();
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-    const csrf = await ensureCsrfToken();
-    if (csrf) {
-      headers["X-CSRFToken"] = csrf;
-    }
-
-    const form = new FormData();
-    files.forEach((file) => form.append("files", file));
-    if (options.defaultCurrency) form.append("default_currency", options.defaultCurrency);
-    if (options.defaultCategory) form.append("default_category", options.defaultCategory);
-    if (options.defaultVendor) form.append("default_vendor", options.defaultVendor);
-    if (options.defaultDate) form.append("default_date", options.defaultDate);
-
-    const res = await fetchWithTimeout(buildApiUrl("/api/agentic/receipts/run"), {
-      method: "POST",
-      credentials: "include",
-      headers,
-      body: form,
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const detail =
-        typeof data?.error === "string"
-          ? data.error
-          : `Receipt upload failed (${res.status})`;
-      return { ok: false, error: detail };
-    }
-
-    const parsedRunId = Number(data?.run_id);
-    return {
-      ok: true,
-      runId: Number.isFinite(parsedRunId) ? parsedRunId : null,
-    };
-  } catch (err: any) {
-    return { ok: false, error: err?.message || "Receipt upload failed." };
-  }
-}
-
-async function buildMultipartHeaders(): Promise<Record<string, string>> {
-  const headers: Record<string, string> = {};
-  const token = getAccessToken();
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-  const csrf = await ensureCsrfToken();
-  if (csrf) {
-    headers["X-CSRFToken"] = csrf;
-  }
-  return headers;
-}
-
-export async function triggerBooksReviewRun(
-  period?: { periodStart?: string; periodEnd?: string },
-): Promise<TriggerReviewResult> {
-  try {
-    const form = new FormData();
-    if (period?.periodStart) form.append("period_start", period.periodStart);
-    if (period?.periodEnd) form.append("period_end", period.periodEnd);
-
-    const res = await fetchWithTimeout(buildApiUrl("/api/agentic/books-review/run"), {
-      method: "POST",
-      credentials: "include",
-      headers: await buildMultipartHeaders(),
-      body: form,
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      return {
-        ok: false,
-        error: typeof data?.error === "string" ? data.error : `Books review failed (${res.status})`,
-      };
-    }
-    const runId = Number(data?.run_id);
-    return { ok: true, runId: Number.isFinite(runId) ? runId : null };
-  } catch (err: any) {
-    return { ok: false, error: err?.message || "Books review failed." };
-  }
-}
-
-export async function triggerBankAuditRun(
-  payload?: { periodStart?: string; periodEnd?: string; linesJson?: string },
-): Promise<TriggerReviewResult> {
-  try {
-    const form = new FormData();
-    if (payload?.periodStart) form.append("period_start", payload.periodStart);
-    if (payload?.periodEnd) form.append("period_end", payload.periodEnd);
-    form.append("lines", payload?.linesJson || "[]");
-
-    const res = await fetchWithTimeout(buildApiUrl("/api/agentic/bank-review/run"), {
-      method: "POST",
-      credentials: "include",
-      headers: await buildMultipartHeaders(),
-      body: form,
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      return {
-        ok: false,
-        error: typeof data?.error === "string" ? data.error : `Bank audit failed (${res.status})`,
-      };
-    }
-    const runId = Number(data?.run_id);
-    return { ok: true, runId: Number.isFinite(runId) ? runId : null };
-  } catch (err: any) {
-    return { ok: false, error: err?.message || "Bank audit failed." };
-  }
-}
-
 export async function fetchCockpitQueues(): Promise<EngineQueuesResult | null> {
   try {
-    const res = await fetchWithTimeout(buildApiUrl("/api/companion/cockpit/queues"), {
-      credentials: "include",
+    const res = await fetch(buildApiUrl("/api/companion/cockpit/queues"), {
+      credentials: "same-origin",
       headers: await buildHeaders("GET"),
     });
     if (!res.ok) return null;
@@ -232,8 +97,8 @@ export async function fetchCockpitQueues(): Promise<EngineQueuesResult | null> {
 
 export async function fetchCockpitStatus(): Promise<EngineStatusPayload | null> {
   try {
-    const res = await fetchWithTimeout(buildApiUrl("/api/companion/cockpit/status"), {
-      credentials: "include",
+    const res = await fetch(buildApiUrl("/api/companion/cockpit/status"), {
+      credentials: "same-origin",
       headers: await buildHeaders("GET"),
     });
     if (!res.ok) return null;
@@ -246,9 +111,9 @@ export async function fetchCockpitStatus(): Promise<EngineStatusPayload | null> 
 
 export async function tickEngine(tenantId?: number | "all"): Promise<boolean> {
   try {
-    const res = await fetchWithTimeout(buildApiUrl("/api/companion/autonomy/tick"), {
+    const res = await fetch(buildApiUrl("/api/companion/autonomy/tick"), {
       method: "POST",
-      credentials: "include",
+      credentials: "same-origin",
       headers: await buildHeaders("POST"),
       body: JSON.stringify({ tenant: tenantId === "all" ? "all" : undefined, tenant_id: tenantId }),
     });
@@ -260,9 +125,9 @@ export async function tickEngine(tenantId?: number | "all"): Promise<boolean> {
 
 export async function materializeEngine(tenantId?: number | "all"): Promise<boolean> {
   try {
-    const res = await fetchWithTimeout(buildApiUrl("/api/companion/autonomy/materialize"), {
+    const res = await fetch(buildApiUrl("/api/companion/autonomy/materialize"), {
       method: "POST",
-      credentials: "include",
+      credentials: "same-origin",
       headers: await buildHeaders("POST"),
       body: JSON.stringify({ tenant: tenantId === "all" ? "all" : undefined, tenant_id: tenantId }),
     });
@@ -274,9 +139,9 @@ export async function materializeEngine(tenantId?: number | "all"): Promise<bool
 
 export async function applyEngineBatch(actionIds: number[]): Promise<boolean> {
   try {
-    const res = await fetchWithTimeout(buildApiUrl("/api/companion/autonomy/actions/batch-apply"), {
+    const res = await fetch(buildApiUrl("/api/companion/autonomy/actions/batch-apply"), {
       method: "POST",
-      credentials: "include",
+      credentials: "same-origin",
       headers: await buildHeaders("POST"),
       body: JSON.stringify({ action_ids: actionIds }),
     });

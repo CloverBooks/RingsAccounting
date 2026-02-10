@@ -10,13 +10,11 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use chrono::{Duration, TimeZone, Utc};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
-use std::time::Duration as StdDuration;
 use uuid::Uuid;
 
 use crate::AppState;
@@ -27,9 +25,7 @@ use crate::routes::auth::extract_claims_from_header;
 
 struct UploadedFile {
     filename: String,
-    content_type: Option<String>,
     size_bytes: usize,
-    bytes: Vec<u8>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -206,7 +202,6 @@ async fn parse_multipart_form(
         let name = field.name().unwrap_or("").to_string();
         if name == "files" {
             let filename = field.file_name().unwrap_or("upload").to_string();
-            let content_type = field.content_type().map(|value| value.to_string());
             let data = field.bytes().await.map_err(|err| {
                 (
                     StatusCode::BAD_REQUEST,
@@ -215,9 +210,7 @@ async fn parse_multipart_form(
             })?;
             files.push(UploadedFile {
                 filename,
-                content_type,
                 size_bytes: data.len(),
-                bytes: data.to_vec(),
             });
         } else if !name.is_empty() {
             let text = field.text().await.map_err(|err| {
@@ -231,147 +224,6 @@ async fn parse_multipart_form(
     }
 
     Ok((fields, files))
-}
-
-fn openai_receipt_model() -> String {
-    std::env::var("OPENAI_RECEIPT_MODEL")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .or_else(|| {
-            std::env::var("OPENAI_MODEL")
-                .ok()
-                .filter(|value| !value.trim().is_empty())
-        })
-        .unwrap_or_else(|| "gpt-4o-mini".to_string())
-}
-
-fn infer_image_media_type(file: &UploadedFile) -> Option<&'static str> {
-    if let Some(content_type) = file.content_type.as_deref() {
-        let content_type = content_type.to_ascii_lowercase();
-        if content_type.starts_with("image/") {
-            return Some(match content_type.as_str() {
-                "image/jpeg" => "image/jpeg",
-                "image/jpg" => "image/jpeg",
-                "image/png" => "image/png",
-                "image/webp" => "image/webp",
-                "image/heic" => "image/heic",
-                _ => "image/png",
-            });
-        }
-    }
-
-    let filename = file.filename.to_ascii_lowercase();
-    if filename.ends_with(".jpg") || filename.ends_with(".jpeg") {
-        return Some("image/jpeg");
-    }
-    if filename.ends_with(".png") {
-        return Some("image/png");
-    }
-    if filename.ends_with(".webp") {
-        return Some("image/webp");
-    }
-    if filename.ends_with(".heic") {
-        return Some("image/heic");
-    }
-
-    None
-}
-
-fn json_string_field(value: &Value, key: &str) -> Option<String> {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|entry| !entry.is_empty())
-        .map(|entry| entry.to_string())
-}
-
-async fn review_receipt_image_with_openai(file: &UploadedFile) -> Result<Option<Value>, String> {
-    let media_type = match infer_image_media_type(file) {
-        Some(value) => value,
-        None => return Ok(None),
-    };
-    if file.bytes.is_empty() {
-        return Ok(None);
-    }
-
-    let api_key = match std::env::var("OPENAI_API_KEY")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-    {
-        Some(value) => value,
-        None => return Ok(None),
-    };
-
-    if file.bytes.len() > 8 * 1024 * 1024 {
-        return Err("image exceeds 8MB limit for OpenAI receipt review".to_string());
-    }
-
-    let model = openai_receipt_model();
-    let data_url = format!(
-        "data:{};base64,{}",
-        media_type,
-        BASE64_STANDARD.encode(&file.bytes)
-    );
-
-    let payload = json!({
-        "model": model,
-        "temperature": 0,
-        "response_format": { "type": "json_object" },
-        "messages": [
-            {
-                "role": "system",
-                "content": "Extract receipt data from the image. Return JSON with keys vendor, date, total, currency, category_hint, confidence, notes. Use null if unknown."
-            },
-            {
-                "role": "user",
-                "content": [
-                    { "type": "text", "text": "Extract receipt fields from this image for bookkeeping review." },
-                    { "type": "image_url", "image_url": { "url": data_url } }
-                ]
-            }
-        ],
-        "max_tokens": 350
-    });
-
-    let client = reqwest::Client::builder()
-        .timeout(StdDuration::from_secs(45))
-        .build()
-        .map_err(|err| format!("openai client init failed: {}", err))?;
-
-    let response = client
-        .post("https://api.openai.com/v1/chat/completions")
-        .bearer_auth(api_key)
-        .json(&payload)
-        .send()
-        .await
-        .map_err(|err| format!("openai request failed: {}", err))?;
-
-    let status = response.status();
-    let body: Value = response
-        .json()
-        .await
-        .map_err(|err| format!("invalid OpenAI response: {}", err))?;
-
-    if !status.is_success() {
-        let message = body
-            .pointer("/error/message")
-            .and_then(Value::as_str)
-            .unwrap_or("openai request failed");
-        return Err(message.to_string());
-    }
-
-    let content = body
-        .pointer("/choices/0/message/content")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "openai response missing content".to_string())?;
-
-    let parsed = serde_json::from_str::<Value>(content)
-        .map_err(|err| format!("openai returned invalid JSON: {}", err))?;
-    if !parsed.is_object() {
-        return Err("openai payload was not an object".to_string());
-    }
-    Ok(Some(parsed))
 }
 
 fn parse_json_value(raw: &str) -> Value {
@@ -1525,100 +1377,24 @@ pub async fn create_receipt_run(
     };
 
     let mut seeds = Vec::new();
-    let mut llm_explanations: Vec<String> = Vec::new();
-    let mut llm_suggested_classifications: Vec<Value> = Vec::new();
 
     for file in &files {
-        let mut audit_flags_items: Vec<Value> = Vec::new();
-        let ai_extracted = match review_receipt_image_with_openai(file).await {
-            Ok(payload) => payload,
-            Err(err) => {
-                audit_flags_items.push(json!({
-                    "code": "IMAGE_REVIEW_UNAVAILABLE",
-                    "severity": "low",
-                    "message": err
-                }));
-                None
-            }
-        };
-
-        if ai_extracted.is_some() {
-            llm_explanations.push(format!(
-                "{} reviewed with OpenAI image extraction.",
-                file.filename
-            ));
-        }
-
-        let vendor = ai_extracted
-            .as_ref()
-            .and_then(|value| json_string_field(value, "vendor"))
-            .unwrap_or_else(|| fallback_vendor(Some(&default_vendor), &file.filename));
-
-        let date_value = ai_extracted
-            .as_ref()
-            .and_then(|value| json_string_field(value, "date"))
-            .filter(|value| chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").is_ok())
-            .or_else(|| {
-                if default_date.is_empty() {
-                    None
-                } else {
-                    Some(default_date.clone())
-                }
-            })
-            .unwrap_or_else(|| Utc::now().date_naive().to_string());
-
-        let amount_value = ai_extracted
-            .as_ref()
-            .and_then(|value| value.get("total"))
-            .and_then(amount_from_value);
-        let confidence = ai_extracted
-            .as_ref()
-            .and_then(|value| value.get("confidence"))
-            .and_then(amount_from_value);
-        let currency_value = ai_extracted
-            .as_ref()
-            .and_then(|value| json_string_field(value, "currency"))
-            .unwrap_or_else(|| default_currency.clone());
-        let category_value = ai_extracted
-            .as_ref()
-            .and_then(|value| json_string_field(value, "category_hint"))
-            .unwrap_or_else(|| default_category.clone());
-
-        if let Some(conf) = confidence {
-            if conf < 0.65 {
-                audit_flags_items.push(json!({
-                    "code": "REVIEW_LOW_CONFIDENCE",
-                    "severity": "medium",
-                    "message": format!("OpenAI extraction confidence {:.2} is low.", conf)
-                }));
-            }
-        }
-
-        if ai_extracted.is_some() && !category_value.trim().is_empty() {
-            llm_suggested_classifications.push(json!({
-                "filename": file.filename,
-                "category_hint": category_value,
-                "source": "openai_image_review"
-            }));
-        }
-
-        let risk_level = risk_level_for_amount(amount_value).to_string();
-        let audit_score = if risk_level == "high" {
-            70.0
-        } else if risk_level == "medium" {
-            45.0
+        let vendor = fallback_vendor(Some(&default_vendor), &file.filename);
+        let date_value = if !default_date.is_empty() {
+            default_date.clone()
         } else {
-            20.0
+            Utc::now().date_naive().to_string()
         };
+        let amount_value = None;
+        let risk_level = risk_level_for_amount(amount_value).to_string();
+        let audit_score = if risk_level == "high" { 70.0 } else if risk_level == "medium" { 45.0 } else { 20.0 };
 
         let extracted_payload = json!({
             "vendor": vendor,
             "date": date_value,
             "total": format_amount(amount_value),
-            "currency": currency_value,
-            "category_hint": category_value,
-            "extraction_source": if ai_extracted.is_some() { "openai_image_review" } else { "fallback" },
-            "ai_image_review": ai_extracted,
+            "currency": default_currency,
+            "category_hint": default_category,
             "user_hints": {
                 "date_hint": default_date,
                 "currency_hint": default_currency,
@@ -1637,7 +1413,7 @@ pub async fn create_receipt_run(
             ]
         });
 
-        let audit_flags = Value::Array(audit_flags_items);
+        let audit_flags = json!([]);
 
         let doc_result = sqlx::query(
             "INSERT INTO agentic_receipt_documents (
@@ -1663,17 +1439,9 @@ pub async fn create_receipt_run(
             let seed = ReceiptDocSeed {
                 doc_id,
                 run_id,
-                vendor: extracted_payload
-                    .get("vendor")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("Vendor")
-                    .to_string(),
+                vendor: extracted_payload.get("vendor").and_then(|v| v.as_str()).unwrap_or("Vendor").to_string(),
                 amount: amount_value,
-                currency: extracted_payload
-                    .get("currency")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("USD")
-                    .to_string(),
+                currency: default_currency.clone(),
                 date: extracted_payload
                     .get("date")
                     .and_then(|v| v.as_str())
@@ -1686,18 +1454,6 @@ pub async fn create_receipt_run(
             seeds.push(seed);
         }
     }
-
-    let _ = sqlx::query(
-        "UPDATE agentic_receipt_runs
-         SET llm_explanations_json = ?, llm_suggested_classifications_json = ?, updated_at = datetime('now')
-         WHERE id = ? AND business_id = ?",
-    )
-    .bind(json!(llm_explanations).to_string())
-    .bind(json!(llm_suggested_classifications).to_string())
-    .bind(run_id)
-    .bind(business_id)
-    .execute(&state.db)
-    .await;
 
     let output = AgentOutput {
         signals: Vec::new(),
@@ -1973,7 +1729,7 @@ async fn fetch_receipt_run_summaries(pool: &SqlitePool, business_id: i64, limit:
     }
 
     let run_ids: Vec<i64> = runs.iter().map(|r| r.id).collect();
-    let placeholders = std::iter::repeat("?").take(run_ids.len()).collect::<Vec<_>>().join(",");
+    let placeholders = std::iter::repeat_n("?", run_ids.len()).collect::<Vec<_>>().join(",");
     let query = format!(
         "SELECT run_id,
                 COUNT(*) as total,
@@ -2034,7 +1790,7 @@ async fn fetch_invoice_run_summaries(pool: &SqlitePool, business_id: i64, limit:
     }
 
     let run_ids: Vec<i64> = runs.iter().map(|r| r.id).collect();
-    let placeholders = std::iter::repeat("?").take(run_ids.len()).collect::<Vec<_>>().join(",");
+    let placeholders = std::iter::repeat_n("?", run_ids.len()).collect::<Vec<_>>().join(",");
     let query = format!(
         "SELECT run_id,
                 COUNT(*) as total,
@@ -2348,7 +2104,7 @@ pub async fn companion_summary(
     });
 
     let monthly_burn = expenses_last_30d(&state.db, business_id).await;
-    let runway_months: Option<f64> = if monthly_burn > 0.0 { None } else { None };
+    let runway_months: Option<f64> = None;
     let months = revenue_expense_series(&state.db, business_id).await;
 
     let finance_snapshot = json!({

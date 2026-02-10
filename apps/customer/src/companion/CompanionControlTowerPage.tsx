@@ -1,12 +1,16 @@
-import React, { useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import React, { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
   ArrowRight,
-  Bot,
+  Banknote,
   ChevronRight,
   Clock,
+  FileText,
+  Filter,
   Gauge,
+  Layers,
+  ListChecks,
   Loader2,
   Lock,
   MessageSquareText,
@@ -14,17 +18,34 @@ import {
   Search,
   Shield,
   Sparkles,
-  TrendingUp,
-  Zap,
 } from "lucide-react";
 
+// shadcn/ui
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Progress } from "@/components/ui/progress";
 
+import CloseAssistantDrawer from "./CloseAssistantDrawer";
+import IssuesPanel from "./IssuesPanel";
+import PanelShell from "./PanelShell";
+import SuggestionsPanel from "./SuggestionsPanel";
+import { PanelType, toCustomerCopy } from "./companionCopy";
+import { buildApiUrl, getAccessToken } from "@/api/client";
+import { usePermissions } from "@/hooks/usePermissions";
+import {
+  applyEngineBatch,
+  fetchCockpitQueues,
+  fetchCockpitStatus,
+  EngineQueuesResult,
+  EngineStatusPayload,
+} from "@/api/companionAutonomyApi";
+
+// recharts (available)
 import {
   ResponsiveContainer,
   RadarChart,
@@ -40,41 +61,543 @@ import {
   Bar,
 } from "recharts";
 
-import CloseAssistantDrawer from "./CloseAssistantDrawer";
-import IssuesPanel from "./IssuesPanel";
-import PanelShell from "./PanelShell";
-import SuggestionsPanel from "./SuggestionsPanel";
-import EngineQueuePanel from "./EngineQueuePanel";
+/**
+ * AI Companion Control Tower (Customer-safe UI)
+ * ------------------------------------------------
+ * - Single calm surface
+ * - Right-side panels: AI Suggestions, Issues, Close Assistant
+ * - Neutral palette (no orange accents)
+ * - Customer-safe copy: “changes to your books”, “AI suggestions”, “review”
+ *
+ * Wiring:
+ * - Summary: GET /api/agentic/companion/summary
+ * - Issues: GET /api/agentic/companion/issues?status=open
+ * - Suggestions: /api/companion/v2/shadow-events/?status=proposed
+ */
 
-import { useCompanionData } from "./useCompanionData";
-import { usePanelRouting } from "./usePanelRouting";
-import { usePermissions } from "@/hooks/usePermissions";
-import { cx, focusTone, formatMoney, severityChip, surfaceMeta } from "./helpers";
-import type { Summary, SurfaceKey, PlaybookItem, FinanceSnapshot, TaxGuardian } from "./types";
-import {
-  triggerBankAuditRun,
-  triggerBooksReviewRun,
-  uploadReceiptRun,
-  type EngineQueuesResult,
-  type EngineStatusPayload,
-} from "@/api/companionAutonomyApi";
+const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
 
-// ─────────────────────────────────────────────────────────────────────────────
+type FocusMode = "all_clear" | "watchlist" | "fire_drill";
+
+type SurfaceKey = "receipts" | "invoices" | "books" | "banking";
+
+type RadarAxis = {
+  key: "cash_reconciliation" | "revenue_invoices" | "expenses_receipts" | "tax_compliance";
+  label: string;
+  score: number; // 0..100
+  open_issues: number;
+};
+
+type Coverage = {
+  key: SurfaceKey;
+  coverage_percent: number; // 0..100
+  total_items: number;
+  covered_items: number;
+};
+
+type PlaybookItem = {
+  id: string;
+  title: string;
+  description?: string;
+  severity: "low" | "medium" | "high";
+  surface?: SurfaceKey;
+  url?: string;
+  premium?: boolean;
+};
+
+type CloseReadiness = {
+  status: "ready" | "not_ready";
+  period_label: string;
+  progress_percent: number;
+  blockers: Array<{ id: string; title: string; surface?: SurfaceKey; url?: string; severity: "medium" | "high" }>;
+};
+
+type LlmSubtitle = {
+  surface: SurfaceKey;
+  subtitle: string;
+  source: "ai" | "auto";
+};
+
+type FinanceSnapshot = {
+  ending_cash: number;
+  monthly_burn: number;
+  runway_months: number;
+  months: Array<{ m: string; rev: number; exp: number }>;
+  ar_buckets: Array<{ bucket: string; amount: number }>;
+  total_overdue: number;
+};
+
+type TaxGuardian = {
+  period_key: string;
+  net_tax: Array<{ jurisdiction: string; amount: number }>;
+  anomaly_counts: { low: number; medium: number; high: number };
+};
+
+type Voice = {
+  greeting: string;
+  focus_mode: FocusMode;
+  tone_tagline: string;
+  primary_call_to_action: string;
+};
+
+type Summary = {
+  ai_companion_enabled: boolean;
+  generated_at: string;
+  voice: Voice;
+  radar: RadarAxis[];
+  coverage: Coverage[];
+  playbook: PlaybookItem[];
+  close_readiness: CloseReadiness;
+  llm_subtitles: LlmSubtitle[];
+  finance_snapshot: FinanceSnapshot;
+  tax_guardian: TaxGuardian;
+};
+
+// V2 proposals (customer-safe)
+
+type Proposal = {
+  id: string;
+  surface: SurfaceKey;
+  title: string;
+  description: string;
+  amount?: number;
+  risk: "ready" | "review" | "needs_attention";
+  customer_action_kind?: "apply" | "review" | "info";
+  risk_level?: "low" | "medium" | "high";
+  preview_effects?: string[];
+  source_agent?: string | null;
+  created_at: string;
+  target_url?: string; // review link
+  // backend action ids can be carried here if needed
+};
+
+type Issue = {
+  id: string;
+  surface: SurfaceKey;
+  title: string;
+  description?: string;
+  severity: "low" | "medium" | "high";
+  created_at: string;
+  target_url?: string;
+};
+
+function normalizeSurfaceKey(value?: string | null): SurfaceKey | null {
+  if (!value) return null;
+  const v = value.toLowerCase();
+  if (v === "bank" || v === "banking" || v === "bank_review") return "banking";
+  if (v === "books" || v === "book" || v === "books_review" || v === "books-review") return "books";
+  if (v === "receipts" || v === "expenses") return "receipts";
+  if (v === "invoices" || v === "revenue") return "invoices";
+  return null;
+}
+
+function surfaceKeyToFilterParam(surface: SurfaceKey) {
+  return surface === "banking" ? "bank" : surface;
+}
+
+const SURFACE_URLS: Record<SurfaceKey, string> = {
+  banking: "/banking",
+  invoices: "/invoices",
+  receipts: "/receipts",
+  books: "/books-review",
+};
+
+function proposalSurfaceFromEvent(event: any): SurfaceKey {
+  const explicit = normalizeSurfaceKey(event?.data?.surface || event?.surface || event?.domain);
+  if (explicit) return explicit;
+  const eventType = String(event?.event_type || "").toLowerCase();
+  if (eventType.includes("bank")) return "banking";
+  if (eventType.includes("categorization")) return "banking";
+  return "books";
+}
+
+function proposalRiskFromEvent(event: any): Proposal["risk"] {
+  const tier = Number(event?.human_in_the_loop?.tier);
+  if (Number.isFinite(tier)) {
+    if (tier >= 2) return "needs_attention";
+    if (tier === 1) return "review";
+    return "ready";
+  }
+  return event?.status === "proposed" ? "review" : "ready";
+}
+
+function proposalRiskLevelFromEvent(event: any): Proposal["risk_level"] {
+  const explicit = event?.risk_level;
+  if (explicit === "low" || explicit === "medium" || explicit === "high") return explicit;
+  const tier = Number(event?.human_in_the_loop?.tier);
+  if (Number.isFinite(tier)) {
+    if (tier >= 2) return "high";
+    if (tier === 1) return "medium";
+    return "low";
+  }
+  const status = String(event?.status || "").toLowerCase();
+  if (status === "proposed") return "medium";
+  return "low";
+}
+
+function proposalActionKindFromEvent(event: any): Proposal["customer_action_kind"] {
+  const explicit = event?.customer_action_kind || event?.action_kind;
+  if (explicit === "apply" || explicit === "review" || explicit === "info") return explicit;
+  const status = String(event?.status || "").toLowerCase();
+  if (status === "proposed") return "review";
+  return "apply";
+}
+
+function proposalAgentFromEvent(event: any): string | null {
+  const explicit = event?.agent_name || event?.agent || event?.data?.agent || event?.data?.source_agent;
+  if (explicit) return String(explicit);
+  const eventType = String(event?.event_type || "").toLowerCase();
+  if (eventType.includes("categorization")) return "CategorizationAgent";
+  if (eventType.includes("reconciliation") || eventType.includes("bankmatch") || eventType.includes("match")) {
+    return "ReconciliationAgent";
+  }
+  if (eventType.includes("narrative")) return "NarrativeAgent";
+  return null;
+}
+
+function proposalPreviewEffectsFromEvent(event: any): string[] | undefined {
+  const effects = event?.preview_effects || event?.data?.preview_effects || event?.data?.effects;
+  if (Array.isArray(effects)) {
+    return effects.map((item) => String(item)).filter(Boolean);
+  }
+  return undefined;
+}
+
+function proposalTitleFromEvent(event: any): string {
+  if (event?.data?.title) return String(event.data.title);
+  const eventType = String(event?.event_type || "");
+  if (eventType.includes("BankMatch")) return "Match a bank transaction";
+  if (eventType.includes("Categorization")) return "Categorize a bank transaction";
+  const desc = event?.data?.bank_transaction_description;
+  if (desc) return `Review "${desc}"`;
+  return "Review suggested change";
+}
+
+function proposalDescriptionFromEvent(event: any): string {
+  if (event?.rationale) return String(event.rationale);
+  const eventType = String(event?.event_type || "");
+  const desc = event?.data?.bank_transaction_description || event?.data?.journal_entry_description;
+  if (!desc) return "Review the suggested change before applying.";
+  if (eventType.includes("BankMatch")) return `AI suggests matching "${desc}" to an existing entry.`;
+  if (eventType.includes("Categorization")) return `AI suggests categorizing "${desc}" based on similar activity.`;
+  return `Review the suggested change for "${desc}".`;
+}
+
+function proposalAmountFromEvent(event: any): number | undefined {
+  const raw = event?.data?.bank_transaction_amount ?? event?.data?.amount ?? event?.data?.total;
+  const num = Number(raw);
+  return Number.isFinite(num) ? num : undefined;
+}
+
+// API Functions
+async function fetchSummaryApi(): Promise<Summary> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  const token = getAccessToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(buildApiUrl("/api/agentic/companion/summary"), {
+    credentials: "same-origin",
+    headers,
+  });
+  if (!res.ok) throw new Error("Failed to load summary");
+  const data = await res.json();
+
+  // Transform backend response to our types with null safety
+  const voice = data.voice || {};
+  const radar = data.radar || {};
+  const coverage = data.coverage || {};
+  const playbook = data.playbook || [];
+  const closeReadiness = data.close_readiness || {};
+  const llmSubtitles = data.llm_subtitles || {};
+  const financeSnapshot = data.finance_snapshot || {};
+  const taxBlock = data.tax || data.tax_guardian || {};
+  const taxJurisdictions = Array.isArray(taxBlock.jurisdictions) ? taxBlock.jurisdictions : [];
+  const taxNetEntries = taxJurisdictions.length
+    ? taxJurisdictions.map((j: any) => ({
+        jurisdiction: j.code || j.jurisdiction || "Tax",
+        amount: j.net_tax ?? j.amount ?? 0,
+      }))
+    : taxBlock.net_tax != null
+      ? [{ jurisdiction: "Net tax", amount: Number(taxBlock.net_tax) || 0 }]
+      : [];
+
+  const cashHealth = financeSnapshot.cash_health || {};
+  const revenueExpense = financeSnapshot.revenue_expense || {};
+  const arHealth = financeSnapshot.ar_health || {};
+
+  const fallbackMonths = Array.isArray(revenueExpense.months)
+    ? revenueExpense.months.map((m: string, i: number) => ({
+        m,
+        rev: revenueExpense.revenue?.[i] ?? 0,
+        exp: revenueExpense.expense?.[i] ?? 0,
+      }))
+    : [];
+
+  const fallbackArBuckets = arHealth.buckets
+    ? Object.entries(arHealth.buckets).map(([bucket, amount]) => ({ bucket, amount: Number(amount) || 0 }))
+    : [];
+
+  return {
+    ai_companion_enabled: data.ai_companion_enabled ?? true,
+    generated_at: data.generated_at || new Date().toISOString(),
+    voice: {
+      greeting: toCustomerCopy(voice.greeting || "Hello"),
+      focus_mode: voice.focus_mode || "watchlist",
+      tone_tagline: toCustomerCopy(voice.tone_tagline || "Your books need attention."),
+      primary_call_to_action: toCustomerCopy(voice.primary_call_to_action || "Review open items."),
+    },
+    radar: [
+      { key: "cash_reconciliation" as const, label: "Cash", score: radar.cash_reconciliation?.score ?? 100, open_issues: radar.cash_reconciliation?.open_issues ?? 0 },
+      { key: "revenue_invoices" as const, label: "Revenue", score: radar.revenue_invoices?.score ?? 100, open_issues: radar.revenue_invoices?.open_issues ?? 0 },
+      { key: "expenses_receipts" as const, label: "Expenses", score: radar.expenses_receipts?.score ?? 100, open_issues: radar.expenses_receipts?.open_issues ?? 0 },
+      { key: "tax_compliance" as const, label: "Tax", score: radar.tax_compliance?.score ?? 100, open_issues: radar.tax_compliance?.open_issues ?? 0 },
+    ],
+    coverage: [
+      { key: "receipts" as SurfaceKey, coverage_percent: coverage.receipts?.coverage_percent ?? 0, total_items: coverage.receipts?.total_items ?? 0, covered_items: coverage.receipts?.covered_items ?? 0 },
+      { key: "invoices" as SurfaceKey, coverage_percent: coverage.invoices?.coverage_percent ?? 0, total_items: coverage.invoices?.total_items ?? 0, covered_items: coverage.invoices?.covered_items ?? 0 },
+      { key: "banking" as SurfaceKey, coverage_percent: coverage.banking?.coverage_percent ?? coverage.bank?.coverage_percent ?? 0, total_items: coverage.banking?.total_items ?? coverage.bank?.total_items ?? 0, covered_items: coverage.banking?.covered_items ?? coverage.bank?.covered_items ?? 0 },
+      { key: "books" as SurfaceKey, coverage_percent: coverage.books?.coverage_percent ?? 0, total_items: coverage.books?.total_items ?? 0, covered_items: coverage.books?.covered_items ?? 0 },
+    ],
+    playbook: playbook.map((p: any, i: number) => ({
+      id: `p${i}`,
+      title: toCustomerCopy(p.label || p.title || "Action item"),
+      description: toCustomerCopy(p.description || ""),
+      severity: (p.severity || "medium") as "low" | "medium" | "high",
+      surface: normalizeSurfaceKey(p.surface) || undefined,
+      url: p.url,
+      premium: p.requires_premium ?? false,
+    })),
+    close_readiness: {
+      status: closeReadiness.status === "ready" ? "ready" : "not_ready",
+      period_label: closeReadiness.period_label || "Current Period",
+      progress_percent: closeReadiness.progress_percent ?? (closeReadiness.status === "ready" ? 100 : 50),
+      blockers: (closeReadiness.blocking_items || closeReadiness.blocking_reasons || []).map((b: any, i: number) => ({
+        id: `b${i}`,
+        title: toCustomerCopy(typeof b === "string" ? b : (b.reason || b.title || "Blocker")),
+        surface: normalizeSurfaceKey(b.surface) || undefined,
+        severity: (b.severity || "high") as "medium" | "high",
+        url: b.url,
+      })),
+    },
+    llm_subtitles: [
+      { surface: "banking" as SurfaceKey, subtitle: toCustomerCopy(llmSubtitles.bank || llmSubtitles.banking || ""), source: "ai" as const },
+      { surface: "receipts" as SurfaceKey, subtitle: toCustomerCopy(llmSubtitles.receipts || ""), source: "ai" as const },
+      { surface: "invoices" as SurfaceKey, subtitle: toCustomerCopy(llmSubtitles.invoices || ""), source: "ai" as const },
+      { surface: "books" as SurfaceKey, subtitle: toCustomerCopy(llmSubtitles.books || ""), source: "ai" as const },
+    ].filter(s => s.subtitle) as LlmSubtitle[],
+    finance_snapshot: {
+      ending_cash: financeSnapshot.ending_cash ?? cashHealth.ending_cash ?? 0,
+      monthly_burn: financeSnapshot.monthly_burn ?? cashHealth.monthly_burn ?? 0,
+      runway_months: financeSnapshot.runway_months ?? cashHealth.runway_months ?? 0,
+      months: financeSnapshot.months || fallbackMonths,
+      ar_buckets: financeSnapshot.ar_buckets || fallbackArBuckets,
+      total_overdue: financeSnapshot.total_overdue ?? arHealth.total_overdue ?? 0,
+    },
+    tax_guardian: {
+      period_key: taxBlock.period_key || "Current Period",
+      net_tax: taxNetEntries,
+      anomaly_counts: {
+        low: taxBlock.anomaly_counts?.low ?? 0,
+        medium: taxBlock.anomaly_counts?.medium ?? 0,
+        high: taxBlock.anomaly_counts?.high ?? 0,
+      },
+    },
+  };
+}
+
+async function fetchProposalsApi(workspaceId?: number): Promise<Proposal[]> {
+  try {
+    if (!workspaceId) return [];
+    const headers: Record<string, string> = { Accept: "application/json" };
+    const token = getAccessToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const params = new URLSearchParams({
+      status: "proposed",
+      limit: "50",
+      workspace_id: String(workspaceId),
+    });
+    const res = await fetch(buildApiUrl(`/api/companion/v2/shadow-events/?${params.toString()}`), {
+      credentials: "same-origin",
+      headers,
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const items = Array.isArray(data) ? data : (data?.proposals || data?.events || data?.items || []);
+    if (!Array.isArray(items)) return [];
+    return items.map((event: any) => {
+      const surface = proposalSurfaceFromEvent(event);
+      return {
+        id: event.id,
+        surface,
+        title: toCustomerCopy(proposalTitleFromEvent(event)),
+        description: toCustomerCopy(proposalDescriptionFromEvent(event)),
+        amount: proposalAmountFromEvent(event),
+        risk: proposalRiskFromEvent(event),
+        customer_action_kind: proposalActionKindFromEvent(event),
+        risk_level: proposalRiskLevelFromEvent(event),
+        preview_effects: proposalPreviewEffectsFromEvent(event),
+        source_agent: proposalAgentFromEvent(event),
+        created_at: event.created_at || new Date().toISOString(),
+        target_url: event?.data?.target_url || SURFACE_URLS[surface],
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+async function fetchIssuesApi(): Promise<Issue[]> {
+  try {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    const token = getAccessToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await fetch(buildApiUrl("/api/agentic/companion/issues?status=open"), {
+      credentials: "same-origin",
+      headers,
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.issues || []).map((i: any) => ({
+      id: String(i.id),
+      surface: normalizeSurfaceKey(i.surface) || "banking",
+      title: toCustomerCopy(i.title),
+      description: toCustomerCopy(i.recommended_action || i.estimated_impact || ""),
+      severity: i.severity,
+      created_at: i.created_at,
+      target_url: i.target_url,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+// ---------------------------
+// Helpers
+// ---------------------------
+function formatMoney(x: number | undefined | null) {
+  if (x == null || Number.isNaN(x)) return "$0";
+  const abs = Math.abs(x);
+  if (abs >= 1_000_000) return `$${(x / 1_000_000).toFixed(2)}M`;
+  if (abs >= 1_000) return `$${(x / 1_000).toFixed(1)}K`;
+  return `$${x.toFixed(0)}`;
+}
+
+function focusTone(mode: FocusMode) {
+  if (mode === "all_clear") return { label: "All clear", className: "bg-zinc-900 text-white" };
+  if (mode === "fire_drill") return { label: "Action needed", className: "bg-zinc-950 text-white" };
+  return { label: "Watchlist", className: "bg-zinc-100 text-zinc-900 border border-zinc-200" };
+}
+
+function severityChip(sev: "low" | "medium" | "high") {
+  if (sev === "high") return { label: "Needs attention", cls: "bg-zinc-950 text-white" };
+  if (sev === "medium") return { label: "Review recommended", cls: "bg-zinc-100 text-zinc-900 border border-zinc-200" };
+  return { label: "Ready", cls: "bg-zinc-50 text-zinc-700 border border-zinc-200" };
+}
+
+function surfaceMeta(key: SurfaceKey) {
+  const map: Record<SurfaceKey, { label: string; icon: any }> = {
+    receipts: { label: "Receipts", icon: FileText },
+    invoices: { label: "Invoices", icon: Layers },
+    books: { label: "Books Review", icon: ListChecks },
+    banking: { label: "Banking", icon: Banknote },
+  };
+  return map[key];
+}
+
+// ---------------------------
+// Query-param panel routing
+// ---------------------------
+function usePanelRouting() {
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const panelParam = (searchParams.get("panel") || "").toLowerCase();
+  const panel =
+    panelParam === "suggestions" || panelParam === "issues" || panelParam === "close" || panelParam === "engine"
+    ? (panelParam as PanelType)
+    : null;
+
+  const surfaceParam = (searchParams.get("surface") || "").toLowerCase();
+  const surfaceKey = normalizeSurfaceKey(surfaceParam);
+  const surfaceLabel = surfaceKey ? surfaceMeta(surfaceKey).label : null;
+  const surfaceFilter = surfaceKey ? surfaceKeyToFilterParam(surfaceKey) : null;
+  const agentFilter = searchParams.get("agent")?.trim() || null;
+
+  const open = (p: PanelType, surface?: SurfaceKey, agent?: string | null) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("panel", p);
+    if (surface) {
+      next.set("surface", surfaceKeyToFilterParam(surface));
+    } else {
+      next.delete("surface");
+    }
+    if (agent) {
+      next.set("agent", agent);
+    } else {
+      next.delete("agent");
+    }
+    setSearchParams(next, { replace: false });
+  };
+
+  const close = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete("panel");
+    next.delete("surface");
+    next.delete("agent");
+    setSearchParams(next, { replace: false });
+  };
+
+  return { panel, surfaceFilter, surfaceLabel, agentFilter, open, close };
+}
+
+// ---------------------------
 // Main Page
-// ─────────────────────────────────────────────────────────────────────────────
-export default function CompanionControlTowerPage() {
+// ---------------------------
+export default function AICompanionControlTower() {
   const { workspace } = usePermissions();
   const { panel, surfaceFilter, surfaceLabel, agentFilter, open, close } = usePanelRouting();
-  const data = useCompanionData();
-  const {
-    summary, proposals, issues, engineQueues, engineStatus,
-    loading, refreshing, error, refresh, setProposals,
-  } = data;
 
-  const [booksRunInFlight, setBooksRunInFlight] = useState(false);
-  const [bankRunInFlight, setBankRunInFlight] = useState(false);
-  const [auditMessage, setAuditMessage] = useState<string | null>(null);
-  const [auditError, setAuditError] = useState<string | null>(null);
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [issues, setIssues] = useState<Issue[]>([]);
+  const [engineQueues, setEngineQueues] = useState<EngineQueuesResult | null>(null);
+  const [engineStatus, setEngineStatus] = useState<EngineStatusPayload | null>(null);
+
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const [safeMode, setSafeMode] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      setLoading(true);
+      const [summaryResult, proposalsResult, issuesResult, engineResult, statusResult] = await Promise.allSettled([
+        fetchSummaryApi(),
+        fetchProposalsApi(workspace?.businessId),
+        fetchIssuesApi(),
+        fetchCockpitQueues(),
+        fetchCockpitStatus(),
+      ]);
+      if (!alive) return;
+      if (summaryResult.status === "fulfilled") {
+        setSummary(summaryResult.value);
+      } else {
+        console.error("Failed to load summary", summaryResult.reason);
+        setSummary(null);
+      }
+      setProposals(proposalsResult.status === "fulfilled" ? proposalsResult.value : []);
+      setIssues(issuesResult.status === "fulfilled" ? issuesResult.value : []);
+      if (engineResult.status === "fulfilled") {
+        setEngineQueues(engineResult.value);
+      }
+      if (statusResult.status === "fulfilled") {
+        setEngineStatus(statusResult.value);
+      }
+      setLoading(false);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [workspace?.businessId]);
 
   const radarData = useMemo(() => {
     if (!summary) return [];
@@ -86,185 +609,112 @@ export default function CompanionControlTowerPage() {
   const openCounts = useMemo(() => {
     if (!summary) return { totalIssues: 0, totalSuggestions: 0 };
     const totalIssues = summary.radar.reduce((acc, r) => acc + (r.open_issues || 0), 0);
-    return { totalIssues, totalSuggestions: proposals.length };
+    const totalSuggestions = proposals.length;
+    return { totalIssues, totalSuggestions };
   }, [summary, proposals]);
 
-  const periodRange = useMemo(() => {
-    const now = new Date();
-    const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
-    return { start, end };
-  }, []);
-
-  const runBooksReview = async () => {
-    setBooksRunInFlight(true);
-    setAuditError(null);
-    setAuditMessage(null);
-    const result = await triggerBooksReviewRun({
-      periodStart: periodRange.start,
-      periodEnd: periodRange.end,
-    });
-    if (!result.ok) {
-      setAuditError(result.error);
-      setBooksRunInFlight(false);
-      return;
+  const refresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      const [summaryResult, proposalsResult, issuesResult, engineResult, statusResult] = await Promise.allSettled([
+        fetchSummaryApi(),
+        fetchProposalsApi(workspace?.businessId),
+        fetchIssuesApi(),
+        fetchCockpitQueues(),
+        fetchCockpitStatus(),
+      ]);
+      if (summaryResult.status === "fulfilled") {
+        setSummary(summaryResult.value);
+      }
+      if (proposalsResult.status === "fulfilled") {
+        setProposals(proposalsResult.value);
+      }
+      if (issuesResult.status === "fulfilled") {
+        setIssues(issuesResult.value);
+      }
+      if (engineResult.status === "fulfilled") {
+        setEngineQueues(engineResult.value);
+      }
+      if (statusResult.status === "fulfilled") {
+        setEngineStatus(statusResult.value);
+      }
+    } catch (e) {
+      console.error("Failed to refresh companion data", e);
+    } finally {
+      setRefreshing(false);
     }
-    setAuditMessage(result.runId ? `Books review run #${result.runId} started.` : "Books review started.");
-    setBooksRunInFlight(false);
-    await refresh();
   };
-
-  const runBankAudit = async () => {
-    setBankRunInFlight(true);
-    setAuditError(null);
-    setAuditMessage(null);
-    const result = await triggerBankAuditRun({
-      periodStart: periodRange.start,
-      periodEnd: periodRange.end,
-      linesJson: "[]",
-    });
-    if (!result.ok) {
-      setAuditError(result.error);
-      setBankRunInFlight(false);
-      return;
-    }
-    setAuditMessage(result.runId ? `Bank audit run #${result.runId} started.` : "Bank audit started.");
-    setBankRunInFlight(false);
-    await refresh();
-  };
-
-  // ─── Error State ───────────────────────────────────────────────────────────
-  if (!loading && error && !summary) {
-    return (
-      <div className="min-h-[80vh] flex items-center justify-center p-6">
-        <div className="max-w-md w-full text-center space-y-6">
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-rose-50">
-            <AlertTriangle className="h-8 w-8 text-rose-500" />
-          </div>
-          <div>
-            <h2 className="text-xl font-semibold text-zinc-900">Companion couldn't load</h2>
-            <p className="mt-2 text-sm text-zinc-500">{error}</p>
-          </div>
-          <Button onClick={refresh} className="rounded-xl bg-zinc-900 text-white hover:bg-zinc-800">
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Try again
-          </Button>
-          <p className="text-xs text-zinc-400">
-            Make sure the backend is running and you're logged in.
-          </p>
-        </div>
-      </div>
-    );
-  }
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_right,_#e2e8f0_0%,_#f8fafc_46%,_#ffffff_100%)]">
-      {/* ─── Disabled Banner ─────────────────────────────────────────────── */}
-      {summary && !summary.ai_companion_enabled && (
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 pt-4">
-          <div className="flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-800 shadow-sm">
-            <Bot className="h-5 w-5 text-amber-600 shrink-0" />
-            <span>AI Companion is currently disabled. Enable it in settings to see suggestions and insights.</span>
+    <div
+      className={cx(
+        "min-h-screen bg-white text-zinc-950",
+        // JetBrains Mono-ish feel without being overly mono
+        "[font-family:ui-sans-serif,system-ui,-apple-system,Segoe_UI,Roboto,Helvetica,Arial,\"Apple_Color_Emoji\",\"Segoe_UI_Emoji\"]"
+      )}
+    >
+      <TopHeader
+        summary={summary}
+        loading={loading}
+        refreshing={refreshing}
+        onRefresh={refresh}
+        onOpenSuggestions={() => open("suggestions")}
+        onOpenIssues={() => open("issues")}
+        onOpenClose={() => open("close")}
+        counts={openCounts}
+        safeMode={safeMode}
+        setSafeMode={setSafeMode}
+      />
+
+      {summary && !summary.ai_companion_enabled ? (
+        <div className="mx-auto max-w-7xl px-4 pt-4">
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            Companion is disabled. Enable AI Companion to see suggestions and insights.
           </div>
         </div>
-      )}
+      ) : null}
 
-      {/* ─── Main Content ────────────────────────────────────────────────── */}
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 pb-16 pt-6">
-        {loading ? (
+      <div className="mx-auto max-w-7xl px-4 pb-12 pt-8">
+        {loading || !summary ? (
           <SkeletonBoard />
-        ) : summary ? (
-          <div className="space-y-6">
-            <CompanionWorkspaceHeader
-              summary={summary}
-              refreshing={refreshing}
-              onRefresh={refresh}
-              onOpenIssues={() => open("issues")}
-              onOpenClose={() => open("close")}
-            />
+        ) : (
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+            {/* Left column */}
+            <div className="space-y-6">
+              <HeroVoice summary={summary} focus={focus} />
 
-            {/* Hero */}
-            <HeroSection summary={summary} focus={focus} />
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                <HealthPulseCard summary={summary} radarData={radarData} onOpenIssues={() => open("issues")} />
+                <CloseReadinessCard summary={summary} onOpenClose={() => open("close")} />
+              </div>
 
-            <BooksBankAuditCard
-              summary={summary}
-              proposals={proposals}
-              issues={issues}
-              booksRunInFlight={booksRunInFlight}
-              bankRunInFlight={bankRunInFlight}
-              auditMessage={auditMessage}
-              auditError={auditError}
-              onRunBooks={runBooksReview}
-              onRunAudit={runBankAudit}
-              onOpenSuggestions={(s) => open("suggestions", s)}
-              onOpenIssues={(s) => open("issues", s)}
-            />
+              <TodayFocusCard items={summary.playbook} onOpenSuggestions={() => open("suggestions")} />
 
-            {/* Stats Row */}
-            <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-              <StatCard
-                label="Health Score"
-                value={`${Math.round(summary.radar.reduce((a, r) => a + r.score, 0) / summary.radar.length)}`}
-                suffix="/100"
-                icon={Gauge}
-                color="blue"
-              />
-              <StatCard
-                label="Open Issues"
-                value={`${openCounts.totalIssues}`}
-                icon={AlertTriangle}
-                color={openCounts.totalIssues > 0 ? "amber" : "emerald"}
-                onClick={() => open("issues")}
-              />
-              <StatCard
-                label="AI Suggestions"
-                value={`${openCounts.totalSuggestions}`}
-                icon={Sparkles}
-                color="violet"
-                onClick={() => open("suggestions")}
-              />
-              <StatCard
-                label="Close Status"
-                value={summary.close_readiness.status === "ready" ? "Ready" : "Not Ready"}
-                icon={Lock}
-                color={summary.close_readiness.status === "ready" ? "emerald" : "amber"}
-                onClick={() => open("close")}
+              <SurfacesGrid
+                summary={summary}
+                proposals={proposals}
+                issues={issues}
+                onOpenSuggestions={(surface) => open("suggestions", surface)}
+                onOpenIssues={(surface) => open("issues", surface)}
               />
             </div>
 
-            {/* Two-Column Grid */}
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-              {/* Left (2/3) */}
-              <div className="space-y-6 lg:col-span-2">
-                <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-                  <HealthPulseCard summary={summary} radarData={radarData} onOpenIssues={() => open("issues")} />
-                  <CloseReadinessCard summary={summary} onOpenClose={() => open("close")} />
-                </div>
-                <TodayFocusCard items={summary.playbook} onOpenSuggestions={() => open("suggestions")} />
-                <SurfacesGrid
-                  summary={summary}
-                  proposals={proposals}
-                  issues={issues}
-                  onOpenSuggestions={(s) => open("suggestions", s)}
-                  onOpenIssues={(s) => open("issues", s)}
-                />
-              </div>
-
-              {/* Right (1/3) */}
-              <div className="space-y-6">
-                <FinanceSnapshotCard finance={summary.finance_snapshot} />
-                <ReceiptsIngestionCard />
-                <TaxGuardianCard tax={summary.tax_guardian} />
-                <EngineQueueCard queues={engineQueues} status={engineStatus} onOpenQueue={() => open("engine")} />
-              </div>
+            {/* Right column */}
+            <div className="space-y-6">
+              <FinanceSnapshotCard finance={summary.finance_snapshot} />
+              <TaxGuardianCard tax={summary.tax_guardian} />
+              <EngineQueueCard
+                queues={engineQueues}
+                status={engineStatus}
+                onOpenQueue={() => open("engine")}
+              />
+              <TrustSafetyCard safeMode={safeMode} />
             </div>
           </div>
-        ) : (
-          <SkeletonBoard />
         )}
       </div>
 
-      {/* ─── Panels ──────────────────────────────────────────────────────── */}
       <PanelShell panel={panel} onClose={close} surface={surfaceLabel}>
         {panel === "suggestions" && (
           <SuggestionsPanel
@@ -289,350 +739,337 @@ export default function CompanionControlTowerPage() {
           />
         )}
       </PanelShell>
+
+      <Footer />
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Workspace Header
-// ─────────────────────────────────────────────────────────────────────────────
-function CompanionWorkspaceHeader({
+// ---------------------------
+// Header / Hero
+// ---------------------------
+function TopHeader({
   summary,
+  loading,
   refreshing,
   onRefresh,
+  onOpenSuggestions,
   onOpenIssues,
   onOpenClose,
+  counts,
+  safeMode,
+  setSafeMode,
 }: {
-  summary: Summary;
+  summary: Summary | null;
+  loading: boolean;
   refreshing: boolean;
   onRefresh: () => void;
+  onOpenSuggestions: () => void;
   onOpenIssues: () => void;
   onOpenClose: () => void;
+  counts: { totalIssues: number; totalSuggestions: number };
+  safeMode: boolean;
+  setSafeMode: (v: boolean) => void;
 }) {
   return (
-    <div className="flex flex-col gap-4 rounded-2xl border border-white/70 bg-white/85 px-5 py-4 shadow-sm backdrop-blur md:flex-row md:items-center md:justify-between">
-      <div className="space-y-1">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Companion Workspace</p>
-        <p className="text-sm text-zinc-600">{summary.voice.tone_tagline}</p>
-        <p className="text-[11px] text-zinc-400">Updated {new Date(summary.generated_at).toLocaleString()}</p>
+    <div className="sticky top-0 z-40 border-b border-zinc-200 bg-white/80 backdrop-blur-xl">
+      <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3">
+        <div className="flex items-center gap-3">
+          <div className="grid h-10 w-10 place-items-center rounded-2xl border border-zinc-200 bg-white shadow-sm">
+            <Sparkles className="h-4 w-4 text-zinc-900" />
+          </div>
+          <div className="leading-tight">
+            <div className="text-sm font-semibold tracking-tight">Companion Control Tower</div>
+            <div className="text-[11px] text-zinc-500">AI Companion • Safe suggestions • Clear actions</div>
+          </div>
+        </div>
+
+        <div className="hidden items-center gap-2 md:flex">
+          <Badge variant="outline" className="rounded-full border-zinc-200 bg-white text-zinc-700">
+            {loading ? "…" : `${counts.totalSuggestions} suggestions`}
+          </Badge>
+          <Badge variant="outline" className="rounded-full border-zinc-200 bg-white text-zinc-700">
+            {loading ? "…" : `${counts.totalIssues} issues`}
+          </Badge>
+
+          <div className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-2 shadow-sm">
+            <Shield className="h-4 w-4 text-zinc-700" />
+            <div className="text-xs text-zinc-700">Safe mode</div>
+            <Switch checked={safeMode} onCheckedChange={setSafeMode} />
+          </div>
+
+          <Button
+            onClick={onRefresh}
+            variant="outline"
+            className="rounded-full border-zinc-200 bg-white"
+            disabled={refreshing}
+          >
+            {refreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+            Refresh
+          </Button>
+
+          <Button onClick={onOpenSuggestions} className="rounded-full bg-zinc-950 text-white hover:bg-zinc-900">
+            AI Suggestions
+            <ArrowRight className="ml-2 h-4 w-4" />
+          </Button>
+        </div>
+
+        <div className="flex items-center gap-2 md:hidden">
+          <Button onClick={onOpenSuggestions} size="sm" className="rounded-full bg-zinc-950 text-white hover:bg-zinc-900">
+            Suggestions
+          </Button>
+        </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Button onClick={onOpenIssues} variant="outline" size="sm" className="rounded-full border-zinc-200 bg-white text-xs">
-          <AlertTriangle className="mr-1.5 h-3.5 w-3.5" />
-          Issues
-        </Button>
-        <Button onClick={onOpenClose} variant="outline" size="sm" className="rounded-full border-zinc-200 bg-white text-xs">
-          <Lock className="mr-1.5 h-3.5 w-3.5" />
-          Close Readiness
-        </Button>
-        <Link to="/settings">
-          <Button variant="outline" size="sm" className="rounded-full border-zinc-200 bg-white text-xs">
-            Settings
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 pb-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            onClick={onOpenIssues}
+            variant="outline"
+            className="rounded-full border-zinc-200 bg-white"
+            size="sm"
+          >
+            <AlertTriangle className="mr-2 h-4 w-4" />
+            Open issues
           </Button>
-        </Link>
-        <Button onClick={onRefresh} size="sm" disabled={refreshing} className="rounded-full bg-zinc-900 text-xs text-white hover:bg-zinc-800">
-          {refreshing ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
-          Refresh
+          <Button
+            onClick={onOpenClose}
+            variant="outline"
+            className="rounded-full border-zinc-200 bg-white"
+            size="sm"
+          >
+            <Lock className="mr-2 h-4 w-4" />
+            Close assistant
+          </Button>
+        </div>
+
+        <div className="text-[11px] text-zinc-500">
+          {summary ? `Updated ${new Date(summary.generated_at).toLocaleString()}` : ""}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HeroVoice({ summary, focus }: { summary: Summary; focus: { label: string; className: string } }) {
+  return (
+    <Card className="overflow-hidden border-zinc-200 bg-white shadow-sm">
+      <CardContent className="p-6">
+        <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
+          <div className="max-w-2xl">
+            <div className="flex items-center gap-2">
+              <div className="text-xl font-semibold tracking-tight">{summary.voice.greeting}</div>
+              <span className={cx("rounded-full px-3 py-1 text-xs", focus.className)}>{focus.label}</span>
+            </div>
+            <div className="mt-2 text-sm text-zinc-600">{summary.voice.tone_tagline}</div>
+            <div className="mt-4 rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className="text-xs font-semibold text-zinc-700">Today's best next step</div>
+              <div className="mt-1 text-sm text-zinc-900">{summary.voice.primary_call_to_action}</div>
+            </div>
+          </div>
+
+          <div className="w-full md:max-w-[360px]">
+            <QuickSearchCard />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function QuickSearchCard() {
+  const [q, setQ] = useState("");
+  return (
+    <div className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-semibold">Ask Companion</div>
+        <Badge variant="outline" className="rounded-full border-zinc-200 bg-white text-zinc-600">
+          customer-safe
+        </Badge>
+      </div>
+      <div className="mt-3 relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+        <Input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Example: why is cash lower this month?"
+          className="h-11 rounded-2xl border-zinc-200 bg-white pl-10"
+        />
+      </div>
+      <div className="mt-3 text-[11px] text-zinc-500">
+        Tip: ask questions like a business owner — we’ll translate it into safe checks.
+      </div>
+      <div className="mt-4 flex gap-2">
+        <Button className="flex-1 rounded-2xl bg-zinc-950 text-white hover:bg-zinc-900" disabled={!q.trim()}>
+          <MessageSquareText className="mr-2 h-4 w-4" />
+          Ask
+        </Button>
+        <Button variant="outline" className="rounded-2xl border-zinc-200 bg-white">
+          <Filter className="mr-2 h-4 w-4" />
+          Filters
         </Button>
       </div>
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Hero Section
-// ─────────────────────────────────────────────────────────────────────────────
-function HeroSection({ summary, focus }: { summary: Summary; focus: { label: string; className: string } }) {
-  const [q, setQ] = useState("");
-
-  return (
-    <Card className="overflow-hidden border-white/70 bg-white/90 shadow-sm">
-      <CardContent className="p-6 md:p-7">
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-          <div className="flex-1 space-y-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-2xl font-semibold tracking-tight text-zinc-900">
-                {summary.voice.greeting}
-              </h2>
-              <span className={cx("inline-flex items-center rounded-full px-3 py-1 text-xs font-medium", focus.className)}>
-                {focus.label}
-              </span>
-            </div>
-            <p className="max-w-2xl text-sm text-zinc-500">{summary.voice.tone_tagline}</p>
-
-            <div className="rounded-2xl border border-zinc-200/70 bg-zinc-50/75 p-4">
-              <div className="flex items-center gap-2 text-zinc-700">
-                <Zap className="h-4 w-4 text-amber-500" />
-                <span className="text-xs font-medium uppercase tracking-wide">Next best step</span>
-              </div>
-              <p className="mt-2 text-sm text-zinc-800">{summary.voice.primary_call_to_action}</p>
-            </div>
-          </div>
-
-          {/* Ask Companion */}
-          <div className="w-full lg:max-w-sm">
-            <div className="rounded-2xl border border-zinc-200/80 bg-white p-4 shadow-sm">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-medium text-zinc-800">Ask Companion</span>
-                <Badge variant="outline" className="rounded-full text-[10px] border-zinc-200 text-zinc-500">
-                  AI
-                </Badge>
-              </div>
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
-                <Input
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                  placeholder="Why is cash lower this month?"
-                  className="h-11 rounded-xl border-zinc-200 pl-10 text-sm"
-                />
-              </div>
-              <Button className="mt-3 w-full rounded-xl bg-zinc-900 text-white hover:bg-zinc-800" disabled={!q.trim()}>
-                <MessageSquareText className="mr-2 h-4 w-4" />
-                Ask
-              </Button>
-            </div>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Stat Card
-// ─────────────────────────────────────────────────────────────────────────────
-const COLOR_MAP: Record<string, { bg: string; icon: string; text: string }> = {
-  blue: { bg: "bg-blue-50/80", icon: "text-blue-600", text: "text-blue-700" },
-  amber: { bg: "bg-amber-50/80", icon: "text-amber-600", text: "text-amber-700" },
-  emerald: { bg: "bg-emerald-50/80", icon: "text-emerald-600", text: "text-emerald-700" },
-  violet: { bg: "bg-violet-50/80", icon: "text-violet-600", text: "text-violet-700" },
-  rose: { bg: "bg-rose-50/80", icon: "text-rose-600", text: "text-rose-700" },
-};
-
-function StatCard({
-  label,
-  value,
-  suffix,
-  icon: Icon,
-  color = "blue",
-  onClick,
-}: {
-  label: string;
-  value: string;
-  suffix?: string;
-  icon: typeof Gauge;
-  color?: string;
-  onClick?: () => void;
-}) {
-  const c = COLOR_MAP[color] || COLOR_MAP.blue;
-  return (
-    <Card
-      className={cx(
-        "border-white/70 bg-white/90 shadow-sm transition-all",
-        onClick && "cursor-pointer hover:-translate-y-0.5 hover:border-zinc-200 hover:shadow-md"
-      )}
-      onClick={onClick}
-    >
-      <CardContent className="flex items-center gap-4 p-4">
-        <div className={cx("flex h-10 w-10 items-center justify-center rounded-2xl", c.bg)}>
-          <Icon className={cx("h-5 w-5", c.icon)} />
-        </div>
-        <div>
-          <p className="text-xs text-zinc-500">{label}</p>
-          <p className={cx("text-xl font-semibold tracking-tight", c.text)}>
-            {value}
-            {suffix && <span className="text-sm font-normal text-zinc-400">{suffix}</span>}
-          </p>
-        </div>
-        {onClick && <ChevronRight className="ml-auto h-4 w-4 text-zinc-300" />}
-      </CardContent>
-    </Card>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Health Pulse Card
-// ─────────────────────────────────────────────────────────────────────────────
-function HealthPulseCard({
-  summary,
-  radarData,
-  onOpenIssues,
-}: {
-  summary: Summary;
-  radarData: { axis: string; score: number }[];
-  onOpenIssues: () => void;
-}) {
-  const overall = Math.round(summary.radar.reduce((a, r) => a + r.score, 0) / summary.radar.length);
+// ---------------------------
+// Cards
+// ---------------------------
+function HealthPulseCard({ summary, radarData, onOpenIssues }: { summary: Summary; radarData: any[]; onOpenIssues: () => void }) {
+  const overall = Math.round(summary.radar.reduce((acc, r) => acc + r.score, 0) / summary.radar.length);
+  const open = summary.radar.reduce((acc, r) => acc + r.open_issues, 0);
 
   return (
     <Card className="border-zinc-200 bg-white shadow-sm">
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
           <div>
-            <CardTitle className="text-sm font-semibold">Health Pulse</CardTitle>
-            <CardDescription className="text-xs">Four domains at a glance</CardDescription>
+            <CardTitle className="text-base">Health Pulse</CardTitle>
+            <CardDescription>Four domains, one glance.</CardDescription>
           </div>
-          <Badge className={cx("rounded-lg text-xs font-semibold", overall >= 80 ? "bg-emerald-100 text-emerald-700" : overall >= 50 ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700")}>
-            {overall}/100
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge className="rounded-full bg-zinc-950 text-white">{overall}/100</Badge>
+            <Button onClick={onOpenIssues} variant="outline" className="rounded-full border-zinc-200 bg-white" size="sm">
+              {open} open
+              <ChevronRight className="ml-1 h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </CardHeader>
-      <CardContent className="pt-0 space-y-4">
-        <div className="h-[180px] rounded-xl bg-zinc-50 p-2">
+      <CardContent className="pt-0">
+        <div className="h-[220px] rounded-3xl border border-zinc-200 bg-zinc-50 p-3">
           <ResponsiveContainer width="100%" height="100%">
-            <RadarChart data={radarData} outerRadius="70%">
-              <PolarGrid stroke="#e4e4e7" />
-              <PolarAngleAxis dataKey="axis" tick={{ fontSize: 11, fill: "#71717a" }} />
+            <RadarChart data={radarData} outerRadius="75%">
+              <PolarGrid />
+              <PolarAngleAxis dataKey="axis" tick={{ fontSize: 11 }} />
               <ReTooltip />
-              <Radar dataKey="score" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.15} />
+              <Radar dataKey="score" stroke="currentColor" fill="currentColor" fillOpacity={0.12} className="text-zinc-900" />
             </RadarChart>
           </ResponsiveContainer>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
+        <div className="mt-4 grid grid-cols-2 gap-3">
           {summary.radar.map((r) => (
-            <div key={r.key} className="flex items-center justify-between rounded-lg border border-zinc-100 bg-zinc-50/60 px-3 py-2">
-              <div>
-                <p className="text-[11px] text-zinc-500">{r.label}</p>
-                <p className="text-sm font-semibold text-zinc-800">{r.score}</p>
-              </div>
-              {r.open_issues > 0 && (
-                <Badge variant="outline" className="rounded-md border-amber-200 bg-amber-50 text-amber-700 text-[10px]">
-                  {r.open_issues}
+            <div key={r.key} className="rounded-3xl border border-zinc-200 bg-white p-4">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-semibold text-zinc-700">{r.label}</div>
+                <Badge variant="outline" className="rounded-full border-zinc-200 bg-white text-zinc-700">
+                  {r.open_issues} open
                 </Badge>
-              )}
+              </div>
+              <div className="mt-2 text-lg font-semibold text-zinc-950">{r.score}</div>
+              <div className="mt-2">
+                <Progress value={r.score} />
+              </div>
             </div>
           ))}
         </div>
-
-        <Button onClick={onOpenIssues} variant="outline" size="sm" className="w-full rounded-lg text-xs">
-          View all issues
-          <ChevronRight className="ml-1 h-3.5 w-3.5" />
-        </Button>
       </CardContent>
     </Card>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Close Readiness Card
-// ─────────────────────────────────────────────────────────────────────────────
 function CloseReadinessCard({ summary, onOpenClose }: { summary: Summary; onOpenClose: () => void }) {
   const cr = summary.close_readiness;
-  const isReady = cr.status === "ready";
-
-  return (
-    <Card className="border-zinc-200/70 bg-white/90 shadow-sm">
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="text-sm font-semibold">Close Readiness</CardTitle>
-            <CardDescription className="text-xs">{cr.period_label}</CardDescription>
-          </div>
-          <Badge className={cx("rounded-full px-3 text-xs", isReady ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700")}>
-            {isReady ? "Ready" : "Not Ready"}
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="pt-0 space-y-4">
-        <div className="rounded-2xl border border-zinc-100 bg-zinc-50/80 p-3">
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-zinc-500">Progress</span>
-              <span className="font-medium text-zinc-700">{cr.progress_percent}%</span>
-            </div>
-            <Progress value={cr.progress_percent} className="h-2" />
-          </div>
-        </div>
-
-        {cr.blockers.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-xs font-medium text-zinc-700">Blockers</p>
-            {cr.blockers.slice(0, 3).map((b) => {
-              const chip = severityChip(b.severity);
-              return (
-                <div key={b.id} className="flex items-center justify-between rounded-xl border border-zinc-100 bg-zinc-50/60 px-3 py-2.5">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-medium text-zinc-800 truncate">{b.title}</p>
-                    {b.surface && <p className="text-[10px] text-zinc-500">{surfaceMeta(b.surface).label}</p>}
-                  </div>
-                  <span className={cx("ml-2 shrink-0 rounded-md px-2 py-0.5 text-[10px] font-medium", chip.cls)}>
-                    {chip.label}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        <div className="flex gap-2">
-          <Button onClick={onOpenClose} size="sm" className="flex-1 rounded-xl bg-zinc-900 text-white hover:bg-zinc-800 text-xs">
-            <Lock className="mr-1.5 h-3.5 w-3.5" />
-            Open Close Assistant
-          </Button>
-          <Button variant="outline" size="sm" className="rounded-xl border-zinc-200 bg-white text-xs">
-            <Clock className="mr-1.5 h-3.5 w-3.5" />
-            Schedule
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Today's Focus Card
-// ─────────────────────────────────────────────────────────────────────────────
-function TodayFocusCard({ items, onOpenSuggestions }: { items: PlaybookItem[]; onOpenSuggestions: () => void }) {
-  const top = items.slice(0, 5);
-
-  if (!top.length) return null;
+  const statusLabel = cr.status === "ready" ? "Ready" : "Not ready";
 
   return (
     <Card className="border-zinc-200 bg-white shadow-sm">
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
           <div>
-            <CardTitle className="text-sm font-semibold">Today's Focus</CardTitle>
-            <CardDescription className="text-xs">Prioritized steps from your AI companion</CardDescription>
+            <CardTitle className="text-base">Close Readiness</CardTitle>
+            <CardDescription>{cr.period_label}</CardDescription>
           </div>
-          <Button onClick={onOpenSuggestions} variant="ghost" size="sm" className="text-xs text-zinc-600">
-            All suggestions
-            <ChevronRight className="ml-1 h-3.5 w-3.5" />
-          </Button>
+          <Badge className={cx("rounded-full", cr.status === "ready" ? "bg-zinc-950 text-white" : "bg-zinc-100 text-zinc-900 border border-zinc-200")}>{statusLabel}</Badge>
         </div>
       </CardHeader>
       <CardContent className="pt-0">
-        <div className="space-y-2">
-          {top.map((p, idx) => {
+        <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-semibold text-zinc-700">Progress</div>
+            <div className="text-xs text-zinc-600">{cr.progress_percent}%</div>
+          </div>
+          <div className="mt-2">
+            <Progress value={cr.progress_percent} />
+          </div>
+
+          <div className="mt-4 space-y-2">
+            {cr.blockers.slice(0, 3).map((b) => (
+              <div key={b.id} className="flex items-start justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-950">{b.title}</div>
+                  <div className="mt-0.5 text-xs text-zinc-500">{b.surface ? surfaceMeta(b.surface).label : ""}</div>
+                </div>
+                <span className={cx("rounded-full px-3 py-1 text-[11px]", severityChip(b.severity).cls)}>{severityChip(b.severity).label}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 flex gap-2">
+            <Button onClick={onOpenClose} className="flex-1 rounded-2xl bg-zinc-950 text-white hover:bg-zinc-900">
+              <Lock className="mr-2 h-4 w-4" />
+              Open Close Assistant
+            </Button>
+            <Button variant="outline" className="rounded-2xl border-zinc-200 bg-white">
+              <Clock className="mr-2 h-4 w-4" />
+              Schedule
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function TodayFocusCard({ items, onOpenSuggestions }: { items: PlaybookItem[]; onOpenSuggestions: () => void }) {
+  const top = items.slice(0, 5);
+
+  return (
+    <Card className="border-zinc-200 bg-white shadow-sm">
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-base">Today's Focus</CardTitle>
+            <CardDescription>Prioritized steps — grounded and safe.</CardDescription>
+          </div>
+          <Button onClick={onOpenSuggestions} variant="outline" className="rounded-full border-zinc-200 bg-white" size="sm">
+            Review suggestions
+            <ChevronRight className="ml-1 h-4 w-4" />
+          </Button>
+        </div>
+      </CardHeader>
+
+      <CardContent className="pt-0">
+        <div className="space-y-3">
+          {top.map((p) => {
             const chip = severityChip(p.severity);
-            const meta = p.surface ? surfaceMeta(p.surface) : null;
+            const s = p.surface ? surfaceMeta(p.surface) : null;
             return (
-              <div key={p.id} className="flex items-start gap-3 rounded-xl border border-zinc-100 bg-zinc-50/40 p-4 transition-colors hover:bg-zinc-50">
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-zinc-200/60 text-xs font-semibold text-zinc-600">
-                  {idx + 1}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-1.5 mb-1">
-                    <span className={cx("rounded-md px-2 py-0.5 text-[10px] font-medium", chip.cls)}>{chip.label}</span>
-                    {meta && (
-                      <span className="inline-flex items-center rounded-md border border-zinc-200 bg-white px-1.5 py-0.5 text-[10px] text-zinc-600">
-                        {meta.label}
-                      </span>
-                    )}
-                    {p.premium && (
-                      <span className="rounded-md bg-zinc-900 px-1.5 py-0.5 text-[10px] font-medium text-white">Premium</span>
-                    )}
+              <div key={p.id} className="rounded-3xl border border-zinc-200 bg-white p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className={cx("rounded-full px-3 py-1 text-[11px]", chip.cls)}>{chip.label}</span>
+                      {s ? (
+                        <Badge variant="outline" className="rounded-full border-zinc-200 bg-white text-zinc-700">
+                          <s.icon className="mr-1 h-3.5 w-3.5" />
+                          {s.label}
+                        </Badge>
+                      ) : null}
+                      {p.premium ? (
+                        <Badge className="rounded-full bg-zinc-950 text-white">Premium</Badge>
+                      ) : null}
+                    </div>
+                    <div className="text-sm font-semibold text-zinc-950">{p.title}</div>
+                    {p.description ? <div className="text-xs text-zinc-500">{p.description}</div> : null}
                   </div>
-                  <p className="text-sm font-medium text-zinc-800">{p.title}</p>
-                  {p.description && <p className="mt-0.5 text-xs text-zinc-500 line-clamp-2">{p.description}</p>}
+                  <Button variant="outline" className="rounded-2xl border-zinc-200 bg-white" size="sm">
+                    Open
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
                 </div>
-                <Button variant="ghost" size="sm" className="shrink-0 text-xs text-zinc-500 hover:text-zinc-700">
-                  Open
-                  <ArrowRight className="ml-1 h-3.5 w-3.5" />
-                </Button>
               </div>
             );
           })}
@@ -642,9 +1079,6 @@ function TodayFocusCard({ items, onOpenSuggestions }: { items: PlaybookItem[]; o
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Surfaces Grid
-// ─────────────────────────────────────────────────────────────────────────────
 function SurfacesGrid({
   summary,
   proposals,
@@ -653,97 +1087,133 @@ function SurfacesGrid({
   onOpenIssues,
 }: {
   summary: Summary;
-  proposals: { surface: SurfaceKey }[];
-  issues: { surface: SurfaceKey }[];
+  proposals: Proposal[];
+  issues: Issue[];
   onOpenSuggestions: (surface?: SurfaceKey) => void;
   onOpenIssues: (surface?: SurfaceKey) => void;
 }) {
   const coverageBy = new Map(summary.coverage.map((c) => [c.key, c]));
   const subtitleBy = new Map(summary.llm_subtitles.map((s) => [s.surface, s]));
-  const surfaces: SurfaceKey[] = ["banking", "invoices", "receipts", "books"];
+
+  const surfaceCards: SurfaceKey[] = ["banking", "invoices", "receipts", "books"];
+
+  const counts = (key: SurfaceKey) => {
+    const sug = proposals.filter((p) => p.surface === key).length;
+    const iss = issues.filter((i) => i.surface === key).length;
+    return { sug, iss };
+  };
 
   return (
     <Card className="border-zinc-200 bg-white shadow-sm">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-semibold">Surfaces</CardTitle>
-        <CardDescription className="text-xs">Coverage and activity across your domains</CardDescription>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-base">Surfaces</CardTitle>
+            <CardDescription>Each domain shows coverage, insights, and what needs review.</CardDescription>
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={onOpenIssues} variant="outline" className="rounded-full border-zinc-200 bg-white" size="sm">
+              Issues
+            </Button>
+            <Button onClick={onOpenSuggestions} variant="outline" className="rounded-full border-zinc-200 bg-white" size="sm">
+              Suggestions
+            </Button>
+          </div>
+        </div>
       </CardHeader>
       <CardContent className="pt-0">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {surfaces.map((k) => {
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          {surfaceCards.map((k) => {
             const meta = surfaceMeta(k);
             const cov = coverageBy.get(k);
             const sub = subtitleBy.get(k);
-            const sugCount = proposals.filter((p) => p.surface === k).length;
-            const issCount = issues.filter((i) => i.surface === k).length;
+            const c = counts(k);
 
             return (
               <div
                 key={k}
-                className="group rounded-xl border border-zinc-200 bg-white p-4 transition-all hover:border-zinc-300 hover:shadow-sm"
+                role="button"
+                tabIndex={0}
+                onClick={() => (c.sug ? onOpenSuggestions(k) : onOpenIssues(k))}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    (c.sug ? onOpenSuggestions(k) : onOpenIssues(k));
+                  }
+                }}
+                className="group cursor-pointer rounded-3xl border border-zinc-200 bg-white p-5 text-left shadow-sm transition hover:bg-zinc-50"
               >
-                <div className="flex items-start gap-3">
-                  <div className={cx("flex h-10 w-10 items-center justify-center rounded-xl", k === "banking" ? "bg-blue-50" : k === "invoices" ? "bg-violet-50" : k === "receipts" ? "bg-amber-50" : "bg-emerald-50")}>
-                    <meta.icon className={cx("h-5 w-5", k === "banking" ? "text-blue-600" : k === "invoices" ? "text-violet-600" : k === "receipts" ? "text-amber-600" : "text-emerald-600")} />
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <div className="grid h-10 w-10 place-items-center rounded-2xl border border-zinc-200 bg-white">
+                      <meta.icon className="h-4 w-4 text-zinc-900" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-950">{meta.label}</div>
+                      <div className="mt-1 text-xs text-zinc-500">
+                        {sub ? (
+                          <span>
+                            {sub.subtitle} <span className="ml-1 rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[10px] text-zinc-600">{sub.source === "ai" ? "AI" : "Auto"}</span>
+                          </span>
+                        ) : (
+                          "No new notes."
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-zinc-800">{meta.label}</p>
-                    {sub ? (
-                      <p className="mt-0.5 text-xs text-zinc-500 line-clamp-1">
-                        {sub.subtitle}
-                        <span className="ml-1 inline-flex items-center rounded border border-zinc-200 bg-zinc-50 px-1 text-[9px] text-zinc-400">
-                          {sub.source === "ai" ? "AI" : "Auto"}
-                        </span>
-                      </p>
-                    ) : (
-                      <p className="mt-0.5 text-xs text-zinc-400">No notes</p>
-                    )}
-                  </div>
+                  <ChevronRight className="h-4 w-4 text-zinc-400 transition group-hover:translate-x-0.5" />
                 </div>
 
-                {/* Metrics */}
-                <div className="mt-3 grid grid-cols-3 gap-2">
-                  <div className="rounded-lg bg-zinc-50 px-2.5 py-1.5">
-                    <p className="text-[10px] text-zinc-400">Coverage</p>
-                    <p className="text-sm font-semibold text-zinc-700">{cov ? `${cov.coverage_percent}%` : "—"}</p>
-                  </div>
-                  <div className="rounded-lg bg-zinc-50 px-2.5 py-1.5">
-                    <p className="text-[10px] text-zinc-400">Suggestions</p>
-                    <p className="text-sm font-semibold text-zinc-700">{sugCount}</p>
-                  </div>
-                  <div className="rounded-lg bg-zinc-50 px-2.5 py-1.5">
-                    <p className="text-[10px] text-zinc-400">Issues</p>
-                    <p className="text-sm font-semibold text-zinc-700">{issCount}</p>
-                  </div>
+                <div className="mt-4 grid grid-cols-3 gap-3">
+                  <StatPill label="Coverage" value={cov ? `${cov.coverage_percent}%` : "—"} />
+                  <StatPill label="Suggestions" value={`${c.sug}`} />
+                  <StatPill label="Issues" value={`${c.iss}`} />
                 </div>
 
-                {/* Progress */}
-                <div className="mt-3">
-                  <div className="flex items-center justify-between text-[10px] text-zinc-400 mb-1">
+                <div className="mt-4">
+                  <div className="flex items-center justify-between text-[11px] text-zinc-500">
                     <span>Progress</span>
                     <span>{cov ? `${cov.covered_items}/${cov.total_items}` : ""}</span>
                   </div>
-                  <Progress value={cov?.coverage_percent || 0} className="h-1.5" />
+                  <div className="mt-2">
+                    <Progress value={cov?.coverage_percent || 0} />
+                  </div>
                 </div>
 
-                {/* Actions */}
-                <div className="mt-3 flex gap-2">
+                <div className="mt-4 flex gap-2">
                   <Button
-                    size="sm"
-                    className="flex-1 rounded-lg bg-zinc-900 text-white hover:bg-zinc-800 text-xs"
-                    onClick={() => onOpenSuggestions(k)}
-                    disabled={!sugCount}
+                    className="flex-1 rounded-2xl bg-zinc-950 text-white hover:bg-zinc-900"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onOpenSuggestions(k);
+                    }}
+                    disabled={!c.sug}
                   >
-                    Suggestions
+                    Review suggestions
                   </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="rounded-lg text-xs"
-                    onClick={() => onOpenIssues(k)}
-                  >
-                    Issues
-                  </Button>
+                  <TooltipProvider>
+                    <Tooltip delayDuration={120}>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <Button
+                            variant="outline"
+                            className="rounded-2xl border-zinc-200 bg-white"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              onOpenIssues(k);
+                            }}
+                          >
+                            View issues
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent className="rounded-2xl border-zinc-200 bg-white text-zinc-900 shadow-xl">
+                        <div className="text-xs">Open issues and recommended checks.</div>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </div>
               </div>
             );
@@ -754,344 +1224,59 @@ function SurfacesGrid({
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Finance Snapshot Card
-// ─────────────────────────────────────────────────────────────────────────────
-function BooksBankAuditCard({
-  summary,
-  proposals,
-  issues,
-  booksRunInFlight,
-  bankRunInFlight,
-  auditMessage,
-  auditError,
-  onRunBooks,
-  onRunAudit,
-  onOpenSuggestions,
-  onOpenIssues,
-}: {
-  summary: Summary;
-  proposals: { surface: SurfaceKey }[];
-  issues: { surface: SurfaceKey }[];
-  booksRunInFlight: boolean;
-  bankRunInFlight: boolean;
-  auditMessage: string | null;
-  auditError: string | null;
-  onRunBooks: () => void;
-  onRunAudit: () => void;
-  onOpenSuggestions: (surface?: SurfaceKey) => void;
-  onOpenIssues: (surface?: SurfaceKey) => void;
-}) {
-  const coverageBy = new Map(summary.coverage.map((c) => [c.key, c]));
-  const booksCoverage = coverageBy.get("books");
-  const bankingCoverage = coverageBy.get("banking");
-  const booksSuggestions = proposals.filter((p) => p.surface === "books").length;
-  const bankingSuggestions = proposals.filter((p) => p.surface === "banking").length;
-  const booksIssues = issues.filter((i) => i.surface === "books").length;
-  const bankingIssues = issues.filter((i) => i.surface === "banking").length;
-  const combinedCoverage = Math.round(
-    ((booksCoverage?.coverage_percent || 0) + (bankingCoverage?.coverage_percent || 0)) / 2,
-  );
-  const combinedIssues = booksIssues + bankingIssues;
-
+function StatPill({ label, value }: { label: string; value: string }) {
   return (
-    <Card className="border-zinc-200/70 bg-white/90 shadow-sm">
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <CardTitle className="text-sm font-semibold">Books + Bank Audit</CardTitle>
-            <CardDescription className="text-xs">
-              Run both reviews from one place, then inspect findings together.
-            </CardDescription>
-          </div>
-          <Badge
-            variant="outline"
-            className={cx(
-              "rounded-full text-[10px]",
-              combinedCoverage >= 85
-                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                : "border-amber-200 bg-amber-50 text-amber-700",
-            )}
-          >
-            {combinedCoverage}% combined
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="pt-0 space-y-3">
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 px-3 py-2.5">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-medium text-zinc-700">Books Review</p>
-              <span className="text-[11px] font-semibold text-zinc-800">
-                {booksCoverage ? `${booksCoverage.coverage_percent}%` : "--"}
-              </span>
-            </div>
-            <p className="mt-1 text-[11px] text-zinc-500">
-              {booksSuggestions} suggestions • {booksIssues} issues
-            </p>
-            <button
-              type="button"
-              className="mt-1 text-[11px] font-medium text-zinc-700 underline underline-offset-2 hover:text-zinc-900"
-              onClick={() => onOpenSuggestions("books")}
-            >
-              View books suggestions
-            </button>
-          </div>
-          <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 px-3 py-2.5">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-medium text-zinc-700">Bank Audit</p>
-              <span className="text-[11px] font-semibold text-zinc-800">
-                {bankingCoverage ? `${bankingCoverage.coverage_percent}%` : "--"}
-              </span>
-            </div>
-            <p className="mt-1 text-[11px] text-zinc-500">
-              {bankingSuggestions} suggestions • {bankingIssues} issues
-            </p>
-            <button
-              type="button"
-              className="mt-1 text-[11px] font-medium text-zinc-700 underline underline-offset-2 hover:text-zinc-900"
-              onClick={() => onOpenSuggestions("banking")}
-            >
-              View bank suggestions
-            </button>
-          </div>
-        </div>
-
-        <div className="rounded-xl bg-zinc-50 px-3 py-2">
-          <p className="text-[11px] text-zinc-500">Combined queue</p>
-          <p className="text-sm font-semibold text-zinc-800">
-            {booksSuggestions + bankingSuggestions} suggestions • {combinedIssues} issues
-          </p>
-        </div>
-
-        {auditError && (
-          <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{auditError}</div>
-        )}
-        {auditMessage && (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{auditMessage}</div>
-        )}
-
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-          <Button
-            size="sm"
-            className="rounded-xl bg-zinc-900 text-white hover:bg-zinc-800 text-xs"
-            onClick={onRunBooks}
-            disabled={booksRunInFlight || bankRunInFlight}
-          >
-            {booksRunInFlight ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-            Review Books
-          </Button>
-          <Button
-            size="sm"
-            className="rounded-xl bg-zinc-900 text-white hover:bg-zinc-800 text-xs"
-            onClick={onRunAudit}
-            disabled={booksRunInFlight || bankRunInFlight}
-          >
-            {bankRunInFlight ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-            Run Audit
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="rounded-xl border-zinc-200 bg-white text-xs"
-            onClick={() => onOpenIssues()}
-            disabled={combinedIssues === 0}
-          >
-            Combined Issues
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function ReceiptsIngestionCard() {
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [files, setFiles] = useState<File[]>([]);
-  const [defaultCurrency, setDefaultCurrency] = useState("USD");
-  const canUseLocalStorage =
-    typeof window !== "undefined" &&
-    typeof window.localStorage !== "undefined" &&
-    typeof window.localStorage.getItem === "function" &&
-    typeof window.localStorage.setItem === "function";
-  const [preferReceipts, setPreferReceipts] = useState<boolean>(() => {
-    if (!canUseLocalStorage) return true;
-    return window.localStorage.getItem("companion_prefer_receipts") !== "false";
-  });
-  const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(null);
-
-  const fileCountLabel = files.length === 1 ? "1 file selected" : `${files.length} files selected`;
-
-  const onUpload = async () => {
-    if (!files.length) {
-      setError("Select at least one receipt to upload.");
-      return;
-    }
-    setUploading(true);
-    setError(null);
-    setInfo(null);
-
-    const result = await uploadReceiptRun(files, { defaultCurrency });
-    if (!result.ok) {
-      setError(result.error);
-      setUploading(false);
-      return;
-    }
-
-    setInfo(result.runId ? `Receipt run ${result.runId} queued.` : "Receipt run queued.");
-    setFiles([]);
-    if (fileInputRef.current) fileInputRef.current.value = "";
-    setUploading(false);
-  };
-
-  const onTogglePreferReceipts = (next: boolean) => {
-    setPreferReceipts(next);
-    if (canUseLocalStorage) {
-      window.localStorage.setItem("companion_prefer_receipts", next ? "true" : "false");
-    }
-  };
-
-  return (
-    <Card className="border-zinc-200 bg-white shadow-sm">
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <MessageSquareText className="h-4 w-4 text-amber-500" />
-            <CardTitle className="text-sm font-semibold">Receipt Intake</CardTitle>
-          </div>
-          <Badge
-            variant="outline"
-            className={cx(
-              "rounded-md text-[10px]",
-              preferReceipts
-                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                : "border-zinc-200 bg-zinc-50 text-zinc-600",
-            )}
-          >
-            {preferReceipts ? "Receipts first" : "Invoices first"}
-          </Badge>
-        </div>
-        <CardDescription className="text-xs">
-          Upload receipts and route expense capture through receipt AI in place of invoice AI.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="pt-0 space-y-3">
-        <div className="flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50/70 px-3 py-2">
-          <div>
-            <p className="text-xs font-medium text-zinc-700">Replace invoice AI for expenses</p>
-            <p className="text-[10px] text-zinc-500">Prefers receipt extraction for vendor spend documents.</p>
-          </div>
-          <Switch checked={preferReceipts} onCheckedChange={onTogglePreferReceipts} />
-        </div>
-
-        <div className="space-y-2">
-          <Input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept=".pdf,.jpg,.jpeg,.png,.webp,.heic"
-            onChange={(e) => setFiles(Array.from(e.target.files || []))}
-          />
-          <div className="grid grid-cols-[1fr_auto] items-center gap-2">
-            <span className="text-[11px] text-zinc-500">{files.length ? fileCountLabel : "No files selected"}</span>
-            <Input
-              value={defaultCurrency}
-              onChange={(e) => setDefaultCurrency(e.target.value.toUpperCase().slice(0, 3))}
-              className="h-8 w-20 text-center text-xs"
-              aria-label="Default currency"
-            />
-          </div>
-        </div>
-
-        {error && (
-          <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
-            {error}
-          </div>
-        )}
-        {info && (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-            {info}
-          </div>
-        )}
-
-        <div className="grid grid-cols-2 gap-2">
-          <Button
-            size="sm"
-            className="rounded-lg bg-zinc-900 text-white hover:bg-zinc-800 text-xs"
-            disabled={uploading || files.length === 0}
-            onClick={onUpload}
-          >
-            {uploading ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-            Upload Receipts
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="rounded-lg text-xs"
-            onClick={() => {
-              window.location.assign("/expenses");
-            }}
-          >
-            Open Expenses
-            <ArrowRight className="ml-1 h-3.5 w-3.5" />
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+      <div className="text-[11px] text-zinc-500">{label}</div>
+      <div className="mt-1 text-sm font-semibold text-zinc-900">{value}</div>
+    </div>
   );
 }
 
 function FinanceSnapshotCard({ finance }: { finance: FinanceSnapshot }) {
   return (
     <Card className="border-zinc-200 bg-white shadow-sm">
-      <CardHeader className="pb-2">
-        <div className="flex items-center gap-2">
-          <TrendingUp className="h-4 w-4 text-blue-500" />
-          <CardTitle className="text-sm font-semibold">Finance Snapshot</CardTitle>
-        </div>
+      <CardHeader>
+        <CardTitle className="text-base">Finance Snapshot</CardTitle>
+        <CardDescription>Cash, runway, and overdue health.</CardDescription>
       </CardHeader>
       <CardContent className="pt-0 space-y-4">
-        <div className="grid grid-cols-3 gap-2">
-          <MiniMetric label="Ending Cash" value={formatMoney(finance.ending_cash)} />
-          <MiniMetric label="Monthly Burn" value={formatMoney(finance.monthly_burn)} />
+        <div className="grid grid-cols-3 gap-3">
+          <MiniMetric label="Ending cash" value={formatMoney(finance.ending_cash)} />
+          <MiniMetric label="Monthly burn" value={formatMoney(finance.monthly_burn)} />
           <MiniMetric label="Runway" value={`${finance.runway_months.toFixed(1)} mo`} />
         </div>
 
-        {finance.months.length > 0 && (
-          <div className="h-[130px] rounded-xl bg-zinc-50 p-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={finance.months} margin={{ left: 4, right: 4, top: 4, bottom: 0 }}>
-                <XAxis dataKey="m" tick={{ fontSize: 10, fill: "#a1a1aa" }} axisLine={false} tickLine={false} />
-                <YAxis hide />
-                <ReTooltip />
-                <Area type="monotone" dataKey="rev" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.1} strokeWidth={1.5} />
-                <Area type="monotone" dataKey="exp" stroke="#a1a1aa" fill="#a1a1aa" fillOpacity={0.05} strokeWidth={1} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        )}
+        <div className="h-[160px] rounded-3xl border border-zinc-200 bg-zinc-50 p-3">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={finance.months} margin={{ left: 8, right: 8, top: 5, bottom: 0 }}>
+              <XAxis dataKey="m" tick={{ fontSize: 11 }} />
+              <YAxis hide />
+              <ReTooltip />
+              <Area type="monotone" dataKey="rev" stroke="currentColor" fill="currentColor" fillOpacity={0.10} className="text-zinc-950" />
+              <Area type="monotone" dataKey="exp" stroke="currentColor" fill="currentColor" fillOpacity={0.05} className="text-zinc-400" />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
 
-        <div className="space-y-2">
+        <div className="rounded-3xl border border-zinc-200 bg-white p-4">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-medium text-zinc-700">Accounts Receivable</p>
-            <Badge variant="outline" className="rounded-md text-[10px] border-amber-200 bg-amber-50 text-amber-700">
-              {formatMoney(finance.total_overdue)} overdue
+            <div className="text-sm font-semibold">Accounts receivable</div>
+            <Badge variant="outline" className="rounded-full border-zinc-200 bg-white text-zinc-700">
+              overdue {formatMoney(finance.total_overdue)}
             </Badge>
           </div>
-          {finance.ar_buckets.length > 0 && (
-            <div className="h-[100px] rounded-xl bg-zinc-50 p-2">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={finance.ar_buckets} margin={{ left: 4, right: 4, top: 4, bottom: 0 }}>
-                  <XAxis dataKey="bucket" tick={{ fontSize: 10, fill: "#a1a1aa" }} axisLine={false} tickLine={false} />
-                  <YAxis hide />
-                  <ReTooltip />
-                  <Bar dataKey="amount" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          )}
+          <div className="mt-3 h-[140px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={finance.ar_buckets} margin={{ left: 8, right: 8, top: 5, bottom: 0 }}>
+                <XAxis dataKey="bucket" tick={{ fontSize: 11 }} />
+                <YAxis hide />
+                <ReTooltip />
+                <Bar dataKey="amount" fill="currentColor" className="text-zinc-900" radius={[10, 10, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="mt-2 text-[11px] text-zinc-500">Use “Invoices” to send reminders and reduce overdue balance.</div>
         </div>
       </CardContent>
     </Card>
@@ -1100,62 +1285,47 @@ function FinanceSnapshotCard({ finance }: { finance: FinanceSnapshot }) {
 
 function MiniMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg bg-zinc-50 px-3 py-2.5">
-      <p className="text-[10px] text-zinc-400">{label}</p>
-      <p className="text-sm font-semibold text-zinc-800 mt-0.5">{value}</p>
+    <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+      <div className="text-[11px] text-zinc-500">{label}</div>
+      <div className="mt-1 text-base font-semibold text-zinc-950">{value}</div>
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Tax Guardian Card
-// ─────────────────────────────────────────────────────────────────────────────
 function TaxGuardianCard({ tax }: { tax: TaxGuardian }) {
   const totalAnoms = tax.anomaly_counts.low + tax.anomaly_counts.medium + tax.anomaly_counts.high;
   return (
     <Card className="border-zinc-200 bg-white shadow-sm">
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Shield className="h-4 w-4 text-violet-500" />
-            <CardTitle className="text-sm font-semibold">Tax Guardian</CardTitle>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-base">Tax Guardian</CardTitle>
+            <CardDescription>Period {tax.period_key}</CardDescription>
           </div>
-          <Badge variant="outline" className={cx("rounded-md text-[10px]", totalAnoms > 0 ? "border-amber-200 bg-amber-50 text-amber-700" : "border-emerald-200 bg-emerald-50 text-emerald-700")}>
-            {totalAnoms} flags
-          </Badge>
+          <Badge className="rounded-full bg-zinc-950 text-white">{totalAnoms} flags</Badge>
         </div>
-        <CardDescription className="text-xs">{tax.period_key}</CardDescription>
       </CardHeader>
       <CardContent className="pt-0 space-y-3">
-        {tax.net_tax.length > 0 && (
-          <div className="space-y-1.5">
-            <p className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider">Net Tax</p>
+        <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+          <div className="text-xs font-semibold text-zinc-700">Net tax (by jurisdiction)</div>
+          <div className="mt-3 space-y-2">
             {tax.net_tax.map((x) => (
-              <div key={x.jurisdiction} className="flex items-center justify-between rounded-lg bg-zinc-50 px-3 py-2">
-                <span className="text-xs font-medium text-zinc-700">{x.jurisdiction}</span>
-                <span className="text-xs font-semibold text-zinc-800">{formatMoney(x.amount)}</span>
+              <div key={x.jurisdiction} className="flex items-center justify-between rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                <div className="text-sm font-semibold text-zinc-950">{x.jurisdiction}</div>
+                <div className="text-sm text-zinc-800">{formatMoney(x.amount)}</div>
               </div>
             ))}
           </div>
-        )}
-
-        <div className="grid grid-cols-3 gap-2">
-          <div className="rounded-lg bg-emerald-50 px-2.5 py-2 text-center">
-            <p className="text-[10px] text-emerald-600">Low</p>
-            <p className="text-sm font-semibold text-emerald-700">{tax.anomaly_counts.low}</p>
-          </div>
-          <div className="rounded-lg bg-amber-50 px-2.5 py-2 text-center">
-            <p className="text-[10px] text-amber-600">Med</p>
-            <p className="text-sm font-semibold text-amber-700">{tax.anomaly_counts.medium}</p>
-          </div>
-          <div className="rounded-lg bg-rose-50 px-2.5 py-2 text-center">
-            <p className="text-[10px] text-rose-600">High</p>
-            <p className="text-sm font-semibold text-rose-700">{tax.anomaly_counts.high}</p>
+          <Separator className="my-4 bg-zinc-200" />
+          <div className="grid grid-cols-3 gap-2">
+            <TinyChip label="Low" value={`${tax.anomaly_counts.low}`} />
+            <TinyChip label="Medium" value={`${tax.anomaly_counts.medium}`} />
+            <TinyChip label="High" value={`${tax.anomaly_counts.high}`} />
           </div>
         </div>
 
-        <Button variant="outline" size="sm" className="w-full rounded-lg text-xs">
-          <Gauge className="mr-1.5 h-3.5 w-3.5" />
+        <Button className="w-full rounded-2xl bg-zinc-950 text-white hover:bg-zinc-900">
+          <Gauge className="mr-2 h-4 w-4" />
           Open Tax Guardian
         </Button>
       </CardContent>
@@ -1163,9 +1333,15 @@ function TaxGuardianCard({ tax }: { tax: TaxGuardian }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Engine Queue Card
-// ─────────────────────────────────────────────────────────────────────────────
+function TinyChip({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+      <div className="text-[11px] text-zinc-500">{label}</div>
+      <div className="mt-0.5 text-sm font-semibold text-zinc-950">{value}</div>
+    </div>
+  );
+}
+
 function EngineQueueCard({
   queues,
   status,
@@ -1176,97 +1352,411 @@ function EngineQueueCard({
   onOpenQueue: () => void;
 }) {
   const stats = queues?.data?.stats;
-  const jobTotals = queues?.data?.job_totals;
-  const mode = status?.mode || queues?.data?.mode || "offline";
+  const ready = stats?.ready ?? 0;
+  const attention = stats?.needs_attention ?? 0;
+  const waiting = stats?.waiting_approval ?? 0;
   const trust = queues ? Math.round(queues.data.trust_score) : null;
+  const applied = stats?.applied_last_day ?? 0;
+  const breakers = stats?.breaker_events_last_day ?? status?.breakers?.recent ?? 0;
+  const jobTotals = queues?.data?.job_totals || null;
+  const queuedTotal = jobTotals?.queued ?? 0;
+  const runningTotal = jobTotals?.running ?? 0;
+  const blockedTotal = jobTotals?.blocked ?? 0;
+  const mode = status?.mode || queues?.data?.mode || "offline";
   const stale = queues?.stale;
+  const freshness = stale == null ? "unknown" : stale ? "stale" : "fresh";
 
   return (
     <Card className="border-zinc-200 bg-white shadow-sm">
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Bot className="h-4 w-4 text-zinc-500" />
-            <CardTitle className="text-sm font-semibold">Autonomy Engine</CardTitle>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-base">Autonomy Engine</CardTitle>
+            <CardDescription>Queue snapshot and safe batch controls</CardDescription>
           </div>
-          <div className="flex items-center gap-1.5">
-            <Badge variant="outline" className="rounded-md text-[10px] border-zinc-200 text-zinc-500">
+          <div className="flex flex-col items-end gap-2">
+            <Badge variant="outline" className="rounded-full border-zinc-200 bg-white text-zinc-700">
               {mode.replace("_", " ")}
             </Badge>
-            <span className={cx("h-2 w-2 rounded-full", stale === false ? "bg-emerald-400" : stale === true ? "bg-amber-400" : "bg-zinc-300")} />
+            <Badge
+              variant="outline"
+              className={cx(
+                "rounded-full border-zinc-200 bg-white text-zinc-700",
+                freshness === "stale" && "border-amber-200 text-amber-700",
+                freshness === "fresh" && "border-emerald-200 text-emerald-700"
+              )}
+            >
+              {freshness}
+            </Badge>
           </div>
         </div>
       </CardHeader>
       <CardContent className="pt-0 space-y-3">
         <div className="grid grid-cols-3 gap-2">
-          <MiniMetric label="Queued" value={`${jobTotals?.queued ?? 0}`} />
-          <MiniMetric label="Running" value={`${jobTotals?.running ?? 0}`} />
-          <MiniMetric label="Blocked" value={`${jobTotals?.blocked ?? 0}`} />
+          <TinyChip label="Queued" value={`${queuedTotal}`} />
+          <TinyChip label="Running" value={`${runningTotal}`} />
+          <TinyChip label="Blocked" value={`${blockedTotal}`} />
         </div>
-
         <div className="grid grid-cols-3 gap-2">
-          <MiniMetric label="Ready" value={`${stats?.ready ?? 0}`} />
-          <MiniMetric label="Attention" value={`${stats?.needs_attention ?? 0}`} />
-          <MiniMetric label="Approval" value={`${stats?.waiting_approval ?? 0}`} />
+          <TinyChip label="Ready" value={`${ready}`} />
+          <TinyChip label="Needs attention" value={`${attention}`} />
+          <TinyChip label="Waiting approval" value={`${waiting}`} />
         </div>
 
-        {trust != null && (
-          <div className="flex items-center justify-between rounded-lg bg-zinc-50 px-3 py-2">
-            <span className="text-xs text-zinc-500">Trust Score</span>
-            <span className="text-sm font-semibold text-zinc-800">{trust}%</span>
-          </div>
-        )}
+        <div className="grid grid-cols-2 gap-2">
+          <TinyChip label="Applied (24h)" value={`${applied}`} />
+          <TinyChip label="Breakers (24h)" value={`${breakers}`} />
+        </div>
 
-        <Button onClick={onOpenQueue} size="sm" className="w-full rounded-lg bg-zinc-900 text-white hover:bg-zinc-800 text-xs">
-          View Engine Queue
-          <ChevronRight className="ml-1 h-3.5 w-3.5" />
+        <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+          <div className="flex items-center justify-between text-xs text-zinc-600">
+            <span>Trust score</span>
+            <span className="font-semibold text-zinc-900">{trust != null ? `${trust}%` : "—"}</span>
+          </div>
+        </div>
+
+        <Button onClick={onOpenQueue} className="w-full rounded-2xl bg-zinc-950 text-white hover:bg-zinc-900">
+          View engine queue
+          <ChevronRight className="ml-2 h-4 w-4" />
         </Button>
       </CardContent>
     </Card>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Skeleton
-// ─────────────────────────────────────────────────────────────────────────────
-function SkeletonBoard() {
+function EngineQueuePanel({
+  queues,
+  status,
+  onRefresh,
+  onOpenSuggestions,
+}: {
+  queues: EngineQueuesResult | null;
+  status: EngineStatusPayload | null;
+  onRefresh: () => void;
+  onOpenSuggestions: (agent: string) => void;
+}) {
+  const ready = queues?.data?.ready_queue ?? [];
+  const attention = queues?.data?.needs_attention_queue ?? [];
+  const stats = queues?.data?.stats;
+  const jobTotals = queues?.data?.job_totals || null;
+  const jobByAgent = queues?.data?.job_by_agent ?? [];
+  const topBlockers = queues?.data?.top_blockers ?? [];
+  const mode = status?.mode || queues?.data?.mode || "offline";
+  const stale = queues?.stale;
+  const freshness = stale == null ? "Unknown" : stale ? "Stale" : "Fresh";
+  const [selected, setSelected] = useState<number[]>([]);
+  const [applying, setApplying] = useState(false);
+  const selectableReady = ready.filter((item) => item.action_id != null && item.risk_level === "low");
+  const selectableReadyIds = useMemo(
+    () => selectableReady.map((item) => item.action_id as number),
+    [selectableReady]
+  );
+  const allSelected = selectableReady.length > 0 && selected.length === selectableReady.length;
+
+  useEffect(() => {
+    setSelected((prev) => prev.filter((id) => selectableReadyIds.includes(id)));
+  }, [selectableReadyIds]);
+
+  const toggleSelection = (id: number) => {
+    setSelected((prev) => (prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]));
+  };
+
+  const toggleAll = () => {
+    if (allSelected) {
+      setSelected([]);
+    } else {
+      setSelected(selectableReadyIds);
+    }
+  };
+
+  const handleApplyBatch = async () => {
+    if (selected.length === 0) return;
+    setApplying(true);
+    const ok = await applyEngineBatch(selected);
+    setApplying(false);
+    if (ok) {
+      setSelected([]);
+      onRefresh();
+    }
+  };
+
   return (
-    <div className="space-y-6 animate-pulse">
-      {/* Hero skeleton */}
-      <div className="rounded-xl border border-zinc-200 bg-white p-6">
-        <div className="h-6 w-64 rounded-lg bg-zinc-100" />
-        <div className="mt-3 h-4 w-96 rounded-lg bg-zinc-100" />
-        <div className="mt-5 h-20 rounded-xl bg-zinc-100" />
+    <div className="space-y-6">
+      <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="text-xs font-semibold text-zinc-900 uppercase tracking-wide">Queue snapshot</div>
+            <div className="mt-1 text-xs text-zinc-500">
+              Mode: {mode.replace("_", " ")} · {freshness}
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="rounded-full border-zinc-200 bg-white"
+            onClick={onRefresh}
+          >
+            Refresh
+          </Button>
+        </div>
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          <TinyChip label="Queued" value={`${jobTotals?.queued ?? 0}`} />
+          <TinyChip label="Running" value={`${jobTotals?.running ?? 0}`} />
+          <TinyChip label="Blocked" value={`${jobTotals?.blocked ?? 0}`} />
+        </div>
       </div>
 
-      {/* Stats row skeleton */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {[1, 2, 3, 4].map((i) => (
-          <div key={i} className="rounded-xl border border-zinc-200 bg-white p-4">
-            <div className="flex items-center gap-4">
-              <div className="h-10 w-10 rounded-xl bg-zinc-100" />
-              <div className="space-y-2">
-                <div className="h-3 w-16 rounded bg-zinc-100" />
-                <div className="h-5 w-12 rounded bg-zinc-100" />
+      <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+        <div className="text-xs font-semibold text-zinc-900 uppercase tracking-wide">Batch review</div>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <TinyChip label="Applied (24h)" value={`${stats?.applied_last_day ?? 0}`} />
+          <TinyChip label="Breakers (24h)" value={`${stats?.breaker_events_last_day ?? 0}`} />
+        </div>
+        <div className="mt-4 flex items-center justify-between text-xs text-zinc-500">
+          <span>{selected.length} selected</span>
+          <button
+            className="text-zinc-900 hover:underline"
+            onClick={toggleAll}
+            disabled={selectableReady.length === 0}
+          >
+            {allSelected ? "Clear all" : "Select all"}
+          </button>
+        </div>
+        <Button
+          className="mt-3 w-full rounded-2xl bg-zinc-950 text-white hover:bg-zinc-900"
+          onClick={handleApplyBatch}
+          disabled={selected.length === 0 || applying}
+        >
+          {applying ? "Applying..." : "Apply selected low-risk actions"}
+        </Button>
+      </div>
+
+      <div>
+        <div className="text-xs font-semibold text-zinc-900 uppercase tracking-wide">By agent</div>
+        <div className="mt-3 space-y-2">
+          {jobByAgent.length === 0 ? (
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-xs text-zinc-500">
+              No agent activity yet.
+            </div>
+          ) : (
+            jobByAgent.map((row) => (
+              <div key={row.agent} className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-xs">
+                <div className="flex items-center justify-between">
+                  <div className="font-semibold text-zinc-900">{row.agent}</div>
+                  <div className="text-zinc-500">
+                    Queued {row.queued} · Running {row.running} · Blocked {row.blocked}
+                  </div>
+                </div>
+                <div className="mt-2 flex justify-end">
+                  <button
+                    className="text-xs font-semibold text-zinc-900 hover:underline"
+                    onClick={() => onOpenSuggestions(row.agent)}
+                  >
+                    Open suggestions
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      <div>
+        <div className="text-xs font-semibold text-zinc-900 uppercase tracking-wide">Top blockers</div>
+        <div className="mt-3 space-y-2">
+          {topBlockers.length === 0 ? (
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-xs text-zinc-500">
+              No blockers reported.
+            </div>
+          ) : (
+            topBlockers.map((blocker, index) => (
+              <div key={`${blocker.kind}-${index}`} className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-xs">
+                <div className="flex items-center justify-between">
+                  <div className="font-semibold text-zinc-900">{blocker.kind}</div>
+                  <div className="text-zinc-500">{blocker.status}</div>
+                </div>
+                <div className="mt-1 text-zinc-500">{toCustomerCopy(blocker.reason)}</div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      <div>
+        <div className="text-xs font-semibold text-zinc-900 uppercase tracking-wide">Ready to apply</div>
+        <div className="mt-3 space-y-3">
+          {ready.length === 0 ? (
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-xs text-zinc-500">
+              No ready items right now.
+            </div>
+          ) : (
+            ready.map((item) => {
+              const chip = severityChip(item.risk_level as "low" | "medium" | "high");
+              const actionId = item.action_id ?? null;
+              const safeTitle = toCustomerCopy(item.title);
+              const safeSummary = toCustomerCopy(item.summary);
+              return (
+                <div key={item.id} className="rounded-3xl border border-zinc-200 bg-white p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-950">{safeTitle}</div>
+                      <div className="mt-1 text-xs text-zinc-500">{safeSummary}</div>
+                    </div>
+                    <span className={cx("rounded-full px-2 py-1 text-[10px] uppercase", chip.cls)}>{chip.label}</span>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between text-[11px] text-zinc-500">
+                    <label className="flex items-center gap-2 text-xs text-zinc-600">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-zinc-300"
+                        checked={actionId ? selected.includes(actionId) : false}
+                        onChange={() => actionId && toggleSelection(actionId)}
+                        disabled={!actionId || item.risk_level !== "low"}
+                      />
+                      {item.risk_level === "low" ? "Add to batch" : "Manual review"}
+                    </label>
+                    {item.target_url ? (
+                      <a href={item.target_url} className="text-zinc-900 hover:underline">
+                        Open
+                      </a>
+                    ) : null}
+                  </div>
+                  <div className="mt-2 text-[11px] text-zinc-500">
+                    {surfaceMeta(normalizeSurfaceKey(item.surface) || "banking").label}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      <div>
+        <div className="text-xs font-semibold text-zinc-900 uppercase tracking-wide">Needs attention</div>
+        <div className="mt-3 space-y-3">
+          {attention.length === 0 ? (
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-xs text-zinc-500">
+              No high-risk items yet.
+            </div>
+          ) : (
+            attention.map((item) => {
+              const chip = severityChip(item.risk_level as "low" | "medium" | "high");
+              const safeTitle = toCustomerCopy(item.title);
+              const safeSummary = toCustomerCopy(item.summary);
+              return (
+                <div key={item.id} className="rounded-3xl border border-zinc-200 bg-white p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-950">{safeTitle}</div>
+                      <div className="mt-1 text-xs text-zinc-500">{safeSummary}</div>
+                    </div>
+                    <span className={cx("rounded-full px-2 py-1 text-[10px] uppercase", chip.cls)}>{chip.label}</span>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between text-[11px] text-zinc-500">
+                    <span>{surfaceMeta(normalizeSurfaceKey(item.surface) || "banking").label}</span>
+                    {item.target_url ? (
+                      <a href={item.target_url} className="text-zinc-900 hover:underline">
+                        Open
+                      </a>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TrustSafetyCard({ safeMode }: { safeMode: boolean }) {
+  return (
+    <Card className="border-zinc-200 bg-white shadow-sm">
+      <CardHeader>
+        <CardTitle className="text-base">Trust & Safety</CardTitle>
+        <CardDescription>AI proposes. Deterministic checks validate.</CardDescription>
+      </CardHeader>
+      <CardContent className="pt-0 space-y-3">
+        <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+          <div className="flex items-start gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-2xl border border-zinc-200 bg-white">
+              <Shield className="h-4 w-4 text-zinc-900" />
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-zinc-950">Safe by design</div>
+              <div className="mt-1 text-xs text-zinc-500">
+                Suggestions never auto-change your books unless you approve them.
               </div>
             </div>
           </div>
-        ))}
-      </div>
 
-      {/* Grid skeleton */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-2">
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-            <div className="rounded-xl border border-zinc-200 bg-white p-6"><div className="h-64 rounded-xl bg-zinc-100" /></div>
-            <div className="rounded-xl border border-zinc-200 bg-white p-6"><div className="h-64 rounded-xl bg-zinc-100" /></div>
+          <Separator className="my-4 bg-zinc-200" />
+
+          <div className="space-y-2">
+            <Row label="Safe mode" value={safeMode ? "On" : "Off"} />
+            <Row label="High-value changes" value="Always confirm" />
+            <Row label="Tax calculations" value="Deterministic" />
           </div>
-          <div className="rounded-xl border border-zinc-200 bg-white p-6"><div className="h-48 rounded-xl bg-zinc-100" /></div>
         </div>
-        <div className="space-y-6">
-          <div className="rounded-xl border border-zinc-200 bg-white p-6"><div className="h-56 rounded-xl bg-zinc-100" /></div>
-          <div className="rounded-xl border border-zinc-200 bg-white p-6"><div className="h-40 rounded-xl bg-zinc-100" /></div>
-          <div className="rounded-xl border border-zinc-200 bg-white p-6"><div className="h-48 rounded-xl bg-zinc-100" /></div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+      <div className="text-xs text-zinc-600">{label}</div>
+      <div className="text-xs font-semibold text-zinc-900">{value}</div>
+    </div>
+  );
+}
+
+// ---------------------------
+// Skeleton
+// ---------------------------
+function SkeletonBoard() {
+  return (
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+      <div className="space-y-6">
+        <Card className="border-zinc-200 bg-white shadow-sm">
+          <CardContent className="p-6">
+            <div className="h-5 w-48 animate-pulse rounded bg-zinc-100" />
+            <div className="mt-3 h-4 w-[70%] animate-pulse rounded bg-zinc-100" />
+            <div className="mt-5 h-24 w-full animate-pulse rounded-3xl bg-zinc-100" />
+          </CardContent>
+        </Card>
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+          <Card className="border-zinc-200 bg-white shadow-sm"><CardContent className="p-6"><div className="h-48 animate-pulse rounded-3xl bg-zinc-100" /></CardContent></Card>
+          <Card className="border-zinc-200 bg-white shadow-sm"><CardContent className="p-6"><div className="h-48 animate-pulse rounded-3xl bg-zinc-100" /></CardContent></Card>
+        </div>
+        <Card className="border-zinc-200 bg-white shadow-sm"><CardContent className="p-6"><div className="h-64 animate-pulse rounded-3xl bg-zinc-100" /></CardContent></Card>
+      </div>
+      <div className="space-y-6">
+        <Card className="border-zinc-200 bg-white shadow-sm"><CardContent className="p-6"><div className="h-72 animate-pulse rounded-3xl bg-zinc-100" /></CardContent></Card>
+        <Card className="border-zinc-200 bg-white shadow-sm"><CardContent className="p-6"><div className="h-56 animate-pulse rounded-3xl bg-zinc-100" /></CardContent></Card>
+        <Card className="border-zinc-200 bg-white shadow-sm"><CardContent className="p-6"><div className="h-48 animate-pulse rounded-3xl bg-zinc-100" /></CardContent></Card>
+      </div>
+    </div>
+  );
+}
+
+function Footer() {
+  return (
+    <div className="border-t border-zinc-200 bg-white">
+      <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-8 md:flex-row md:items-center md:justify-between">
+        <div className="flex items-center gap-3">
+          <div className="grid h-9 w-9 place-items-center rounded-2xl border border-zinc-200 bg-white">
+            <Sparkles className="h-4 w-4 text-zinc-900" />
+          </div>
+          <div className="text-sm font-semibold">Clover Books</div>
+          <div className="text-xs text-zinc-500">AI Companion • Control Tower</div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+          <span className="rounded-full border border-zinc-200 bg-white px-3 py-1">Customer-safe language</span>
+          <span className="rounded-full border border-zinc-200 bg-white px-3 py-1">Panels, not pages</span>
+          <span className="rounded-full border border-zinc-200 bg-white px-3 py-1">Calm spacing</span>
         </div>
       </div>
     </div>

@@ -40,7 +40,7 @@ const LocationSelect: React.FC<{
   const options = useMemo(() => {
     return locations.map((l) => ({
       id: String(l.id),
-      label: l.code ? `${l.code} - ${l.name}` : l.name,
+      label: l.code ? `${l.code} · ${l.name}` : l.name,
     }));
   }, [locations]);
 
@@ -147,7 +147,7 @@ export const ReceiveStockSheet: React.FC<SheetProps> = ({
               Cancel
             </Button>
             <Button onClick={onSubmit} disabled={!canSubmit}>
-              {saving ? "Receiving..." : "Receive"}
+              {saving ? "Receiving…" : "Receive"}
             </Button>
           </div>
         </div>
@@ -234,7 +234,7 @@ export const ShipStockSheet: React.FC<SheetProps> = ({
               Cancel
             </Button>
             <Button onClick={onSubmit} disabled={!canSubmit}>
-              {saving ? "Shipping..." : "Ship"}
+              {saving ? "Shipping…" : "Ship"}
             </Button>
           </div>
         </div>
@@ -322,7 +322,7 @@ export const AdjustStockSheet: React.FC<SheetProps> = ({
               Cancel
             </Button>
             <Button onClick={onSubmit} disabled={!canSubmit}>
-              {saving ? "Adjusting..." : "Adjust"}
+              {saving ? "Adjusting…" : "Adjust"}
             </Button>
           </div>
         </div>

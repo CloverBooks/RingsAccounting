@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
 import { ensureCsrfToken, getCsrfToken } from "../utils/csrf";
-import { buildApiUrl, getAccessToken } from "../api/client";
 
 export type Severity = "high" | "medium" | "low";
 export type Status = "OPEN" | "ACKNOWLEDGED" | "RESOLVED" | "IGNORED";
@@ -115,15 +114,10 @@ export function useTaxGuardian(initialPeriodKey?: string, initialSeverity?: Seve
   const apiFetch = useCallback(
     async (input: RequestInfo | URL, init: RequestInit = {}) => {
       const method = (init.method || "GET").toUpperCase();
-      const accessToken = getAccessToken();
-      const url = typeof input === "string" ? buildApiUrl(input) : input;
       const headers: Record<string, string> = {
         Accept: "application/json",
         ...(init.headers as Record<string, string> | undefined),
       };
-      if (accessToken && !headers.Authorization) {
-        headers.Authorization = `Bearer ${accessToken}`;
-      }
       if (method !== "GET") {
         const csrf = (getCsrfToken() || (await ensureCsrfToken())) || "";
         if (csrf) headers["X-CSRFToken"] = csrf;
@@ -131,8 +125,8 @@ export function useTaxGuardian(initialPeriodKey?: string, initialSeverity?: Seve
           headers["Content-Type"] = "application/json";
         }
       }
-      const res = await fetch(url, {
-        credentials: "include",
+      const res = await fetch(input, {
+        credentials: "same-origin",
         ...init,
         headers,
       });
@@ -145,15 +139,9 @@ export function useTaxGuardian(initialPeriodKey?: string, initialSeverity?: Seve
     const res = await apiFetch("/api/tax/periods/");
     if (!res.ok) throw new Error("Failed to load tax periods");
     const data = await res.json();
-    const list: TaxPeriod[] = data.periods || [];
-    setPeriods(list);
-    if (list.length === 0) {
-      if (selectedPeriod) setSelectedPeriod(undefined);
-      return;
-    }
-    const isValid = Boolean(selectedPeriod && list.some((p) => p.period_key === selectedPeriod));
-    if (!selectedPeriod || !isValid) {
-      setSelectedPeriod(list[0].period_key);
+    setPeriods(data.periods || []);
+    if (!selectedPeriod && data.periods && data.periods.length > 0) {
+      setSelectedPeriod(data.periods[0].period_key);
     }
   }, [apiFetch, selectedPeriod]);
 
@@ -172,30 +160,12 @@ export function useTaxGuardian(initialPeriodKey?: string, initialSeverity?: Seve
       const params = new URLSearchParams();
       if (severity && severity !== "all") params.append("severity", severity);
       if (status && status !== "all") params.append("status", status);
-    const res = await apiFetch(`/api/tax/periods/${period}/anomalies/?${params.toString()}`);
-    if (!res.ok) throw new Error("Failed to load tax anomalies");
-    const data = await res.json();
-    const normalized: TaxAnomaly[] = (data.anomalies || []).map((anomaly: Partial<TaxAnomaly>) => ({
-      id: String(anomaly.id || ""),
-      code: String(anomaly.code || "UNKNOWN"),
-      severity: String(anomaly.severity || "low").toLowerCase(),
-      status: String(anomaly.status || "OPEN").toUpperCase(),
-      description: String(anomaly.description || "No details available."),
-      task_code: String(anomaly.task_code || ""),
-      created_at: anomaly.created_at,
-      resolved_at: anomaly.resolved_at ?? undefined,
-      linked_model: anomaly.linked_model ?? undefined,
-      linked_id: anomaly.linked_id ?? undefined,
-      jurisdiction_code: anomaly.jurisdiction_code ?? undefined,
-      linked_model_friendly: anomaly.linked_model_friendly ?? undefined,
-      ledger_path: anomaly.ledger_path ?? undefined,
-      expected_tax_amount: anomaly.expected_tax_amount ?? undefined,
-      actual_tax_amount: anomaly.actual_tax_amount ?? undefined,
-      difference: anomaly.difference ?? undefined,
-    }));
-    setAnomalies(normalized);
-  },
-  [apiFetch]
+      const res = await apiFetch(`/api/tax/periods/${period}/anomalies/?${params.toString()}`);
+      if (!res.ok) throw new Error("Failed to load tax anomalies");
+      const data = await res.json();
+      setAnomalies(data.anomalies || []);
+    },
+    [apiFetch]
   );
 
   const fetchBankAccounts = useCallback(async () => {

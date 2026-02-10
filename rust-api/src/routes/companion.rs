@@ -1301,8 +1301,7 @@ async fn fetch_shadow_events(
         return Vec::new();
     }
 
-    let status_placeholders = std::iter::repeat("?")
-        .take(statuses.len())
+    let status_placeholders = std::iter::repeat_n("?", statuses.len())
         .collect::<Vec<_>>()
         .join(",");
     let work_type = event_type.and_then(work_type_for_event_type);
@@ -1354,8 +1353,7 @@ async fn fetch_shadow_events(
     }
 
     let ids: Vec<i64> = items.iter().map(|item| item.id).collect();
-    let id_placeholders = std::iter::repeat("?")
-        .take(ids.len())
+    let id_placeholders = std::iter::repeat_n("?", ids.len())
         .collect::<Vec<_>>()
         .join(",");
     let action_query = format!(
@@ -1638,7 +1636,7 @@ mod tests {
     use super::*;
     use crate::companion_autonomy::models::{RecommendationSeed, WorkItemSeed};
     use crate::companion_autonomy::schema;
-    use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
+    use sqlx::SqlitePool;
 
     // =========================================================================
     // SeverityCounts Tests
@@ -1911,11 +1909,7 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_shadow_events_filters_by_event_type_and_subject() {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         schema::run_migrations(&pool).await.unwrap();
 
         let tenant_id = 11;
@@ -1941,11 +1935,7 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_shadow_events_respects_limit_offset() {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         schema::run_migrations(&pool).await.unwrap();
 
         let tenant_id = 33;

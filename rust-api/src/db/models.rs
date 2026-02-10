@@ -50,12 +50,9 @@ pub struct Account {
     pub id: i64,
     pub business_id: i64,
     pub code: String,
-    pub account_number: Option<String>,
     pub name: String,
+    #[sqlx(rename = "type")]
     pub account_type: String, // ASSET, LIABILITY, EQUITY, INCOME, EXPENSE
-    pub detail_type: String,
-    pub classification: String,
-    pub system_account_kind: Option<String>,
     pub parent_id: Option<i64>,
     pub is_active: bool,
     pub description: String,
