@@ -57,13 +57,17 @@ export async function ensureCsrfToken(): Promise<string> {
         return inflight;
     }
 
-    inflight = fetch(backendUrl("/api/auth/config"), { credentials: "include" })
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    inflight = fetch(backendUrl("/api/auth/config"), { credentials: "include", signal: controller.signal })
         .then(async (res) => {
             if (!res.ok) return "";
             const data = await res.json().catch(() => ({}));
             return typeof data?.csrfToken === "string" ? data.csrfToken : "";
         })
+        .catch(() => "")
         .finally(() => {
+            clearTimeout(timer);
             inflight = null;
         });
 

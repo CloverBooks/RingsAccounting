@@ -1,6 +1,7 @@
 use axum::{extract::{Path, State}, Json};
 use chrono::{DateTime, Utc};
 use sqlx::query_as;
+use uuid::Uuid;
 
 use crate::{
     config::get_config,
@@ -75,8 +76,7 @@ async fn create_mandate(
     Path(id): Path<String>,
     Json(payload): Json<CreateMandateRequest>,
 ) -> AppResult<Json<Mandate>> {
-    let customer_id = id
-        .parse()
+    let customer_id = Uuid::parse_str(&id)
         .map_err(|_| AppError::Validation("invalid customer id".to_string()))?;
 
     let customer = query_as::<_, Customer>(

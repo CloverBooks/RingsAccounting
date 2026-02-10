@@ -1,0 +1,47 @@
+import type { AccountDTO, ChartOfAccountsBootPayload } from "../ChartOfAccountsPage";
+
+const QBO_DEFAULT_ACCOUNTS: AccountDTO[] = [
+  { id: 1, code: "1000", name: "Cash on Hand", type: "ASSET", detailType: "Cash and Cash Equivalents", isActive: true, balance: 3200, favorite: true },
+  { id: 2, code: "1010", name: "Business Checking", type: "ASSET", detailType: "Checking", isActive: true, balance: 45250, favorite: true },
+  { id: 3, code: "1020", name: "Business Savings", type: "ASSET", detailType: "Savings", isActive: true, balance: 18800, favorite: false },
+  { id: 4, code: "1100", name: "Accounts Receivable (A/R)", type: "ASSET", detailType: "Accounts Receivable", isActive: true, balance: 12500, favorite: true },
+  { id: 5, code: "1200", name: "Inventory Asset", type: "ASSET", detailType: "Inventory", isActive: true, balance: 8750, favorite: false },
+  { id: 6, code: "1300", name: "Undeposited Funds", type: "ASSET", detailType: "Other Current Assets", isActive: true, balance: 1900, favorite: false },
+  { id: 7, code: "1400", name: "Prepaid Expenses", type: "ASSET", detailType: "Other Current Assets", isActive: true, balance: 2400, favorite: false },
+  { id: 8, code: "1500", name: "Furniture and Equipment", type: "ASSET", detailType: "Fixed Assets", isActive: true, balance: 16200, favorite: false },
+  { id: 9, code: "1510", name: "Accumulated Depreciation", type: "ASSET", detailType: "Accumulated Depreciation", isActive: true, balance: -3100, favorite: false },
+  { id: 10, code: "1600", name: "Security Deposits", type: "ASSET", detailType: "Other Assets", isActive: true, balance: 600, favorite: false },
+  { id: 11, code: "2000", name: "Accounts Payable (A/P)", type: "LIABILITY", detailType: "Accounts Payable", isActive: true, balance: 5200, favorite: true },
+  { id: 12, code: "2100", name: "Credit Card Payable", type: "LIABILITY", detailType: "Credit Card", isActive: true, balance: 1500, favorite: false },
+  { id: 13, code: "2200", name: "Sales Tax Payable", type: "LIABILITY", detailType: "Sales Tax Payable", isActive: true, balance: 3200, favorite: false },
+  { id: 14, code: "2300", name: "Payroll Liabilities", type: "LIABILITY", detailType: "Payroll Liabilities", isActive: true, balance: 2800, favorite: false },
+  { id: 15, code: "2400", name: "Notes Payable", type: "LIABILITY", detailType: "Notes Payable", isActive: true, balance: 10000, favorite: false },
+  { id: 16, code: "2500", name: "Customer Deposits", type: "LIABILITY", detailType: "Other Current Liabilities", isActive: true, balance: 4200, favorite: false },
+  { id: 17, code: "3000", name: "Owner's Equity", type: "EQUITY", detailType: "Owner's Equity", isActive: true, balance: 50000, favorite: true },
+  { id: 18, code: "3100", name: "Owner Draw", type: "EQUITY", detailType: "Owner's Draw", isActive: true, balance: -6400, favorite: false },
+  { id: 19, code: "3200", name: "Retained Earnings", type: "EQUITY", detailType: "Retained Earnings", isActive: true, balance: 8500, favorite: true },
+  { id: 20, code: "3300", name: "Opening Balance Equity", type: "EQUITY", detailType: "Opening Balance Equity", isActive: true, balance: 0, favorite: false },
+  { id: 21, code: "4000", name: "Sales of Product Income", type: "INCOME", detailType: "Sales of Product Income", isActive: true, balance: 125000, favorite: true },
+  { id: 22, code: "4010", name: "Service/Fee Income", type: "INCOME", detailType: "Service/Fee Income", isActive: true, balance: 35000, favorite: true },
+  { id: 23, code: "4020", name: "Sales Returns and Allowances", type: "INCOME", detailType: "Other Primary Income", isActive: true, balance: -2400, favorite: false },
+  { id: 24, code: "4100", name: "Other Primary Income", type: "INCOME", detailType: "Other Primary Income", isActive: true, balance: 3500, favorite: false },
+  { id: 25, code: "4200", name: "Interest Earned", type: "INCOME", detailType: "Interest Earned", isActive: true, balance: 310, favorite: false },
+  { id: 26, code: "5000", name: "Cost of Goods Sold", type: "EXPENSE", detailType: "Cost of Goods Sold", isActive: true, balance: 62000, favorite: true },
+  { id: 27, code: "5100", name: "Advertising & Marketing", type: "EXPENSE", detailType: "Advertising/Promotional", isActive: true, balance: 5600, favorite: false },
+  { id: 28, code: "5200", name: "Rent Expense", type: "EXPENSE", detailType: "Rent or Lease", isActive: true, balance: 18000, favorite: false },
+  { id: 29, code: "5300", name: "Utilities", type: "EXPENSE", detailType: "Utilities", isActive: true, balance: 4200, favorite: false },
+  { id: 30, code: "5400", name: "Insurance Expense", type: "EXPENSE", detailType: "Insurance", isActive: true, balance: 3300, favorite: false },
+  { id: 31, code: "5500", name: "Payroll Expenses", type: "EXPENSE", detailType: "Payroll Expenses", isActive: true, balance: 85000, favorite: true },
+  { id: 32, code: "5600", name: "Office Expenses", type: "EXPENSE", detailType: "Office/General Administrative Expenses", isActive: true, balance: 2100, favorite: false },
+  { id: 33, code: "5700", name: "Professional Fees", type: "EXPENSE", detailType: "Legal & Professional Fees", isActive: true, balance: 7400, favorite: false },
+  { id: 34, code: "5800", name: "Travel Expense", type: "EXPENSE", detailType: "Travel", isActive: true, balance: 2900, favorite: false },
+  { id: 35, code: "5900", name: "Bank Charges", type: "EXPENSE", detailType: "Bank Charges", isActive: true, balance: 760, favorite: false },
+  { id: 36, code: "6000", name: "Depreciation Expense", type: "EXPENSE", detailType: "Depreciation", isActive: true, balance: 2800, favorite: false },
+  { id: 37, code: "6100", name: "Other Miscellaneous Expense", type: "EXPENSE", detailType: "Other Miscellaneous Expense", isActive: true, balance: 980, favorite: false },
+];
+
+export const qboDefaultCoaPayload: ChartOfAccountsBootPayload = {
+  accounts: QBO_DEFAULT_ACCOUNTS,
+  currencyCode: "USD",
+};
+

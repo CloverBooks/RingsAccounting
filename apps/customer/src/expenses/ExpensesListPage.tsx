@@ -419,13 +419,13 @@ const ExpenseDrawer: React.FC<ExpenseDrawerProps> = ({ expense, currency, onClos
                             </a>
 
                             <a
-                                href="/receipts/"
+                                href="/companion"
                                 className="flex items-center gap-3 w-full px-4 py-3 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors"
                             >
                                 <Receipt className="h-5 w-5 text-slate-500" />
                                 <div className="flex-1 text-left">
                                     <div className="text-sm font-semibold text-slate-900">Attach Receipt</div>
-                                    <div className="text-xs text-slate-500">Upload supporting document</div>
+                                    <div className="text-xs text-slate-500">Upload in Companion receipt intake</div>
                                 </div>
                                 <ChevronRight className="h-4 w-4 text-slate-400" />
                             </a>

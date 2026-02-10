@@ -4,6 +4,7 @@ use axum::{extract::{Path, State}, Json};
 use chrono::{Months, NaiveDate};
 use rust_decimal::Decimal;
 use sqlx::{query, query_as};
+use uuid::Uuid;
 
 use crate::{
     error::{AppError, AppResult},
@@ -57,8 +58,7 @@ async fn charge_invoice(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> AppResult<Json<PaymentResponse>> {
-    let invoice_id = id
-        .parse()
+    let invoice_id = Uuid::parse_str(&id)
         .map_err(|_| AppError::Validation("invalid invoice id".to_string()))?;
 
     let mut tx = state.db.begin().await?;

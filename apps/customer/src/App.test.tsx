@@ -8,6 +8,34 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Outlet } from "react-router-dom";
 import React from "react";
 
+const mockCoaApiPayload = {
+    accounts: [
+        {
+            id: 1,
+            code: "1000",
+            name: "Cash on Hand",
+            type: "ASSET",
+            detailType: "Cash and Cash Equivalents",
+            isActive: true,
+            balance: 1500,
+            favorite: true,
+        },
+    ],
+    currencyCode: "USD",
+    totalsByType: {
+        ASSET: 1500,
+        LIABILITY: 0,
+        EQUITY: 0,
+        INCOME: 0,
+        EXPENSE: 0,
+    },
+};
+
+const fetchMock = vi.fn(async () => ({
+    ok: true,
+    json: async () => mockCoaApiPayload,
+}));
+
 // Mock all the page components to avoid complex dependencies
 vi.mock("./dashboard/CloverBooksDashboard", () => ({
     default: () => <div data-testid="dashboard-page">Dashboard Page</div>,
@@ -88,10 +116,15 @@ describe("App Routes", () => {
     beforeAll(() => {
         // Suppress console errors from React Router during tests
         vi.spyOn(console, "error").mockImplementation(() => { });
+        vi.stubGlobal("fetch", fetchMock);
     });
 
     afterEach(() => {
         vi.clearAllMocks();
+        fetchMock.mockResolvedValue({
+            ok: true,
+            json: async () => mockCoaApiPayload,
+        });
     });
 
     describe("Route Configuration", () => {
@@ -107,7 +140,7 @@ describe("App Routes", () => {
             });
         });
 
-        it("renders chart of accounts with mock data", async () => {
+        it("renders chart of accounts from live API payload", async () => {
             render(
                 <MemoryRouter initialEntries={["/chart-of-accounts"]}>
                     <AppRoutes />
@@ -117,7 +150,23 @@ describe("App Routes", () => {
             await waitFor(() => {
                 const coaPage = screen.getByTestId("coa-page");
                 expect(coaPage).toBeInTheDocument();
-                expect(coaPage.textContent).toContain("13 accounts");
+                expect(coaPage.textContent).toContain("1 accounts");
+            });
+        });
+
+        it("falls back to baseline chart payload when API fetch fails", async () => {
+            fetchMock.mockRejectedValueOnce(new Error("Failed to fetch"));
+
+            render(
+                <MemoryRouter initialEntries={["/chart-of-accounts"]}>
+                    <AppRoutes />
+                </MemoryRouter>
+            );
+
+            await waitFor(() => {
+                const coaPage = screen.getByTestId("coa-page");
+                expect(coaPage).toBeInTheDocument();
+                expect(coaPage.textContent).toContain("37 accounts");
             });
         });
 
@@ -197,19 +246,10 @@ describe("App Routes", () => {
     });
 
     describe("Route Props", () => {
-        it("chart of accounts receives valid payload with 13 mock accounts", () => {
-            // This tests that App.tsx properly creates and passes the mock COA data
-            const mockCOAPayload = {
-                accounts: [
-                    { id: 1, code: "1000", name: "Cash", type: "ASSET", detailType: "Cash", isActive: true, balance: 45250 },
-                    { id: 2, code: "1100", name: "AR", type: "ASSET", detailType: "AR", isActive: true, balance: 12500 },
-                    // ... more accounts
-                ],
-                currencyCode: "USD",
-            };
-
-            expect(mockCOAPayload.accounts.length).toBeGreaterThan(0);
-            expect(mockCOAPayload.currencyCode).toBe("USD");
+        it("chart of accounts API payload shape matches route expectations", () => {
+            expect(mockCoaApiPayload.accounts.length).toBeGreaterThan(0);
+            expect(mockCoaApiPayload.currencyCode).toBe("USD");
+            expect(mockCoaApiPayload.totalsByType.ASSET).toBeGreaterThan(0);
         });
 
         it("invoices page receives defaultCurrency prop", () => {

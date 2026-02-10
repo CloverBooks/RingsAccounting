@@ -101,7 +101,7 @@ const getSourceUrl = (sourceType: string | null, sourceId: number | null): strin
     case "invoice": return `/invoices/${sourceId}/edit/`;
     case "expense": return `/expenses/${sourceId}/edit/`;
     case "banktransaction": return `/banking/transactions/${sourceId}/`;
-    case "receipt": return `/receipts/`;
+    case "receipt": return `/companion`;
     default: return null;
   }
 };
