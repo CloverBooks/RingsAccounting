@@ -1,55 +1,13 @@
-# Python
 .venv/
-venv/
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
-
-# Databases
 *.sqlite3
-*.db
-backend/cloverbooks.db
-backend/test.db
-
-# Environment & Secrets
 .env
-.env.local
-.env.*.local
-
-# OS
 .DS_Store
-Thumbs.db
-
-# Node
 node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Build outputs
 staticfiles/
 media/
-dist/
+
+# Vite build outputs
 apps/customer/dist/
 apps/admin/dist/
-apps/api/dist/
-
-# Rust
-target/
-**/target/
-Cargo.lock
-*.pdb
-
-# Temporary files
-.tmp/
-*.log
-*.err.log
-*.timestamp-*.mjs
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~

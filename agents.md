@@ -91,7 +91,3 @@ Agent output shape: `AgentOutput { signals, recommendations, evidence_refs, work
 - Replace agentic receipts/invoices stubs with a real extraction pipeline or bridge the legacy flow.
 - Expand CAE to additional surfaces (receipts, invoices, books review) and unify Control Tower data sources.
 - Add regression evaluation fixtures for agent outputs and rationale cards.
-
-## Bugs
-
-- add regression test when it fits.

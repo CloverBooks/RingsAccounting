@@ -11,8 +11,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use sqlx::{Sqlite, SqlitePool};
-use std::collections::HashMap;
+use sqlx::SqlitePool;
 
 use crate::AppState;
 use crate::routes::auth::extract_claims_from_header;
@@ -787,13 +786,9 @@ pub async fn list_products(
     .await
     .unwrap_or_else(|_| "CAD".to_string());
     
-    let kind_filter = params.kind.unwrap_or_else(|| "all".to_string()).to_lowercase();
-    let status_filter = params.status.unwrap_or_else(|| "active".to_string()).to_lowercase();
-    let query = params.q.unwrap_or_default().to_lowercase();
-
     // Try to get products from core_item table
-    let items = sqlx::query_as::<_, (i64, String, Option<String>, Option<String>, Option<f64>, bool, Option<String>, Option<i64>)>(
-        "SELECT id, name, sku, description, price, is_active, kind, track_inventory FROM core_item
+    let items = sqlx::query_as::<_, (i64, String, Option<String>, Option<String>, Option<f64>, bool)>(
+        "SELECT id, name, sku, description, price, is_active FROM core_item
          WHERE business_id = ?
          ORDER BY name"
     )
@@ -801,72 +796,35 @@ pub async fn list_products(
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
-
-    let mut product_list: Vec<serde_json::Value> = Vec::new();
-    let mut active_total = 0usize;
-    let mut active_product = 0usize;
-    let mut active_service = 0usize;
-    let mut active_price_sum = 0.0f64;
-
-    for (id, name, sku, description, price, is_active, kind, track_inventory) in items {
-        let kind_value = kind.unwrap_or_else(|| "product".to_string()).to_lowercase();
-        let status_value = if is_active { "active" } else { "archived" };
-
-        if is_active {
-            active_total += 1;
-            if kind_value == "service" {
-                active_service += 1;
-            } else {
-                active_product += 1;
-            }
-            active_price_sum += price.unwrap_or(0.0);
-        }
-
-        if kind_filter != "all" && kind_filter != kind_value {
-            continue;
-        }
-        if status_filter != "all" && status_filter != status_value {
-            continue;
-        }
-        if !query.is_empty() {
-            let hay = format!("{} {}", name.to_lowercase(), sku.clone().unwrap_or_default().to_lowercase());
-            if !hay.contains(&query) {
-                continue;
-            }
-        }
-
-        let item_type = if kind_value == "service" { "SERVICE" } else { "PRODUCT" };
-        product_list.push(serde_json::json!({
-            "id": id,
-            "name": name,
-            "code": sku.clone().unwrap_or_else(|| format!("ITEM-{}", id)),
-            "sku": sku.unwrap_or_default(),
-            "kind": kind_value,
-            "status": status_value,
-            "type": item_type,
-            "price": price.unwrap_or(0.0),
-            "description": description,
-            "track_inventory": track_inventory.unwrap_or(0) == 1,
-            "usage_count": 0,
-            "income_account_label": null,
-            "expense_account_label": null,
-            "category": null
-        }));
-    }
-
-    let avg_price = if active_total > 0 {
-        active_price_sum / active_total as f64
-    } else {
-        0.0
-    };
+    
+    let product_list: Vec<serde_json::Value> = items
+        .into_iter()
+        .map(|(id, name, sku, description, price, is_active)| {
+            serde_json::json!({
+                "id": id,
+                "name": name,
+                "code": sku.clone().unwrap_or_else(|| format!("ITEM-{}", id)),
+                "sku": sku.unwrap_or_default(),
+                "kind": "product",
+                "status": if is_active { "active" } else { "archived" },
+                "type": "PRODUCT",
+                "price": price.unwrap_or(0.0),
+                "description": description,
+                "usage_count": 0
+            })
+        })
+        .collect();
+    
+    let active_count = product_list.iter().filter(|p| p["status"] == "active").count();
+    let product_count = product_list.len();
     
     (StatusCode::OK, Json(serde_json::json!({
         "items": product_list,
         "stats": {
-            "active_count": active_total,
-            "product_count": active_product,
-            "service_count": active_service,
-            "avg_price": avg_price
+            "active_count": active_count,
+            "product_count": product_count,
+            "service_count": 0,
+            "avg_price": 0
         },
         "currency": currency
     })))
@@ -891,7 +849,6 @@ pub struct CreateProductRequest {
     pub price: Option<f64>,
     pub description: Option<String>,
     pub kind: Option<String>, // "product" or "service"
-    pub track_inventory: Option<bool>,
 }
 
 /// POST /api/products/create/
@@ -903,123 +860,31 @@ pub async fn create_product(
     let business_id = 1i64;
     
     tracing::info!("Creating product for business_id={}: {:?}", business_id, body.name);
-
-    if body.name.trim().is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
-            "ok": false,
-            "error": "Name is required"
-        })));
-    }
-
-    let kind = body.kind.unwrap_or_else(|| "product".to_string()).to_lowercase();
-    if kind != "product" && kind != "service" {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
-            "ok": false,
-            "error": "Kind must be product or service"
-        })));
-    }
-    let mut track_inventory = body.track_inventory.unwrap_or(false);
-    if kind == "service" {
-        track_inventory = false;
-    }
     
     // Generate SKU if not provided
-    let mut sku = body.sku.unwrap_or_else(|| {
+    let sku = body.sku.unwrap_or_else(|| {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
         format!("ITEM-{}", timestamp)
     });
-
-    // Ensure SKU uniqueness within business
-    for suffix in 0..5 {
-        let exists: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM core_item WHERE business_id = ? AND sku = ?"
-        )
-        .bind(business_id)
-        .bind(&sku)
-        .fetch_one(&state.db)
-        .await
-        .unwrap_or(0);
-        if exists == 0 {
-            break;
-        }
-        sku = format!("{}-{}", sku, suffix + 1);
-    }
     
-    let mut tx = match state.db.begin().await {
-        Ok(tx) => tx,
-        Err(e) => {
-            tracing::error!("Failed to start transaction: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
-                "ok": false,
-                "error": "Failed to start transaction"
-            })));
-        }
-    };
-
-    let result = sqlx::query::<Sqlite>(
-        "INSERT INTO core_item (business_id, name, sku, description, price, is_active, kind, track_inventory, created_at, updated_at) 
-         VALUES (?, ?, ?, ?, ?, 1, ?, ?, datetime('now'), datetime('now'))"
+    let result = sqlx::query(
+        "INSERT INTO core_item (business_id, name, sku, description, price, is_active, created_at, updated_at) 
+         VALUES (?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))"
     )
     .bind(business_id)
-    .bind(body.name.trim())
+    .bind(&body.name)
     .bind(&sku)
     .bind(&body.description)
     .bind(body.price.unwrap_or(0.0))
-    .bind(&kind)
-    .bind(if track_inventory { 1 } else { 0 })
-    .execute(&mut *tx)
+    .execute(&state.db)
     .await;
     
     match result {
         Ok(r) => {
             let item_id = r.last_insert_rowid();
-
-            if track_inventory {
-                let existing_location_id: Option<i64> = sqlx::query_scalar::<Sqlite, i64>(
-                    "SELECT id FROM inv_location WHERE business_id = ? AND is_active = 1 ORDER BY id LIMIT 1"
-                )
-                .bind(business_id)
-                .fetch_optional(&mut *tx)
-                .await
-                .unwrap_or(None);
-
-                let location_id: i64 = if let Some(id) = existing_location_id {
-                    id
-                } else {
-                    let inserted = sqlx::query::<Sqlite>(
-                        "INSERT INTO inv_location (business_id, name, code, is_active, created_at, updated_at)
-                         VALUES (?, 'Main Warehouse', 'MAIN', 1, datetime('now'), datetime('now'))"
-                    )
-                    .bind(business_id)
-                    .execute(&mut *tx)
-                    .await
-                    .expect("insert default location");
-                    inserted.last_insert_rowid()
-                };
-
-                let _ = sqlx::query::<Sqlite>(
-                    "INSERT INTO inv_balance (business_id, item_id, location_id, qty_on_hand, updated_at)
-                     VALUES (?, ?, ?, 0, datetime('now'))
-                     ON CONFLICT(business_id, item_id, location_id) DO NOTHING"
-                )
-                .bind(business_id)
-                .bind(item_id)
-                .bind(location_id)
-                .execute(&mut *tx)
-                .await;
-            }
-
-            if let Err(e) = tx.commit().await {
-                tracing::error!("Failed to commit product insert: {:?}", e);
-                return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
-                    "ok": false,
-                    "error": "Failed to commit product"
-                })));
-            }
-
             tracing::info!("Created product id={} for business_id={}", item_id, business_id);
             (StatusCode::CREATED, Json(serde_json::json!({
                 "ok": true,
@@ -1147,75 +1012,6 @@ pub struct CategoryListQuery {
     pub parent_id: Option<i64>,
     #[serde(rename = "type")]
     pub category_type: Option<String>,
-    pub archived: Option<String>,
-    pub q: Option<String>,
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct AccountCategoryRow {
-    id: i64,
-    name: String,
-    code: Option<String>,
-    account_number: Option<String>,
-    parent_id: Option<i64>,
-    account_type: Option<String>,
-    is_active: bool,
-    description: Option<String>,
-    detail_type: Option<String>,
-    classification: Option<String>,
-    system_account_kind: Option<String>,
-    is_favorite: bool,
-}
-
-async fn load_account_categories(
-    pool: &SqlitePool,
-    business_id: i64,
-) -> Vec<AccountCategoryRow> {
-    sqlx::query_as::<_, AccountCategoryRow>(
-        "SELECT id,
-                name,
-                code,
-                account_number,
-                parent_id,
-                type AS account_type,
-                is_active,
-                description,
-                detail_type,
-                classification,
-                system_account_kind,
-                is_favorite
-         FROM accounts
-         WHERE business_id = ?
-         ORDER BY type, code, name",
-    )
-    .bind(business_id)
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default()
-}
-
-fn normalize_account_type(raw: Option<&str>) -> String {
-    raw.unwrap_or("EXPENSE").trim().to_uppercase()
-}
-
-fn default_detail_type_for(account_type: &str) -> &'static str {
-    match account_type {
-        "ASSET" => "Other Current Assets",
-        "LIABILITY" => "Other Current Liabilities",
-        "EQUITY" => "Owner's Equity",
-        "INCOME" => "Service/Fee Income",
-        "EXPENSE" => "Office/General Administrative Expenses",
-        _ => "Other",
-    }
-}
-
-fn effective_detail_type(row: &AccountCategoryRow, normalized_type: &str) -> String {
-    row.detail_type
-        .as_deref()
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| default_detail_type_for(normalized_type))
-        .to_string()
 }
 
 /// GET /api/categories/list/
@@ -1224,215 +1020,40 @@ pub async fn list_categories(
     Query(params): Query<CategoryListQuery>,
 ) -> impl IntoResponse {
     let business_id = get_business_id_with_warning(params.business_id, "list_invoices");
-
-    let currency: String = sqlx::query_scalar(
-        "SELECT currency FROM core_business WHERE id = ?",
-    )
-    .bind(business_id)
-    .fetch_one(&state.db)
-    .await
-    .unwrap_or_else(|_| "CAD".to_string());
-
-    let requested_type = params
-        .category_type
-        .as_deref()
-        .map(|raw| raw.trim().to_uppercase());
-    let requested_parent_id = params.parent_id;
-    let archived_filter = params
-        .archived
-        .as_deref()
-        .map(|v| v.eq_ignore_ascii_case("true"));
-    let search = params.q.as_deref().map(|v| v.to_lowercase());
-
-    let rows = load_account_categories(&state.db, business_id).await;
-    let active_count = rows.iter().filter(|row| row.is_active).count();
-    let income_categories = rows
-        .iter()
-        .filter(|row| row.is_active && row.account_type.as_deref().unwrap_or("EXPENSE").eq_ignore_ascii_case("INCOME"))
-        .count();
-    let expense_categories = rows
-        .iter()
-        .filter(|row| row.is_active && row.account_type.as_deref().unwrap_or("EXPENSE").eq_ignore_ascii_case("EXPENSE"))
-        .count();
-
-    let category_list: Vec<serde_json::Value> = rows
-        .into_iter()
-        .filter_map(|row| {
-            let normalized_type = normalize_account_type(row.account_type.as_deref());
-            let is_archived = !row.is_active;
-            let detail_type = effective_detail_type(&row, &normalized_type);
-
-            if let Some(parent_id) = requested_parent_id {
-                if row.parent_id != Some(parent_id) {
-                    return None;
-                }
-            }
-
-            if let Some(ref t) = requested_type {
-                if normalized_type != *t {
-                    return None;
-                }
-            }
-
-            if let Some(only_archived) = archived_filter {
-                if only_archived != is_archived {
-                    return None;
-                }
-            } else if is_archived {
-                // Preserve legacy UX default: active rows only unless archived=true is supplied.
-                return None;
-            }
-
-            if let Some(ref q) = search {
-                let code = row.code.clone().unwrap_or_default();
-                let description = row.description.clone().unwrap_or_default();
-                let haystack = format!(
-                    "{} {} {} {}",
-                    row.name.to_lowercase(),
-                    code.to_lowercase(),
-                    description.to_lowercase(),
-                    detail_type.to_lowercase()
-                );
-                if !haystack.contains(q) {
-                    return None;
-                }
-            }
-
-            let code = row.code.clone().unwrap_or_default();
-            let account_number = row.account_number.clone().unwrap_or_default();
-            let account_label = if code.is_empty() {
-                row.name.clone()
-            } else {
-                format!("{} - {}", code, row.name)
-            };
-
-            Some(serde_json::json!({
-                "id": row.id,
-                "name": row.name,
-                "code": code,
-                "description": row.description.unwrap_or_default(),
-                "parent_id": row.parent_id,
-                "account_type": normalized_type,
-                "is_active": row.is_active,
-                "is_archived": is_archived,
-                "detail_type": detail_type,
-                "classification": row.classification.unwrap_or_default(),
-                "system_account_kind": row.system_account_kind,
-                "is_favorite": row.is_favorite,
-                "account_number": account_number,
-                "type": normalized_type,
-                "account_label": account_label,
-                "account_id": row.id,
-                "transaction_count": 0,
-                "current_month_total": "0.00",
-                "ytd_total": "0.00",
-                "last_used_at": null
-            }))
-        })
-        .collect();
-    let total = category_list.len();
-
-    (StatusCode::OK, Json(serde_json::json!({
-        "categories": category_list,
-        "total": total,
-        "stats": {
-            "active_count": active_count,
-            "income_categories": income_categories,
-            "expense_categories": expense_categories,
-            "uncategorized_count": 0,
-            "uncategorized_ytd": "0.00"
-        },
-        "currency": currency
-    })))
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ChartOfAccountsQuery {
-    pub business_id: Option<i64>,
-}
-
-/// GET /api/chart-of-accounts/
-/// Native chart-of-accounts payload used by the React COA route.
-pub async fn list_chart_of_accounts(
-    State(state): State<AppState>,
-    Query(params): Query<ChartOfAccountsQuery>,
-) -> impl IntoResponse {
-    let business_id = get_business_id_with_warning(params.business_id, "list_chart_of_accounts");
-
-    let currency: String = sqlx::query_scalar(
-        "SELECT currency FROM core_business WHERE id = ?",
-    )
-    .bind(business_id)
-    .fetch_one(&state.db)
-    .await
-    .unwrap_or_else(|_| "CAD".to_string());
-
-    let rows = load_account_categories(&state.db, business_id).await;
-
-    let balance_rows = sqlx::query_as::<_, (i64, f64)>(
-        "SELECT jl.account_id, COALESCE(SUM(jl.debit - jl.credit), 0.0) AS balance
-         FROM core_journalline jl
-         JOIN core_journalentry je ON je.id = jl.journal_entry_id
-         WHERE je.business_id = ? AND COALESCE(je.is_void, 0) = 0
-         GROUP BY jl.account_id",
+    
+    // Try to get categories from core_category or core_account table
+    let categories = sqlx::query_as::<_, (i64, String, Option<String>, Option<i64>, Option<String>, bool)>(
+        "SELECT id, name, code, parent_id, account_type, is_active FROM core_account 
+         WHERE business_id = ?
+         ORDER BY code, name"
     )
     .bind(business_id)
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
-
-    let mut balances_by_account: HashMap<i64, f64> = HashMap::new();
-    for (account_id, balance) in balance_rows {
-        balances_by_account.insert(account_id, balance);
-    }
-
-    let mut totals_by_type: HashMap<String, f64> = HashMap::new();
-    totals_by_type.insert("ASSET".to_string(), 0.0);
-    totals_by_type.insert("LIABILITY".to_string(), 0.0);
-    totals_by_type.insert("EQUITY".to_string(), 0.0);
-    totals_by_type.insert("INCOME".to_string(), 0.0);
-    totals_by_type.insert("EXPENSE".to_string(), 0.0);
-
-    let accounts: Vec<serde_json::Value> = rows
+    
+    let category_list: Vec<serde_json::Value> = categories
         .into_iter()
-        .map(|row| {
-            let normalized_type = normalize_account_type(row.account_type.as_deref());
-            let detail_type = effective_detail_type(&row, &normalized_type);
-            let balance = *balances_by_account.get(&row.id).unwrap_or(&0.0);
-            if row.is_active {
-                let entry = totals_by_type.entry(normalized_type.clone()).or_insert(0.0);
-                *entry += balance;
-            }
+        .map(|(id, name, code, parent_id, account_type, is_active)| {
             serde_json::json!({
-                "id": row.id,
-                "code": row.code.unwrap_or_default(),
-                "name": row.name,
-                "type": normalized_type,
-                "detailType": detail_type,
-                "isActive": row.is_active,
-                "balance": balance,
-                "favorite": row.is_favorite,
-                "accountNumber": row.account_number.unwrap_or_default(),
-                "classification": row.classification.unwrap_or_default(),
-                "systemAccountKind": row.system_account_kind,
+                "id": id,
+                "name": name,
+                "code": code.unwrap_or_default(),
+                "parent_id": parent_id,
+                "account_type": account_type,
+                "is_active": is_active,
+                "type": account_type.clone().unwrap_or_else(|| "expense".to_string()),
+                "balance": "0.00"
             })
         })
         .collect();
-
-    (
-        StatusCode::OK,
-        Json(serde_json::json!({
-            "accounts": accounts,
-            "currencyCode": currency,
-            "totalsByType": {
-                "ASSET": totals_by_type.get("ASSET").copied().unwrap_or(0.0),
-                "LIABILITY": totals_by_type.get("LIABILITY").copied().unwrap_or(0.0),
-                "EQUITY": totals_by_type.get("EQUITY").copied().unwrap_or(0.0),
-                "INCOME": totals_by_type.get("INCOME").copied().unwrap_or(0.0),
-                "EXPENSE": totals_by_type.get("EXPENSE").copied().unwrap_or(0.0),
-            }
-        })),
-    )
+    
+    let total = category_list.len();
+    
+    (StatusCode::OK, Json(serde_json::json!({
+        "categories": category_list,
+        "total": total
+    })))
 }
 
 // ============================================================================

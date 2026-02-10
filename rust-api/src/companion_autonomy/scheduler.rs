@@ -514,7 +514,6 @@ fn agent_from_str(name: &str) -> Option<AgentName> {
 mod tests {
     use super::*;
     use crate::companion_autonomy::schema;
-    use sqlx::sqlite::SqlitePoolOptions;
 
     async fn seed_core_bank_data(pool: &SqlitePool, tenant_id: i64) {
         sqlx::query(
@@ -565,11 +564,7 @@ mod tests {
 
     #[tokio::test]
     async fn tick_enqueues_jobs() {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         schema::run_migrations(&pool).await.unwrap();
         seed_core_bank_data(&pool, 1).await;
 
@@ -605,11 +600,7 @@ mod tests {
 
     #[tokio::test]
     async fn materialize_creates_snapshot() {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         schema::run_migrations(&pool).await.unwrap();
         seed_core_bank_data(&pool, 1).await;
         tick(
@@ -647,11 +638,7 @@ mod tests {
 
     #[tokio::test]
     async fn apply_agent_output_rolls_back_on_failure() {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         schema::run_migrations(&pool).await.unwrap();
 
         sqlx::query("DROP TABLE companion_autonomy_rationale_cards")

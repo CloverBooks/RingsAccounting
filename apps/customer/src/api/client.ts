@@ -75,45 +75,22 @@ type RequestOptions = {
 let accessToken: string | null = null;
 
 // Check localStorage for token on load (for Google OAuth)
-const canUseLocalStorage =
-  typeof localStorage !== "undefined" &&
-  typeof localStorage.getItem === "function" &&
-  typeof localStorage.setItem === "function" &&
-  typeof localStorage.removeItem === "function";
-
-const storedToken = canUseLocalStorage ? localStorage.getItem("auth_token") : null;
+const storedToken = typeof localStorage !== 'undefined' ? localStorage.getItem('auth_token') : null;
 if (storedToken) {
   accessToken = storedToken;
 }
 
 export const setAccessToken = (token: string | null) => {
   accessToken = token;
-  if (!canUseLocalStorage) return;
   if (token) {
-    localStorage.setItem("auth_token", token);
+    localStorage.setItem('auth_token', token);
   } else {
-    localStorage.removeItem("auth_token");
-    localStorage.removeItem("user");
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('user');
   }
 };
 
 export const getAccessToken = () => accessToken;
-
-/**
- * Fetch with a timeout so the UI never hangs if the backend is frozen.
- * Default: 10 seconds.
- */
-export const fetchWithTimeout = (
-  input: RequestInfo | URL,
-  init?: RequestInit,
-  timeoutMs = 10_000,
-): Promise<Response> => {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  return fetch(input, { ...init, signal: controller.signal }).finally(() =>
-    clearTimeout(timer),
-  );
-};
 
 const apiJson = async <T>(path: string, options: RequestOptions = {}): Promise<T> => {
   const method = options.method ?? "GET";
@@ -131,7 +108,7 @@ const apiJson = async <T>(path: string, options: RequestOptions = {}): Promise<T
     body = JSON.stringify(options.body);
   }
 
-  const res = await fetchWithTimeout(buildApiUrl(path), {
+  const res = await fetch(buildApiUrl(path), {
     method,
     headers,
     body,

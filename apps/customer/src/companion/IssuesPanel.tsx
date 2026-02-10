@@ -1,23 +1,53 @@
-/**
- * Issues Panel — Companion Control Tower
- *
- * Displays open issues sorted by severity with surface tags
- * and action buttons. Unified zinc design palette.
- */
-
 import React, { useMemo } from "react";
-import { ChevronRight, Loader2 } from "lucide-react";
+import { Banknote, ChevronRight, FileText, Layers, ListChecks, Loader2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
-import { cx, normalizeSurfaceKey, severityChip, surfaceMeta } from "./helpers";
-import type { Issue, SurfaceKey } from "./types";
+type SurfaceKey = "receipts" | "invoices" | "books" | "banking";
+
+type Issue = {
+  id: string;
+  surface: SurfaceKey;
+  title: string;
+  description?: string;
+  severity: "low" | "medium" | "high";
+  created_at: string;
+  target_url?: string;
+};
 
 interface IssuesPanelProps {
   issues: Issue[];
   surface?: string | null;
   loading?: boolean;
+}
+
+const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
+
+function normalizeSurfaceKey(value?: string | null): SurfaceKey | null {
+  if (!value) return null;
+  const v = value.toLowerCase();
+  if (v === "bank" || v === "banking" || v === "bank_review" || v === "bank-review") return "banking";
+  if (v === "books" || v === "book" || v === "books_review" || v === "books-review") return "books";
+  if (v === "receipts" || v === "expenses") return "receipts";
+  if (v === "invoices" || v === "revenue") return "invoices";
+  return null;
+}
+
+function severityChip(sev: "low" | "medium" | "high") {
+  if (sev === "high") return { label: "Needs attention", cls: "bg-zinc-950 text-white" };
+  if (sev === "medium") return { label: "Review recommended", cls: "bg-zinc-100 text-zinc-900 border border-zinc-200" };
+  return { label: "Ready", cls: "bg-zinc-50 text-zinc-700 border border-zinc-200" };
+}
+
+function surfaceMeta(key: SurfaceKey) {
+  const map: Record<SurfaceKey, { label: string; icon: React.ComponentType<{ className?: string }> }> = {
+    receipts: { label: "Receipts", icon: FileText },
+    invoices: { label: "Invoices", icon: Layers },
+    books: { label: "Books Review", icon: ListChecks },
+    banking: { label: "Banking", icon: Banknote },
+  };
+  return map[key];
 }
 
 export default function IssuesPanel({ issues, surface, loading = false }: IssuesPanelProps) {
@@ -34,67 +64,53 @@ export default function IssuesPanel({ issues, surface, loading = false }: Issues
   }, [filteredIssues]);
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <Loader2 className="h-5 w-5 animate-spin text-zinc-400" />
-        <span className="ml-2 text-sm text-zinc-500">Loading issues...</span>
-      </div>
-    );
+    return <PanelLoading label="Loading issues..." />;
   }
 
   return (
     <div className="space-y-4">
-      {/* Explainer */}
-      <div className="rounded-xl border border-zinc-100 bg-zinc-50/80 p-4">
-        <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">About Issues</p>
-        <p className="mt-1 text-xs text-zinc-500">
+      <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+        <div className="text-xs font-semibold text-zinc-700">What these mean</div>
+        <div className="mt-1 text-xs text-zinc-500">
           Issues are checks that may affect accuracy. They don't change your books automatically.
-        </p>
+        </div>
       </div>
 
-      {/* Empty state */}
       {!bySev.length ? (
-        <div className="rounded-xl border border-zinc-100 bg-zinc-50/60 p-8 text-center">
-          <p className="text-sm font-medium text-zinc-700">No open issues</p>
-          <p className="mt-1 text-xs text-zinc-400">Everything looks clear right now.</p>
-        </div>
+        <EmptyPanel title="No open issues" description="Everything looks clear right now." />
       ) : (
-        <div className="space-y-2">
-          {bySev.map((issue) => {
-            const chip = severityChip(issue.severity);
-            const meta = surfaceMeta(issue.surface);
+        <div className="space-y-3">
+          {bySev.map((i) => {
+            const chip = severityChip(i.severity);
+            const meta = surfaceMeta(i.surface);
             return (
-              <div key={issue.id} className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
+              <div key={i.id} className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className={cx("rounded-md px-2 py-0.5 text-[10px] font-medium", chip.cls)}>
-                        {chip.label}
-                      </span>
-                      <Badge variant="outline" className="rounded-md border-zinc-200 bg-zinc-50 text-[10px] text-zinc-600">
-                        <meta.icon className="mr-1 h-3 w-3" />
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className={cx("rounded-full px-3 py-1 text-[11px]", chip.cls)}>{chip.label}</span>
+                      <Badge variant="outline" className="rounded-full border-zinc-200 bg-white text-zinc-700">
+                        <meta.icon className="mr-1 h-3.5 w-3.5" />
                         {meta.label}
                       </Badge>
                     </div>
-                    <p className="text-sm font-medium text-zinc-800">{issue.title}</p>
-                    {issue.description && (
-                      <p className="text-xs text-zinc-500 line-clamp-2">{issue.description}</p>
-                    )}
+                    <div className="text-sm font-semibold text-zinc-950">{i.title}</div>
+                    {i.description ? <div className="text-xs text-zinc-500">{i.description}</div> : null}
                   </div>
-                  <span className="shrink-0 text-[10px] text-zinc-400">
-                    {new Date(issue.created_at).toLocaleDateString()}
-                  </span>
+                  <div className="text-[11px] text-zinc-500">{new Date(i.created_at).toLocaleString()}</div>
                 </div>
 
-                <div className="mt-3">
+                <div className="mt-4 flex gap-2">
                   <Button
-                    size="sm"
-                    className="rounded-lg bg-zinc-900 text-white hover:bg-zinc-800 text-xs"
-                    onClick={() => (window.location.href = issue.target_url || "#")}
-                    disabled={!issue.target_url}
+                    className="rounded-2xl bg-zinc-950 text-white hover:bg-zinc-900"
+                    onClick={() => (window.location.href = i.target_url || "#")}
+                    disabled={!i.target_url}
                   >
                     Open review
-                    <ChevronRight className="ml-1 h-3.5 w-3.5" />
+                    <ChevronRight className="ml-1 h-4 w-4" />
+                  </Button>
+                  <Button variant="outline" className="rounded-2xl border-zinc-200 bg-white">
+                    Mark as seen
                   </Button>
                 </div>
               </div>
@@ -102,6 +118,24 @@ export default function IssuesPanel({ issues, surface, loading = false }: Issues
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+function EmptyPanel({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-center">
+      <div className="text-sm font-semibold text-zinc-950">{title}</div>
+      <div className="mt-2 text-xs text-zinc-500">{description}</div>
+    </div>
+  );
+}
+
+function PanelLoading({ label }: { label: string }) {
+  return (
+    <div className="flex items-center justify-center py-16">
+      <Loader2 className="h-5 w-5 animate-spin text-zinc-400" />
+      <span className="ml-2 text-sm text-zinc-500">{label}</span>
     </div>
   );
 }

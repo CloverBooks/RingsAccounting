@@ -1,5 +1,4 @@
 import { ensureCsrfToken } from "../utils/csrf";
-import { buildApiUrl, getAccessToken } from "../api/client";
 
 const BASE = "/api/inventory/";
 
@@ -17,10 +16,6 @@ export type InventoryItem = {
   is_active: boolean;
   created_at: string;
   updated_at: string;
-  kind?: string;
-  track_inventory?: boolean;
-  qty_on_hand?: string;
-  last_movement_at?: string | null;
 };
 
 export type InventoryLocation = {
@@ -88,13 +83,9 @@ async function parseError(res: Response): Promise<string> {
 }
 
 async function apiGet<T>(path: string, params: Record<string, any>): Promise<T> {
-  const headers: Record<string, string> = { Accept: "application/json" };
-  const token = getAccessToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(buildApiUrl(`${BASE}${path}${buildQuery(params)}`), {
+  const res = await fetch(`${BASE}${path}${buildQuery(params)}`, {
     method: "GET",
-    credentials: "include",
-    headers,
+    credentials: "same-origin",
   });
   if (!res.ok) {
     throw new Error(await parseError(res));
@@ -104,16 +95,13 @@ async function apiGet<T>(path: string, params: Record<string, any>): Promise<T> 
 
 async function apiPost<T>(path: string, body: Record<string, any>): Promise<T> {
   const csrf = await ensureCsrfToken();
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  const token = getAccessToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  if (csrf) headers["X-CSRFToken"] = csrf;
-  const res = await fetch(buildApiUrl(`${BASE}${path}`), {
+  const res = await fetch(`${BASE}${path}`, {
     method: "POST",
-    credentials: "include",
-    headers,
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      ...(csrf ? { "X-CSRFToken": csrf } : {}),
+    },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -162,9 +150,9 @@ export async function receiveInventory(payload: {
   item_id: number;
   location_id: number;
   quantity: string;
-  unit_cost?: string;
+  unit_cost: string;
   po_reference?: string;
-}): Promise<{ ok: true; event_id: number; new_qty_on_hand: string; location_id: number }> {
+}): Promise<{ event_id: number; journal_entry_id: number }> {
   return apiPost("receive/", payload);
 }
 
@@ -174,7 +162,7 @@ export async function shipInventory(payload: {
   location_id: number;
   quantity: string;
   so_reference?: string;
-}): Promise<{ ok: true; event_id: number; new_qty_on_hand: string; location_id: number }> {
+}): Promise<{ event_id: number; journal_entry_id: number }> {
   return apiPost("ship/", payload);
 }
 
@@ -184,7 +172,7 @@ export async function adjustInventory(payload: {
   location_id: number;
   physical_qty: string;
   reason_code: string;
-}): Promise<{ ok: true; event_id: number; new_qty_on_hand: string; location_id: number } | { error: string }> {
+}): Promise<{ event_id: number; journal_entry_id: number } | { detail: string }> {
   return apiPost("adjust/", payload);
 }
 
