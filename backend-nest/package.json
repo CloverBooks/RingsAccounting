@@ -38,7 +38,7 @@
     "@opentelemetry/sdk-node": "^0.52.0",
     "@prisma/client": "^5.22.0",
     "bullmq": "^5.22.2",
-    "fastify": "5.7.3",
+    "fastify": "5.7.4",
     "ioredis": "^5.4.1",
     "nestjs-pino": "^4.1.0",
     "pino": "^9.5.0",
