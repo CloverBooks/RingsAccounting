@@ -20,7 +20,9 @@ import { ApprovalsSection } from "./ApprovalsSection";
 import { OverviewSection } from "./OverviewSection";
 import { EmployeesSection } from "./EmployeesSection";
 import { AutonomySection } from "./AutonomySection";
+import { AiOpsSection } from "./AiOpsSection";
 import { FeatureFlagsSection } from "./FeatureFlagsSection";
+import { RuntimeSettingsSection } from "./RuntimeSettingsSection";
 import { Card, SimpleTable, StatusPill, cn } from "./AdminUI";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -39,7 +41,9 @@ type NavSectionId =
   | "invoices"
   | "expenses"
   | "autonomy"
+  | "ai-monitoring"
   | "feature-flags"
+  | "settings"
   | "logs";
 
 interface NavItem {
@@ -75,7 +79,9 @@ const navGroups: { label: string; items: NavItem[] }[] = [
     label: "Intelligence & Ops",
     items: [
       { id: "autonomy", label: "Autonomy Engine", description: "Queues, breakers, and modes" },
+      { id: "ai-monitoring", label: "AI monitoring", description: "Engine telemetry & runtime state" },
       { id: "feature-flags", label: "Feature flags", description: "Rollouts & experiments" },
+      { id: "settings", label: "Settings", description: "Runtime config & auth posture" },
     ],
   },
 ];
@@ -558,8 +564,12 @@ export const AdminApp: React.FC = () => {
         return <ExpensesSection />;
       case "autonomy":
         return <AutonomySection />;
+      case "ai-monitoring":
+        return <AiOpsSection />;
       case "feature-flags":
         return <FeatureFlagsSection role={role} />;
+      case "settings":
+        return <RuntimeSettingsSection />;
       case "logs":
         return <LogsSection />;
       default:
@@ -573,8 +583,6 @@ export const AdminApp: React.FC = () => {
     const aliases: Record<string, NavSectionId> = {
       "control-tower": "overview",
       audit: "logs",
-      "ai-monitoring": "overview",
-      settings: "overview",
     };
     const asSection = aliases[segment] || (segment === "" ? "overview" : segment);
     const valid = navGroups.flatMap((g) => g.items).some((i) => i.id === asSection);
