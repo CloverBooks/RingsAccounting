@@ -330,6 +330,92 @@ export type AutonomyQueuesResponse = {
 
 export const fetchOverviewMetrics = () => apiFetch<OverviewMetrics>("overview-metrics/");
 
+export type RuntimeSettingsSnapshot = {
+  generated_at: string;
+  environment: {
+    name: string;
+    cors_allowed_origins: string[];
+    admin_password_reset_base_url: string | null;
+    google_oauth_enabled: boolean;
+    google_redirect_uri: string | null;
+    jwt_secret_configured: boolean;
+  };
+  autonomy: {
+    llm_mode: string;
+    tool_mode: string;
+    approval_amount_threshold: number;
+    velocity_threshold: number;
+    snapshot_stale_minutes: number;
+    budgets: {
+      tokens_per_day: number;
+      tool_calls_per_day: number;
+      runs_per_day: number;
+    };
+    allowlists: {
+      domains: string[];
+      models: string[];
+    };
+  };
+  build: {
+    service: string;
+    rust_env: string | null;
+    git_sha: string | null;
+  };
+};
+
+export const fetchRuntimeSettings = () =>
+  apiFetch<RuntimeSettingsSnapshot>("runtime-settings/");
+
+export type AiOpsSnapshot = {
+  generated_at: string;
+  health: {
+    open_ai_flags: number;
+    breaker_events_last_day: number;
+    tool_calls_last_day: number;
+    agent_runs_last_day: number;
+    policy_tenant_count: number;
+    last_tick_at: string | null;
+    last_materialized_at: string | null;
+    api_error_rate_1h_pct: number;
+    api_p95_response_ms_1h: number;
+  };
+  policy: {
+    llm_mode: string;
+    tool_mode: string;
+    approval_amount_threshold: number;
+    velocity_threshold: number;
+    snapshot_stale_minutes: number;
+    budgets: {
+      tokens_per_day: number;
+      tool_calls_per_day: number;
+      runs_per_day: number;
+    };
+    allowlists: {
+      domains: string[];
+      models: string[];
+    };
+  };
+  modes: Array<{
+    mode: string;
+    tenant_count: number;
+  }>;
+  systems: Array<{
+    id: string;
+    name: string;
+    status: string;
+    detail: string;
+  }>;
+  recent_activity: Array<{
+    time: string;
+    tenant_id: number;
+    actor: string;
+    action: string;
+    target: string;
+  }>;
+};
+
+export const fetchAiOps = () => apiFetch<AiOpsSnapshot>("ai-ops/");
+
 export const fetchUsers = (params?: Record<string, string | number | undefined | null>) =>
   apiFetch<Paginated<User>>("users/", { params });
 

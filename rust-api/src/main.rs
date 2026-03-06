@@ -124,6 +124,11 @@ async fn main() {
             "/api/admin/operations-overview/",
             get(routes::admin::operations_overview),
         )
+        .route(
+            "/api/admin/runtime-settings/",
+            get(routes::admin::runtime_settings),
+        )
+        .route("/api/admin/ai-ops/", get(routes::admin::ai_ops))
         .route("/api/admin/users/", get(routes::admin::list_users))
         .route(
             "/api/admin/users/:id/",
