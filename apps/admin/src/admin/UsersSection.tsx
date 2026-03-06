@@ -244,7 +244,7 @@ export const UsersSection: React.FC<{ roleLevel?: number }> = ({ roleLevel = 1 }
               <ScrollArea className="max-h-[520px]">
                 <div className="divide-y divide-slate-100">
                   {loading && (
-                    <div className="flex items-center justify-center py-10 text-xs text-slate-500">Loading users…</div>
+                    <div className="flex items-center justify-center py-10 text-xs text-slate-500">Loading users...</div>
                   )}
                   {error && !loading && (
                     <div className="flex flex-col items-center justify-center py-10 text-xs text-rose-500 gap-2">
@@ -693,7 +693,7 @@ const UserDetailsPanel: React.FC<UserDetailsPanelProps> = ({ user, onUpdate, rol
                 )}
                 {(isStaff || isSuperuser) && (
                   <Badge className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
-                    🛡️ Admin console
+                    Admin console
                   </Badge>
                 )}
               </div>
@@ -707,7 +707,7 @@ const UserDetailsPanel: React.FC<UserDetailsPanelProps> = ({ user, onUpdate, rol
               onClick={handleImpersonate}
               disabled={impersonateLoading || !canEdit}
             >
-              {impersonateLoading ? "Starting…" : "🔑 Impersonate"}
+              {impersonateLoading ? "Starting..." : "Impersonate"}
             </Button>
             <span className="text-[10px] text-slate-400">
               Last active: {formatDate(user.last_login)}
@@ -715,7 +715,7 @@ const UserDetailsPanel: React.FC<UserDetailsPanelProps> = ({ user, onUpdate, rol
           </div>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2 rounded-2xl bg-slate-50 px-3 py-2 text-[10px] text-slate-600">
-          <span className="text-emerald-500">📊</span>
+          <span className="text-emerald-500">Stats</span>
           <span>
             Joined {formatDate(user.date_joined)}
           </span>
@@ -812,7 +812,7 @@ const UserDetailsPanel: React.FC<UserDetailsPanelProps> = ({ user, onUpdate, rol
                 <div className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2.5">
                   <div>
                     <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-800">
-                      🔑 Active account
+                      Active account
                     </div>
                     <p className="mt-0.5 text-[10px] text-slate-500">
                       Suspend access without deleting history.
@@ -845,7 +845,7 @@ const UserDetailsPanel: React.FC<UserDetailsPanelProps> = ({ user, onUpdate, rol
                     onClick={handleResetPassword}
                     disabled={resetLoading || !canEdit}
                   >
-                    {resetLoading ? "Creating…" : "🔑 Create reset link"}
+                    {resetLoading ? "Creating..." : "Create reset link"}
                   </Button>
                   <Button
                     type="button"
@@ -886,7 +886,7 @@ const UserDetailsPanel: React.FC<UserDetailsPanelProps> = ({ user, onUpdate, rol
                       <SelectItem value="ops">Ops</SelectItem>
                       <SelectItem value="engineering">Engineering</SelectItem>
                       <SelectItem value="superadmin">Superadmin</SelectItem>
-                      <SelectItem value="primary_admin">👑 Primary Admin</SelectItem>
+                      <SelectItem value="primary_admin">Primary Admin</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -899,10 +899,10 @@ const UserDetailsPanel: React.FC<UserDetailsPanelProps> = ({ user, onUpdate, rol
                     </Badge>
                   </div>
                   <ul className="space-y-1.5 text-[10px] text-slate-500">
-                    <li>• Banking: {adminRole === "primary_admin" ? "🔐 Full control" : adminRole === "ops" || adminRole === "superadmin" ? "Full visibility" : "Limited"}</li>
-                    <li>• Ledger: {adminRole === "primary_admin" || adminRole === "superadmin" ? "Global access" : "Scoped"}</li>
-                    <li>• Tax Guardian: {adminRole === "primary_admin" || adminRole === "support" || adminRole === "superadmin" ? "Can inspect" : "View via owner"}</li>
-                    <li>• Admin Panel: {adminRole === "primary_admin" ? "🛡️ Ultimate authority" : adminRole === "superadmin" ? "Full access" : "Limited"}</li>
+                    <li>- Banking: {adminRole === "primary_admin" ? "Full control" : adminRole === "ops" || adminRole === "superadmin" ? "Full visibility" : "Limited"}</li>
+                    <li>- Ledger: {adminRole === "primary_admin" || adminRole === "superadmin" ? "Global access" : "Scoped"}</li>
+                    <li>- Tax Guardian: {adminRole === "primary_admin" || adminRole === "support" || adminRole === "superadmin" ? "Can inspect" : "View via owner"}</li>
+                    <li>- Admin Panel: {adminRole === "primary_admin" ? "Ultimate authority" : adminRole === "superadmin" ? "Full access" : "Limited"}</li>
                   </ul>
                 </div>
               </TabsContent>
@@ -956,7 +956,7 @@ const UserDetailsPanel: React.FC<UserDetailsPanelProps> = ({ user, onUpdate, rol
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle className="flex items-center gap-1.5 text-xs font-semibold text-slate-50">
-                      ✨ AI context
+                      AI context
                     </CardTitle>
                     <CardDescription className="text-[10px] text-slate-300">
                       High-level risk & usage hints for this user.
@@ -965,9 +965,9 @@ const UserDetailsPanel: React.FC<UserDetailsPanelProps> = ({ user, onUpdate, rol
                 </div>
               </CardHeader>
               <CardContent className="pt-1 text-[10px] text-slate-100/90">
-                <p>• No unusual login patterns detected in the last 30 days.</p>
-                <p className="mt-1">• Reconciled high volume of bank transactions across {user.workspace_count ?? 0} workspaces.</p>
-                <p className="mt-1">• Good candidate for early access to advanced reconciliation and tax guardian tools.</p>
+                <p>- No unusual login patterns detected in the last 30 days.</p>
+                <p className="mt-1">- Reconciled high volume of bank transactions across {user.workspace_count ?? 0} workspaces.</p>
+                <p className="mt-1">- Good candidate for early access to advanced reconciliation and tax guardian tools.</p>
               </CardContent>
             </Card>
 
@@ -979,7 +979,7 @@ const UserDetailsPanel: React.FC<UserDetailsPanelProps> = ({ user, onUpdate, rol
                 onClick={handleSave}
                 disabled={saving || !canEdit}
               >
-                {saving ? "Saving…" : "Save changes"}
+                {saving ? "Saving..." : "Save changes"}
               </Button>
               <Button
                 type="button"
