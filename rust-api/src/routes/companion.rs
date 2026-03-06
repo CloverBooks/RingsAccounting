@@ -15,37 +15,46 @@ use crate::AppState;
 use crate::companion_autonomy::store as autonomy_store;
 use crate::companion_autonomy::models::{ActionRecommendation, AiSettingsRow, BusinessPolicyRow, WorkItem};
 use crate::routes::auth::extract_claims_from_header;
+use crate::routes::control_plane_errors::{control_plane_error_from_headers};
+
+const COMPANION_DOMAIN: &str = "COMPANION";
 
 // ============================================================================
 // Security Helper
 // ============================================================================
 
+fn companion_error_from_headers(
+    status: StatusCode,
+    headers: &HeaderMap,
+    message: &str,
+) -> (StatusCode, Json<Value>) {
+    control_plane_error_from_headers(status, COMPANION_DOMAIN, headers, message)
+}
+
 fn require_business_id(headers: &HeaderMap) -> Result<i64, (StatusCode, Json<Value>)> {
     extract_claims_from_header(headers)
         .ok()
         .and_then(|claims| claims.business_id)
-        .ok_or_else(|| (StatusCode::UNAUTHORIZED, Json(json!({ "ok": false, "error": "unauthorized" }))))
+        .ok_or_else(|| companion_error_from_headers(StatusCode::UNAUTHORIZED, headers, "unauthorized"))
 }
 
 fn require_user_id(headers: &HeaderMap) -> Result<i64, (StatusCode, Json<Value>)> {
     extract_claims_from_header(headers)
         .ok()
         .and_then(|claims| claims.sub.parse::<i64>().ok())
-        .ok_or_else(|| (StatusCode::UNAUTHORIZED, Json(json!({ "ok": false, "error": "unauthorized" }))))
+        .ok_or_else(|| companion_error_from_headers(StatusCode::UNAUTHORIZED, headers, "unauthorized"))
 }
 
-fn require_workspace_id(workspace_id: Option<i64>) -> Result<i64, (StatusCode, Json<Value>)> {
+fn require_workspace_id(headers: &HeaderMap, workspace_id: Option<i64>) -> Result<i64, (StatusCode, Json<Value>)> {
     workspace_id.ok_or_else(|| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "ok": false, "error": "workspace_id required" })),
-        )
+        companion_error_from_headers(StatusCode::BAD_REQUEST, headers, "workspace_id required")
     })
 }
 
 async fn ensure_apply_enabled(
     pool: &sqlx::SqlitePool,
     business_id: i64,
+    headers: &HeaderMap,
 ) -> Result<(), (StatusCode, Json<Value>)> {
     let global_enabled = autonomy_store::business_ai_enabled(pool, business_id)
         .await
@@ -53,9 +62,10 @@ async fn ensure_apply_enabled(
         .flatten()
         .unwrap_or(false);
     if !global_enabled {
-        return Err((
+        return Err(companion_error_from_headers(
             StatusCode::FORBIDDEN,
-            Json(json!({ "ok": false, "error": "ai companion disabled" })),
+            headers,
+            "ai companion disabled",
         ));
     }
 
@@ -66,17 +76,19 @@ async fn ensure_apply_enabled(
     let settings = match settings {
         Some(settings) => settings,
         None => {
-            return Err((
+            return Err(companion_error_from_headers(
                 StatusCode::FORBIDDEN,
-                Json(json!({ "ok": false, "error": "ai settings not configured" })),
+                headers,
+                "ai settings not configured",
             ));
         }
     };
 
     if !settings.ai_enabled || settings.kill_switch || settings.ai_mode == "shadow_only" {
-        return Err((
+        return Err(companion_error_from_headers(
             StatusCode::FORBIDDEN,
-            Json(json!({ "ok": false, "error": "ai apply disabled" })),
+            headers,
+            "ai apply disabled",
         ));
     }
 
@@ -326,12 +338,7 @@ pub async fn dismiss_issue(
                 "message": "Issue dismissed"
             })))
         }
-        _ => {
-            (StatusCode::NOT_FOUND, Json(serde_json::json!({
-                "ok": false,
-                "error": "Issue not found"
-            })))
-        }
+        _ => companion_error_from_headers(StatusCode::NOT_FOUND, &headers, "issue not found"),
     }
 }
 
@@ -370,12 +377,7 @@ pub async fn snooze_issue(
                 "message": "Issue snoozed"
             })))
         }
-        _ => {
-            (StatusCode::NOT_FOUND, Json(serde_json::json!({
-                "ok": false,
-                "error": "Issue not found"
-            })))
-        }
+        _ => companion_error_from_headers(StatusCode::NOT_FOUND, &headers, "issue not found"),
     }
 }
 
@@ -414,12 +416,7 @@ pub async fn resolve_issue(
                 "message": "Issue resolved"
             })))
         }
-        _ => {
-            (StatusCode::NOT_FOUND, Json(serde_json::json!({
-                "ok": false,
-                "error": "Issue not found"
-            })))
-        }
+        _ => companion_error_from_headers(StatusCode::NOT_FOUND, &headers, "issue not found"),
     }
 }
 
@@ -539,12 +536,7 @@ pub async fn approve_audit(
                 "message": "Audit approved"
             })))
         }
-        _ => {
-            (StatusCode::NOT_FOUND, Json(serde_json::json!({
-                "ok": false,
-                "error": "Audit not found"
-            })))
-        }
+        _ => companion_error_from_headers(StatusCode::NOT_FOUND, &headers, "audit not found"),
     }
 }
 
@@ -583,12 +575,7 @@ pub async fn reject_audit(
                 "message": "Audit rejected"
             })))
         }
-        _ => {
-            (StatusCode::NOT_FOUND, Json(serde_json::json!({
-                "ok": false,
-                "error": "Audit not found"
-            })))
-        }
+        _ => companion_error_from_headers(StatusCode::NOT_FOUND, &headers, "audit not found"),
     }
 }
 
@@ -891,28 +878,13 @@ pub async fn get_ai_settings_v2(
 
     let global_enabled = match autonomy_store::business_ai_enabled(&state.db, business_id).await {
         Ok(Some(value)) => value,
-        Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({ "ok": false, "error": "business not found" })),
-            );
-        }
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "ok": false, "error": "failed to load business" })),
-            );
-        }
+        Ok(None) => return companion_error_from_headers(StatusCode::NOT_FOUND, &headers, "business not found"),
+        Err(_) => return companion_error_from_headers(StatusCode::INTERNAL_SERVER_ERROR, &headers, "failed to load business"),
     };
 
     let settings = match ensure_ai_settings(&state.db, business_id).await {
         Ok(settings) => settings,
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "ok": false, "error": "failed to load settings" })),
-            );
-        }
+        Err(_) => return companion_error_from_headers(StatusCode::INTERNAL_SERVER_ERROR, &headers, "failed to load settings"),
     };
 
     (StatusCode::OK, Json(ai_settings_payload(global_enabled, &settings)))
@@ -939,12 +911,7 @@ pub async fn patch_ai_settings_v2(
 
     let current = match ensure_ai_settings(&state.db, business_id).await {
         Ok(settings) => settings,
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "ok": false, "error": "failed to load settings" })),
-            );
-        }
+        Err(_) => return companion_error_from_headers(StatusCode::INTERNAL_SERVER_ERROR, &headers, "failed to load settings"),
     };
 
     let ai_enabled = patch.ai_enabled.unwrap_or(current.ai_enabled);
@@ -977,12 +944,7 @@ pub async fn patch_ai_settings_v2(
     .await
     {
         Ok(settings) => settings,
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "ok": false, "error": "failed to update settings" })),
-            );
-        }
+        Err(_) => return companion_error_from_headers(StatusCode::INTERNAL_SERVER_ERROR, &headers, "failed to update settings"),
     };
 
     (StatusCode::OK, Json(ai_settings_payload(global_enabled, &updated)))
@@ -1000,12 +962,7 @@ pub async fn get_business_policy_v2(
 
     let policy = match ensure_business_policy(&state.db, business_id).await {
         Ok(policy) => policy,
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "ok": false, "error": "failed to load policy" })),
-            );
-        }
+        Err(_) => return companion_error_from_headers(StatusCode::INTERNAL_SERVER_ERROR, &headers, "failed to load policy"),
     };
 
     (StatusCode::OK, Json(business_policy_payload(&policy)))
@@ -1024,12 +981,7 @@ pub async fn patch_business_policy_v2(
 
     let current = match ensure_business_policy(&state.db, business_id).await {
         Ok(policy) => policy,
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "ok": false, "error": "failed to load policy" })),
-            );
-        }
+        Err(_) => return companion_error_from_headers(StatusCode::INTERNAL_SERVER_ERROR, &headers, "failed to load policy"),
     };
 
     let materiality_threshold = patch
@@ -1061,12 +1013,7 @@ pub async fn patch_business_policy_v2(
     .await
     {
         Ok(policy) => policy,
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "ok": false, "error": "failed to update policy" })),
-            );
-        }
+        Err(_) => return companion_error_from_headers(StatusCode::INTERNAL_SERVER_ERROR, &headers, "failed to update policy"),
     };
 
     (StatusCode::OK, Json(business_policy_payload(&updated)))
@@ -1086,7 +1033,7 @@ pub async fn list_proposals(
         Ok(id) => id,
         Err(response) => return response,
     };
-    let tenant_id = match require_workspace_id(params.workspace_id) {
+    let tenant_id = match require_workspace_id(&headers, params.workspace_id) {
         Ok(id) => id,
         Err(response) => return response,
     };
@@ -1126,7 +1073,7 @@ pub async fn apply_proposal(
         Ok(id) => id,
         Err(response) => return response,
     };
-    let tenant_id = match require_workspace_id(payload.workspace_id) {
+    let tenant_id = match require_workspace_id(&headers, payload.workspace_id) {
         Ok(id) => id,
         Err(response) => return response,
     };
@@ -1138,7 +1085,7 @@ pub async fn apply_proposal(
         override_splits_count
     );
 
-    if let Err(response) = ensure_apply_enabled(&state.db, business_id).await {
+    if let Err(response) = ensure_apply_enabled(&state.db, business_id, &headers).await {
         return response;
     }
 
@@ -1148,22 +1095,14 @@ pub async fn apply_proposal(
         .flatten();
     let action_id = match action.as_ref().map(|a| a.id) {
         Some(id) => id,
-        None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({ "ok": false, "error": "proposal not found" })),
-            );
-        }
+        None => return companion_error_from_headers(StatusCode::NOT_FOUND, &headers, "proposal not found"),
     };
 
     let allowed = crate::routes::companion_autonomy::can_apply_action(&state.db, tenant_id, action_id)
         .await
         .unwrap_or(false);
     if !allowed {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(json!({ "ok": false, "error": "approval required" })),
-        );
+        return companion_error_from_headers(StatusCode::FORBIDDEN, &headers, "approval required");
     }
 
     let applied = autonomy_store::apply_action(&state.db, tenant_id, action_id)
@@ -1216,7 +1155,7 @@ pub async fn reject_proposal(
         Ok(id) => id,
         Err(response) => return response,
     };
-    let tenant_id = match require_workspace_id(payload.workspace_id) {
+    let tenant_id = match require_workspace_id(&headers, payload.workspace_id) {
         Ok(id) => id,
         Err(response) => return response,
     };
@@ -1227,10 +1166,7 @@ pub async fn reject_proposal(
         .flatten();
 
     if exists.is_none() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(json!({ "ok": false, "error": "proposal not found" })),
-        );
+        return companion_error_from_headers(StatusCode::NOT_FOUND, &headers, "proposal not found");
     }
 
     let dismissed = autonomy_store::dismiss_work_item(&state.db, tenant_id, event_id)
@@ -1282,7 +1218,7 @@ pub async fn list_shadow_events(
         Ok(id) => id,
         Err(response) => return response,
     };
-    let tenant_id = match require_workspace_id(params.workspace_id) {
+    let tenant_id = match require_workspace_id(&headers, params.workspace_id) {
         Ok(id) => id,
         Err(response) => return response,
     };
@@ -1431,7 +1367,7 @@ pub async fn apply_shadow_event(
         Ok(id) => id,
         Err(response) => return response,
     };
-    let tenant_id = match require_workspace_id(payload.workspace_id) {
+    let tenant_id = match require_workspace_id(&headers, payload.workspace_id) {
         Ok(id) => id,
         Err(response) => return response,
     };
@@ -1442,7 +1378,7 @@ pub async fn apply_shadow_event(
         override_splits_count
     );
 
-    if let Err(response) = ensure_apply_enabled(&state.db, business_id).await {
+    if let Err(response) = ensure_apply_enabled(&state.db, business_id, &headers).await {
         return response;
     }
 
@@ -1452,28 +1388,14 @@ pub async fn apply_shadow_event(
         .flatten();
     let action_id = match action.as_ref().map(|a| a.id) {
         Some(id) => id,
-        None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({
-                    "ok": false,
-                    "error": "Shadow event not found"
-                })),
-            );
-        }
+        None => return companion_error_from_headers(StatusCode::NOT_FOUND, &headers, "shadow event not found"),
     };
 
     let allowed = crate::routes::companion_autonomy::can_apply_action(&state.db, tenant_id, action_id)
         .await
         .unwrap_or(false);
     if !allowed {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({
-                "ok": false,
-                "error": "approval required"
-            })),
-        );
+        return companion_error_from_headers(StatusCode::FORBIDDEN, &headers, "approval required");
     }
 
     let applied = autonomy_store::apply_action(&state.db, tenant_id, action_id)
@@ -1525,7 +1447,7 @@ pub async fn reject_shadow_event(
         Ok(id) => id,
         Err(response) => return response,
     };
-    let tenant_id = match require_workspace_id(payload.workspace_id) {
+    let tenant_id = match require_workspace_id(&headers, payload.workspace_id) {
         Ok(id) => id,
         Err(response) => return response,
     };
@@ -1561,13 +1483,7 @@ pub async fn reject_shadow_event(
         );
     }
 
-    (
-        StatusCode::NOT_FOUND,
-        Json(serde_json::json!({
-            "ok": false,
-            "error": "Shadow event not found"
-        })),
-    )
+    companion_error_from_headers(StatusCode::NOT_FOUND, &headers, "shadow event not found")
 }
 
 fn work_item_statuses_for_shadow_status(status: &str) -> Vec<&'static str> {
@@ -1670,7 +1586,22 @@ mod tests {
     use super::*;
     use crate::companion_autonomy::models::{RecommendationSeed, WorkItemSeed};
     use crate::companion_autonomy::schema;
+    use axum::{routing::get, Router};
+    use axum_test::TestServer;
     use sqlx::SqlitePool;
+
+    async fn route_setup() -> TestServer {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let state = AppState { db: pool };
+        let app = Router::new()
+            .route("/api/companion/issues", get(list_issues))
+            .with_state(state)
+            .layer(axum::middleware::from_fn(
+                crate::routes::request_ids::control_plane_request_id_middleware,
+            ));
+
+        TestServer::new(app).unwrap()
+    }
 
     // =========================================================================
     // SeverityCounts Tests
@@ -1884,6 +1815,31 @@ mod tests {
         assert!(json.contains("\"pending_count\":5"));
         assert!(json.contains("\"approved_count\":10"));
         assert!(json.contains("\"rejected_count\":2"));
+    }
+
+    #[tokio::test]
+    async fn companion_errors_include_request_scoped_codes() {
+        let server = route_setup().await;
+        let response = server
+            .get("/api/companion/issues")
+            .add_header("x-request-id", "companion-error-01")
+            .await;
+
+        response.assert_status(StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            response.header("x-request-id").to_str().unwrap(),
+            "companion-error-01"
+        );
+        let body: Value = response.json();
+        assert_eq!(body["ok"], false);
+        assert_eq!(body["result_state"], "failed");
+        assert_eq!(body["error_type"], "unauthorized");
+        assert_eq!(
+            body["error_code"],
+            "COMPANION_UNAUTHORIZED_COMPANIONERR"
+        );
+        assert_eq!(body["request_id"], "companion-error-01");
+        assert_eq!(body["http_status"], 401);
     }
 
     async fn seed_work_item(

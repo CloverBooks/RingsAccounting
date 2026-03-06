@@ -3,6 +3,7 @@ pub mod admin;
 pub mod auth;
 pub mod companion;
 pub mod companion_autonomy;
+pub mod control_plane_errors;
 pub mod dashboard;
 pub mod matching;
 pub mod onboarding;

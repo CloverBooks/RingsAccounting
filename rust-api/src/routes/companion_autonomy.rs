@@ -5,11 +5,14 @@ use axum::{
 };
 use chrono::{DateTime, TimeZone, Utc};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use crate::companion_autonomy::{models::ApprovalRequest, policy::BudgetConfig, store};
 use crate::routes::auth::{extract_claims_from_header, Claims};
+use crate::routes::control_plane_errors::control_plane_error_from_headers;
 use crate::AppState;
+
+const AUTONOMY_DOMAIN: &str = "AUTONOMY";
 
 #[derive(Debug, Deserialize)]
 pub struct TenantQuery {
@@ -59,6 +62,14 @@ pub struct PolicyUpdatePayload {
     pub breaker_thresholds: Option<Value>,
     pub allowlists: Option<Value>,
     pub budgets: Option<Value>,
+}
+
+fn autonomy_error_from_headers(
+    status: StatusCode,
+    headers: &HeaderMap,
+    message: &str,
+) -> (StatusCode, Json<Value>) {
+    control_plane_error_from_headers(status, AUTONOMY_DOMAIN, headers, message)
 }
 
 pub async fn autonomy_status(
@@ -242,9 +253,10 @@ pub async fn engine_tick(
     let tenants = if payload.tenant.as_deref() == Some("all") {
         let pairs = store::list_tenant_contexts(&state.db).await.unwrap_or_default();
         if pairs.is_empty() {
-            return (
+            return autonomy_error_from_headers(
                 StatusCode::BAD_REQUEST,
-                Json(json!({ "ok": false, "error": "no tenant contexts available" })),
+                &headers,
+                "no tenant contexts available",
             );
         }
         pairs
@@ -266,9 +278,10 @@ pub async fn engine_tick(
             StatusCode::OK,
             Json(serde_json::json!({ "ok": true })),
         ),
-        Err(err) => (
+        Err(err) => autonomy_error_from_headers(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "ok": false, "error": err })),
+            &headers,
+            &format!("engine tick failed: {}", err),
         ),
     }
 }
@@ -286,9 +299,10 @@ pub async fn engine_materialize(
     let tenants = if payload.tenant.as_deref() == Some("all") {
         let pairs = store::list_tenant_contexts(&state.db).await.unwrap_or_default();
         if pairs.is_empty() {
-            return (
+            return autonomy_error_from_headers(
                 StatusCode::BAD_REQUEST,
-                Json(json!({ "ok": false, "error": "no tenant contexts available" })),
+                &headers,
+                "no tenant contexts available",
             );
         }
         pairs
@@ -313,9 +327,10 @@ pub async fn engine_materialize(
             StatusCode::OK,
             Json(serde_json::json!({ "ok": true })),
         ),
-        Err(err) => (
+        Err(err) => autonomy_error_from_headers(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "ok": false, "error": err })),
+            &headers,
+            &format!("engine materialize failed: {}", err),
         ),
     }
 }
@@ -357,9 +372,10 @@ pub async fn update_policy(
             StatusCode::OK,
             Json(serde_json::json!({ "ok": true })),
         ),
-        Err(err) => (
+        Err(err) => autonomy_error_from_headers(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "ok": false, "error": err.to_string() })),
+            &headers,
+            &format!("failed to update policy: {}", err),
         ),
     }
 }
@@ -464,10 +480,7 @@ pub async fn work_detail(
         );
     }
 
-    (
-        StatusCode::NOT_FOUND,
-        Json(serde_json::json!({"ok": false, "error": "work item not found"})),
-    )
+    autonomy_error_from_headers(StatusCode::NOT_FOUND, &headers, "work item not found")
 }
 
 pub async fn dismiss_work_item(
@@ -588,9 +601,10 @@ pub async fn request_approval(
         );
     }
 
-    (
+    autonomy_error_from_headers(
         StatusCode::INTERNAL_SERVER_ERROR,
-        Json(serde_json::json!({"ok": false, "error": "failed to create approval"})),
+        &headers,
+        "failed to create approval",
     )
 }
 
@@ -612,33 +626,25 @@ pub async fn approve_request(
 
     let request = match fetch_approval_request(&state.db, tenant_id, approval_id).await {
         Ok(Some(request)) => request,
-        Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({ "ok": false, "error": "approval request not found" })),
-            );
-        }
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "ok": false, "error": "failed to load approval request" })),
-            );
-        }
+        Ok(None) => return autonomy_error_from_headers(StatusCode::NOT_FOUND, &headers, "approval request not found"),
+        Err(_) => return autonomy_error_from_headers(StatusCode::INTERNAL_SERVER_ERROR, &headers, "failed to load approval request"),
     };
 
     if request.status != "pending" {
-        return (
+        return autonomy_error_from_headers(
             StatusCode::CONFLICT,
-            Json(serde_json::json!({ "ok": false, "error": "approval request already processed" })),
+            &headers,
+            "approval request already processed",
         );
     }
 
     if request.reason_required {
         let reason = payload.reason_text.as_deref().unwrap_or("").trim();
         if reason.is_empty() {
-            return (
+            return autonomy_error_from_headers(
                 StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "ok": false, "error": "approval reason required" })),
+                &headers,
+                "approval reason required",
             );
         }
     }
@@ -646,15 +652,17 @@ pub async fn approve_request(
     if let Some(expires_at) = request.expires_at.as_deref() {
         if let Some(expiry) = parse_expires_at(expires_at) {
             if expiry <= Utc::now() {
-                return (
+                return autonomy_error_from_headers(
                     StatusCode::CONFLICT,
-                    Json(serde_json::json!({ "ok": false, "error": "approval request expired" })),
+                    &headers,
+                    "approval request expired",
                 );
             }
         } else {
-            return (
+            return autonomy_error_from_headers(
                 StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "ok": false, "error": "invalid approval expiry" })),
+                &headers,
+                "invalid approval expiry",
             );
         }
     }
@@ -719,33 +727,25 @@ pub async fn reject_request(
 
     let request = match fetch_approval_request(&state.db, tenant_id, approval_id).await {
         Ok(Some(request)) => request,
-        Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({ "ok": false, "error": "approval request not found" })),
-            );
-        }
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "ok": false, "error": "failed to load approval request" })),
-            );
-        }
+        Ok(None) => return autonomy_error_from_headers(StatusCode::NOT_FOUND, &headers, "approval request not found"),
+        Err(_) => return autonomy_error_from_headers(StatusCode::INTERNAL_SERVER_ERROR, &headers, "failed to load approval request"),
     };
 
     if request.status != "pending" {
-        return (
+        return autonomy_error_from_headers(
             StatusCode::CONFLICT,
-            Json(serde_json::json!({ "ok": false, "error": "approval request already processed" })),
+            &headers,
+            "approval request already processed",
         );
     }
 
     if request.reason_required {
         let reason = payload.reason_text.as_deref().unwrap_or("").trim();
         if reason.is_empty() {
-            return (
+            return autonomy_error_from_headers(
                 StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "ok": false, "error": "rejection reason required" })),
+                &headers,
+                "rejection reason required",
             );
         }
     }
@@ -753,15 +753,17 @@ pub async fn reject_request(
     if let Some(expires_at) = request.expires_at.as_deref() {
         if let Some(expiry) = parse_expires_at(expires_at) {
             if expiry <= Utc::now() {
-                return (
+                return autonomy_error_from_headers(
                     StatusCode::CONFLICT,
-                    Json(serde_json::json!({ "ok": false, "error": "approval request expired" })),
+                    &headers,
+                    "approval request expired",
                 );
             }
         } else {
-            return (
+            return autonomy_error_from_headers(
                 StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "ok": false, "error": "invalid approval expiry" })),
+                &headers,
+                "invalid approval expiry",
             );
         }
     }
@@ -826,16 +828,14 @@ pub async fn apply_action(
         Ok(id) => id,
         Err(response) => return response,
     };
-    if let Err(response) = ensure_apply_enabled(&state.db, business_id).await {
+    if let Err(response) = ensure_apply_enabled(&state.db, business_id, &headers).await {
         return response;
     }
     if !can_apply_action(&state.db, tenant_id, action_id).await.unwrap_or(false) {
-        return (
+        return autonomy_error_from_headers(
             StatusCode::FORBIDDEN,
-            Json(serde_json::json!({
-                "ok": false,
-                "error": "approval required"
-            })),
+            &headers,
+            "approval required",
         );
     }
 
@@ -897,7 +897,7 @@ pub async fn batch_apply_actions(
         Ok(id) => id,
         Err(response) => return response,
     };
-    if let Err(response) = ensure_apply_enabled(&state.db, business_id).await {
+    if let Err(response) = ensure_apply_enabled(&state.db, business_id, &headers).await {
         return response;
     }
     let mut results = Vec::new();
@@ -968,7 +968,11 @@ fn resolve_tenant_id(
     if let Some(id) = query_tenant_id {
         return Ok(id);
     }
-    Err((StatusCode::BAD_REQUEST, Json(json!({ "ok": false, "error": "tenant_id required" }))))
+    Err(autonomy_error_from_headers(
+        StatusCode::BAD_REQUEST,
+        headers,
+        "tenant_id required",
+    ))
 }
 
 fn resolve_business_id(
@@ -983,7 +987,11 @@ fn resolve_business_id(
     if let Some(id) = query_business_id {
         return Ok(id);
     }
-    Err((StatusCode::BAD_REQUEST, Json(json!({ "ok": false, "error": "business_id required" }))))
+    Err(autonomy_error_from_headers(
+        StatusCode::BAD_REQUEST,
+        headers,
+        "business_id required",
+    ))
 }
 
 fn resolve_tenant_context_from_payload(
@@ -1004,7 +1012,7 @@ fn resolve_tenant_context_from_payload(
 
 fn require_claims(headers: &HeaderMap) -> Result<Claims, (StatusCode, Json<serde_json::Value>)> {
     extract_claims_from_header(headers)
-        .map_err(|_| (StatusCode::UNAUTHORIZED, Json(json!({ "ok": false, "error": "unauthorized" }))))
+        .map_err(|_| autonomy_error_from_headers(StatusCode::UNAUTHORIZED, headers, "unauthorized"))
 }
 
 fn require_user_id(headers: &HeaderMap) -> Result<i64, (StatusCode, Json<serde_json::Value>)> {
@@ -1012,7 +1020,7 @@ fn require_user_id(headers: &HeaderMap) -> Result<i64, (StatusCode, Json<serde_j
     claims
         .sub
         .parse::<i64>()
-        .map_err(|_| (StatusCode::UNAUTHORIZED, Json(json!({ "ok": false, "error": "unauthorized" }))))
+        .map_err(|_| autonomy_error_from_headers(StatusCode::UNAUTHORIZED, headers, "unauthorized"))
 }
 
 async fn require_staff(
@@ -1020,7 +1028,7 @@ async fn require_staff(
     headers: &HeaderMap,
 ) -> Result<Claims, (StatusCode, Json<serde_json::Value>)> {
     let claims = extract_claims_from_header(headers)
-        .map_err(|_| (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "ok": false, "error": "unauthorized" }))))?;
+        .map_err(|_| autonomy_error_from_headers(StatusCode::UNAUTHORIZED, headers, "unauthorized"))?;
     let user_id = claims.sub.parse::<i64>().ok();
     if let Some(user_id) = user_id {
         let is_staff = sqlx::query_scalar::<_, i64>(
@@ -1036,7 +1044,11 @@ async fn require_staff(
             return Ok(claims);
         }
     }
-    Err((StatusCode::FORBIDDEN, Json(serde_json::json!({ "ok": false, "error": "forbidden" }))))
+    Err(autonomy_error_from_headers(
+        StatusCode::FORBIDDEN,
+        headers,
+        "forbidden",
+    ))
 }
 
 fn is_queue_snapshot_stale(generated_at: &str, stale_after_seconds: i64) -> bool {
@@ -1051,6 +1063,7 @@ fn is_queue_snapshot_stale(generated_at: &str, stale_after_seconds: i64) -> bool
 async fn ensure_apply_enabled(
     pool: &sqlx::SqlitePool,
     business_id: i64,
+    headers: &HeaderMap,
 ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
     let global_enabled = store::business_ai_enabled(pool, business_id)
         .await
@@ -1058,9 +1071,10 @@ async fn ensure_apply_enabled(
         .flatten()
         .unwrap_or(false);
     if !global_enabled {
-        return Err((
+        return Err(autonomy_error_from_headers(
             StatusCode::FORBIDDEN,
-            Json(json!({ "ok": false, "error": "ai companion disabled" })),
+            headers,
+            "ai companion disabled",
         ));
     }
 
@@ -1071,17 +1085,19 @@ async fn ensure_apply_enabled(
     let settings = match settings {
         Some(settings) => settings,
         None => {
-            return Err((
+            return Err(autonomy_error_from_headers(
                 StatusCode::FORBIDDEN,
-                Json(json!({ "ok": false, "error": "ai settings not configured" })),
+                headers,
+                "ai settings not configured",
             ));
         }
     };
 
     if !settings.ai_enabled || settings.kill_switch || settings.ai_mode == "shadow_only" {
-        return Err((
+        return Err(autonomy_error_from_headers(
             StatusCode::FORBIDDEN,
-            Json(json!({ "ok": false, "error": "ai apply disabled" })),
+            headers,
+            "ai apply disabled",
         ));
     }
 
@@ -1386,6 +1402,16 @@ mod tests {
             response.header("x-request-id").to_str().unwrap(),
             "companion-error-01"
         );
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["ok"], false);
+        assert_eq!(body["result_state"], "failed");
+        assert_eq!(body["error_type"], "unauthorized");
+        assert_eq!(
+            body["error_code"],
+            "AUTONOMY_UNAUTHORIZED_COMPANIONERR"
+        );
+        assert_eq!(body["request_id"], "companion-error-01");
+        assert_eq!(body["http_status"], 401);
     }
 
     #[tokio::test]
