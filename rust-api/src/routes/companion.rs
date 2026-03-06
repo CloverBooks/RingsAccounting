@@ -1,8 +1,6 @@
 //! AI Companion routes for Clover Books
 //!
 //! Native Rust endpoints for companion issues, high-risk audits, and radar data.
-#![allow(dead_code)]
-
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
@@ -210,10 +208,19 @@ pub async fn list_issues(
         Ok(id) => id,
         Err(response) => return response,
     };
+    let _requested_business_id = params.business_id;
     let status = params.status.as_deref().unwrap_or("open");
+    let severity_filter = params.severity.as_deref().unwrap_or("all");
+    let surface_filter = params.surface.as_deref().unwrap_or("all");
     let limit = params.limit;
     
-    tracing::info!("Listing companion issues for business_id={}, status={}", business_id, status);
+    tracing::info!(
+        "Listing companion issues for business_id={}, status={}, severity={}, surface={}",
+        business_id,
+        status,
+        severity_filter,
+        surface_filter
+    );
     
     // Get issues
     let issues = sqlx::query_as::<_, (i64, String, String, String, String, String, String, String, String)>(
@@ -422,12 +429,14 @@ pub async fn resolve_issue(
 pub async fn list_audits(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(_params): Query<AuditQuery>,
+    Query(params): Query<AuditQuery>,
 ) -> impl IntoResponse {
     let business_id = match require_business_id(&headers) {
         Ok(id) => id,
         Err(response) => return response,
     };
+    let _requested_business_id = params.business_id;
+    let _status_filter = params.status.as_deref().unwrap_or("all");
     
     tracing::info!("Listing high-risk audits for business_id={}", business_id);
     
@@ -589,12 +598,13 @@ pub async fn reject_audit(
 pub async fn radar(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(_params): Query<RadarQuery>,
+    Query(params): Query<RadarQuery>,
 ) -> impl IntoResponse {
     let business_id = match require_business_id(&headers) {
         Ok(id) => id,
         Err(response) => return response,
     };
+    let _requested_business_id = params.business_id;
     
     tracing::info!("Getting companion radar for business_id={}", business_id);
     
@@ -871,8 +881,9 @@ fn business_policy_payload(policy: &BusinessPolicyRow) -> Value {
 pub async fn get_ai_settings_v2(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(_params): Query<SettingsQuery>,
+    Query(params): Query<SettingsQuery>,
 ) -> impl IntoResponse {
+    let _workspace_id = params.workspace_id;
     let business_id = match require_business_id(&headers) {
         Ok(id) => id,
         Err(response) => return response,
@@ -911,9 +922,10 @@ pub async fn get_ai_settings_v2(
 pub async fn patch_ai_settings_v2(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(_params): Query<SettingsQuery>,
+    Query(params): Query<SettingsQuery>,
     Json(patch): Json<AiSettingsPatch>,
 ) -> impl IntoResponse {
+    let _workspace_id = params.workspace_id;
     let business_id = match require_business_id(&headers) {
         Ok(id) => id,
         Err(response) => return response,
@@ -1101,6 +1113,11 @@ pub async fn apply_proposal(
     Path(event_id): Path<i64>,
     Json(payload): Json<ProposalApplyPayload>,
 ) -> impl IntoResponse {
+    let override_splits_count = payload
+        .override_splits
+        .as_ref()
+        .map(|splits| splits.len())
+        .unwrap_or(0);
     let business_id = match require_business_id(&headers) {
         Ok(id) => id,
         Err(response) => return response,
@@ -1113,6 +1130,13 @@ pub async fn apply_proposal(
         Ok(id) => id,
         Err(response) => return response,
     };
+
+    tracing::info!(
+        "Applying proposal id={} workspace={} override_splits={}",
+        event_id,
+        tenant_id,
+        override_splits_count
+    );
 
     if let Err(response) = ensure_apply_enabled(&state.db, business_id).await {
         return response;
@@ -1394,6 +1418,11 @@ pub async fn apply_shadow_event(
     Path(event_id): Path<i64>,
     Json(payload): Json<ProposalApplyPayload>,
 ) -> impl IntoResponse {
+    let override_splits_count = payload
+        .override_splits
+        .as_ref()
+        .map(|splits| splits.len())
+        .unwrap_or(0);
     let business_id = match require_business_id(&headers) {
         Ok(id) => id,
         Err(response) => return response,
@@ -1406,7 +1435,12 @@ pub async fn apply_shadow_event(
         Ok(id) => id,
         Err(response) => return response,
     };
-    tracing::info!("Applying shadow event id={}", event_id);
+    tracing::info!(
+        "Applying shadow event id={} workspace={} override_splits={}",
+        event_id,
+        tenant_id,
+        override_splits_count
+    );
 
     if let Err(response) = ensure_apply_enabled(&state.db, business_id).await {
         return response;

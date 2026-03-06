@@ -1,15 +1,18 @@
-import { PaymentsRouter } from '../src/modules/payments/payments.router';
+import { PaymentsService } from '../src/modules/payments/payments.service';
 
-describe('PaymentsRouter', () => {
-  it('routes Rwanda intents to Flutterwave', () => {
-    const router = new PaymentsRouter();
-    const route = router.route('RW', 'RW_MOMO_COLLECTION', 'RWF');
-    expect(route).toEqual({ provider: 'FLUTTERWAVE', rail: 'RW_MOMO' });
-  });
+describe('Payments compatibility', () => {
+  it('returns disabled envelope for intent creation', () => {
+    const service = new PaymentsService();
+    const result = service.createIntentCompatibility({
+      org_id: 'org-1',
+      amount: 1000,
+      currency: 'USD',
+      metadata: { source: 'test' },
+    });
 
-  it('routes subscription in US to Stripe card', () => {
-    const router = new PaymentsRouter();
-    const route = router.route('US', 'SUBSCRIPTION', 'USD');
-    expect(route).toEqual({ provider: 'STRIPE', rail: 'CARD' });
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe('disabled');
+    expect(result.payment_intent.status).toBe('disabled');
+    expect(result.next_action).toBe('none');
   });
 });

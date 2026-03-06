@@ -8,7 +8,11 @@
     "build": "vite build",
     "typecheck": "tsc -b",
     "preview": "vite preview",
-    "test": "vitest"
+    "preview:prod": "vite preview --host 0.0.0.0 --port 4174",
+    "lint": "npm run typecheck",
+    "test": "node ../../scripts/frontend/run-vitest-clean.mjs",
+    "test:run": "node ../../scripts/frontend/run-vitest-clean.mjs run",
+    "verify:clean": "node ../../scripts/frontend/verify-clean.mjs"
   },
   "dependencies": {
     "framer-motion": "^12.23.24",

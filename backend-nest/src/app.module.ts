@@ -5,7 +5,6 @@ import { LoggerModule } from 'nestjs-pino';
 import { AuthModule } from './auth/auth.module';
 import { HealthModule } from './health/health.module';
 import { JobsModule } from './jobs/jobs.module';
-import { LedgerModule } from './ledger/ledger.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { PaymentsModule } from './payments/payments.module';
@@ -38,7 +37,6 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     RedisModule,
     AuthModule,
     OrganizationsModule,
-    LedgerModule,
     PaymentsModule,
     WebhooksModule,
     JobsModule,

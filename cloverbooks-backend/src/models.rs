@@ -1,7 +1,6 @@
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow, Clone)]
@@ -92,46 +91,4 @@ pub struct CreateInvoiceRequest {
     pub next_due: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow, Clone)]
-pub struct Mandate {
-    pub id: Uuid,
-    pub customer_id: Uuid,
-    pub mandate_type: String,
-    pub signed_at: DateTime<Utc>,
-    pub metadata: Value,
-    pub created_at: DateTime<Utc>,
-}
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CreateMandateRequest {
-    pub mandate_type: String,
-    pub signed_at: String,
-    pub metadata: Option<Value>,
-}
-
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow, Clone)]
-pub struct Payment {
-    pub id: Uuid,
-    pub bill_id: Option<Uuid>,
-    pub invoice_id: Option<Uuid>,
-    pub status: String,
-    pub gateway_transaction_id: String,
-    pub raw_response: Value,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PaymentResponse {
-    pub payment_id: Uuid,
-    pub status: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct WebhookPayload {
-    pub payment_id: Option<Uuid>,
-    pub gateway_transaction_id: Option<String>,
-    pub bill_id: Option<Uuid>,
-    pub invoice_id: Option<Uuid>,
-    pub status: String,
-}

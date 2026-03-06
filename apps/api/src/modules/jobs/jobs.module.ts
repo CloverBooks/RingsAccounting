@@ -1,8 +1,5 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
-import { WebhookIngressProcessor } from './processors/webhook-ingress.processor';
-import { PaymentsModule } from '../payments/payments.module';
-import { ReconcileProcessor } from './processors/reconcile.processor';
 
 const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
 const redis = new URL(redisUrl);
@@ -17,14 +14,10 @@ const redis = new URL(redisUrl);
       },
     }),
     BullModule.registerQueue(
-      { name: 'webhook.ingress' },
-      { name: 'payments.reconcile' },
-      { name: 'ledger.post' },
       { name: 'notifications.send' },
     ),
-    PaymentsModule,
   ],
-  providers: [WebhookIngressProcessor, ReconcileProcessor],
+  providers: [],
   exports: [BullModule],
 })
 export class JobsModule {}

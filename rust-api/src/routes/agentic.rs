@@ -2,8 +2,6 @@
 //!
 //! Rust-first implementation backed by agentic document tables and CAE work items.
 
-#![allow(dead_code)]
-
 use axum::{
     extract::{Multipart, Path, Query, State},
     http::{HeaderMap, StatusCode},
@@ -31,7 +29,6 @@ struct UploadedFile {
 #[derive(sqlx::FromRow)]
 struct ReceiptRunRow {
     id: i64,
-    business_id: i64,
     status: String,
     total_documents: i64,
     success_count: i64,
@@ -44,14 +41,11 @@ struct ReceiptRunRow {
     llm_suggested_followups_json: String,
     trace_id: Option<String>,
     created_at: String,
-    updated_at: String,
 }
 
 #[derive(sqlx::FromRow)]
 struct ReceiptDocumentRow {
     id: i64,
-    run_id: i64,
-    business_id: i64,
     status: String,
     storage_key: String,
     original_filename: String,
@@ -63,14 +57,11 @@ struct ReceiptDocumentRow {
     posted_journal_entry_id: Option<i64>,
     error_message: Option<String>,
     work_item_id: Option<i64>,
-    created_at: String,
-    updated_at: String,
 }
 
 #[derive(sqlx::FromRow)]
 struct InvoiceRunRow {
     id: i64,
-    business_id: i64,
     status: String,
     total_documents: i64,
     success_count: i64,
@@ -82,14 +73,11 @@ struct InvoiceRunRow {
     llm_suggested_followups_json: String,
     trace_id: Option<String>,
     created_at: String,
-    updated_at: String,
 }
 
 #[derive(sqlx::FromRow)]
 struct InvoiceDocumentRow {
     id: i64,
-    run_id: i64,
-    business_id: i64,
     status: String,
     storage_key: String,
     original_filename: String,
@@ -101,8 +89,6 @@ struct InvoiceDocumentRow {
     posted_journal_entry_id: Option<i64>,
     error_message: Option<String>,
     work_item_id: Option<i64>,
-    created_at: String,
-    updated_at: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -277,20 +263,10 @@ fn format_amount_with_currency(amount: Option<f64>, currency: &str) -> Option<St
     amount.map(|value| format!("{} {:.2}", currency, value))
 }
 
-fn fallback_vendor(default_vendor: Option<&String>, filename: &str) -> String {
-    if let Some(vendor) = default_vendor {
-        let trimmed = vendor.trim();
-        if !trimmed.is_empty() {
-            return trimmed.to_string();
-        }
-    }
-    let leaf = filename.rsplit('/').next().unwrap_or(filename);
-    let stem = leaf.split('.').next().unwrap_or(leaf);
-    let trimmed = stem.trim();
-    if trimmed.is_empty() {
-        "Unknown vendor".to_string()
-    } else {
-        trimmed.to_string()
+fn resolve_vendor(default_vendor: Option<&str>) -> String {
+    match default_vendor.map(str::trim) {
+        Some(vendor) if !vendor.is_empty() => vendor.to_string(),
+        _ => "Unknown vendor".to_string(),
     }
 }
 
@@ -858,7 +834,7 @@ pub async fn create_run(
     let mut seeds = Vec::new();
 
     for (index, file) in files.iter().enumerate() {
-        let vendor = fallback_vendor(Some(&default_vendor), &file.filename);
+        let vendor = resolve_vendor(Some(default_vendor.as_str()));
         let issue_date = if !default_issue_date.is_empty() {
             default_issue_date.clone()
         } else {
@@ -1379,7 +1355,7 @@ pub async fn create_receipt_run(
     let mut seeds = Vec::new();
 
     for file in &files {
-        let vendor = fallback_vendor(Some(&default_vendor), &file.filename);
+        let vendor = resolve_vendor(Some(default_vendor.as_str()));
         let date_value = if !default_date.is_empty() {
             default_date.clone()
         } else {

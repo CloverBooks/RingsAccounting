@@ -80,7 +80,7 @@ describe("InvoicesPage", () => {
     expect(screen.getByText(/Default currency/i)).toBeInTheDocument();
 
     // Verify run data is displayed
-    expect(screen.getByText("#1")).toBeInTheDocument();
+    expect(await screen.findByText("#1", undefined, { timeout: 8000 })).toBeInTheDocument();
     expect(screen.getByText("COMPLETED")).toBeInTheDocument();
   });
 
@@ -91,7 +91,7 @@ describe("InvoicesPage", () => {
     await waitFor(() => expect(screen.getByText(/Recent runs/i)).toBeInTheDocument());
 
     // Verify run data is displayed
-    const row = screen.getByText("#1").closest("tr");
+    const row = (await screen.findByText("#1", undefined, { timeout: 8000 })).closest("tr");
     expect(row).not.toBeNull();
     const cells = within(row as HTMLElement).getAllByRole("cell");
     expect(cells[2]).toHaveTextContent("1"); // total_documents

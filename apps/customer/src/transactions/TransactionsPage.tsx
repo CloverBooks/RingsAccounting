@@ -1,11 +1,4 @@
 import React, { useState, useMemo } from "react";
-import {
-    MemoryRouter,
-    Routes,
-    Route,
-    useNavigate,
-    useLocation,
-} from "react-router-dom";
 import { useTransactions, TransactionRow as ApiTransactionRow } from "./useTransactions";
 import {
     ArrowRight,
@@ -569,7 +562,6 @@ const BulkActionBar: React.FC<{ count: number; onClear: () => void }> = ({ count
 // -----------------------------------------------------------------------------
 
 export const TransactionsPageContent: React.FC<{ kind: TransactionKind }> = ({ kind }) => {
-    const navigate = useNavigate();
     const config = CONFIG[kind];
 
     // Fetch real data from API
@@ -906,42 +898,7 @@ export const TransactionsPage: React.FC = () => {
     React.useEffect(() => {
         ensureCsrfToken().catch(() => undefined);
     }, []);
-    return (
-        <MemoryRouter>
-            <Routes>
-                <Route path="/" element={<TransactionsPageContent kind="invoice" />} />
-                <Route path="/invoices" element={<TransactionsPageContent kind="invoice" />} />
-                <Route path="/expenses" element={<TransactionsPageContent kind="expense" />} />
-            </Routes>
-
-            {/* Demo Switcher */}
-            <div className="fixed bottom-6 left-6 z-50 flex items-center gap-1 rounded-full bg-white/90 p-1.5 shadow-xl ring-1 ring-slate-200 backdrop-blur-md">
-                <NavButton to="/invoices" label="Invoices" />
-                <NavButton to="/expenses" label="Expenses" />
-            </div>
-        </MemoryRouter>
-    );
+    return <TransactionsPageContent kind="invoice" />;
 };
-
-// Helper for the demo switcher
-const NavButton: React.FC<{ to: string; label: string }> = ({ to, label }) => {
-    const navigate = useNavigate();
-    const location = useLocation();
-    const isActive = location.pathname === to || (to === "/invoices" && location.pathname === "/");
-
-    return (
-        <button
-            onClick={() => navigate(to)}
-            className={classNames(
-                "rounded-full px-4 py-1.5 text-xs font-bold transition-all",
-                isActive
-                    ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200"
-                    : "text-slate-500 hover:text-slate-900 hover:bg-slate-100"
-            )}
-        >
-            <span className={isActive ? "mb-accent-underline" : undefined}>{label}</span>
-        </button>
-    )
-}
 
 export default TransactionsPage;

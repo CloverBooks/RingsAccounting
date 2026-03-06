@@ -297,7 +297,6 @@ export default function ReconciliationPage({ bankAccountId }: { bankAccountId?: 
         loading: false
       }));
     } catch (e: any) {
-      console.error(e);
       setState(prev => ({
         ...prev,
         loading: false,
@@ -332,7 +331,6 @@ export default function ReconciliationPage({ bankAccountId }: { bankAccountId?: 
         loading: false,
       }));
     } catch (e: any) {
-      console.error(e);
       setState(prev => ({ ...prev, loading: false, error: e.message, periods: [], activePeriodId: null }));
     }
   }
@@ -387,8 +385,8 @@ export default function ReconciliationPage({ bankAccountId }: { bankAccountId?: 
                 confidence: c.confidence || 1.0,
                 reason: c.reason,
               }));
-            } catch (e) {
-              console.warn(`Failed to fetch candidates for tx ${t.id}:`, e);
+            } catch {
+              // Candidate fetch failures are surfaced by keeping the inline action unavailable.
             }
           }
 
@@ -466,7 +464,6 @@ export default function ReconciliationPage({ bankAccountId }: { bankAccountId?: 
         actionError: null,
       }));
     } catch (e: any) {
-      console.error(e);
       const msg = e?.message || "Failed to load session.";
       setState(prev => ({ ...prev, loading: false, error: msg, actionError: msg, transactions: [], session: null }));
     }
@@ -509,7 +506,7 @@ export default function ReconciliationPage({ bankAccountId }: { bankAccountId?: 
           loadSession(state.activeBankId, state.activePeriodId);
         }
       } catch (e) {
-        console.error(e);
+        void e;
       }
     }
   };
@@ -540,7 +537,6 @@ export default function ReconciliationPage({ bankAccountId }: { bankAccountId?: 
       // Refresh session and feed after exclude
       await loadSession(state.activeBankId, state.activePeriodId);
     } catch (e: any) {
-      console.error(e);
       setActionError(e?.message || "Could not update transaction.");
     }
   };
@@ -581,7 +577,6 @@ export default function ReconciliationPage({ bankAccountId }: { bankAccountId?: 
       // Refresh session and feed after match
       await loadSession(state.activeBankId, state.activePeriodId);
     } catch (e: any) {
-      console.error(e);
       setActionError(e?.message || "Could not match transaction.");
       showToast({
         message: e?.message || "Could not match transaction",
@@ -613,7 +608,6 @@ export default function ReconciliationPage({ bankAccountId }: { bankAccountId?: 
       // Refresh session and feed after adding as new
       await loadSession(state.activeBankId, state.activePeriodId);
     } catch (e: any) {
-      console.error(e);
       setActionError(e?.message || "Could not add transaction.");
     }
   };
@@ -635,7 +629,6 @@ export default function ReconciliationPage({ bankAccountId }: { bankAccountId?: 
       // Refresh session and feed after unmatch
       await loadSession(state.activeBankId, state.activePeriodId);
     } catch (e: any) {
-      console.error(e);
       setActionError(e?.message || "Could not unmatch transaction.");
     }
   };
@@ -673,7 +666,6 @@ export default function ReconciliationPage({ bankAccountId }: { bankAccountId?: 
       });
       await loadSession(state.activeBankId, state.activePeriodId);
     } catch (e: any) {
-      console.error(e);
       setActionError(e?.message || "Could not reopen period.");
       setState(prev => ({ ...prev, loading: false }));
     }
@@ -697,7 +689,6 @@ export default function ReconciliationPage({ bankAccountId }: { bankAccountId?: 
       // Reload session - will create a fresh one
       await loadSession(state.activeBankId, state.activePeriodId);
     } catch (e: any) {
-      console.error(e);
       setActionError(e?.message || "Could not delete session.");
       setState(prev => ({ ...prev, loading: false }));
     }
@@ -1635,7 +1626,6 @@ function AdjustmentsPanel({ session, isLocked, onUpdate, onError }: AdjustmentsP
       setAmount("");
       onUpdate();
     } catch (e) {
-      console.error(e);
       onError(e instanceof Error ? e.message : "Failed to add adjustment");
     } finally {
       setLoading(false);

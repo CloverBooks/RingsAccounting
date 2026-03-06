@@ -3,7 +3,7 @@ import {
     fetchWorkspace360,
     type Workspace360,
 } from "./api";
-import { Card, SimpleTable, StatusPill, cn } from "./AdminUI";
+import { Card, SimpleTable, StatusPill } from "./AdminUI";
 
 interface Workspace360SectionProps {
     workspaceId: number;

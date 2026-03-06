@@ -26,7 +26,6 @@
     "@opentelemetry/sdk-node": "^0.47.0",
     "@opentelemetry/sdk-trace-base": "^1.20.0",
     "@prisma/client": "^5.9.1",
-    "axios": "^1.6.7",
     "bcrypt": "^5.1.1",
     "bullmq": "^5.9.1",
     "date-fns": "^3.3.1",
@@ -36,8 +35,7 @@
     "passport-jwt": "^4.0.1",
     "pino": "^8.21.0",
     "reflect-metadata": "^0.1.13",
-    "rxjs": "^7.8.1",
-    "stripe": "^14.21.0"
+    "rxjs": "^7.8.1"
   },
   "devDependencies": {
     "@nestjs/testing": "^10.3.2",

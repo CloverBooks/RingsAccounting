@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { buildApiUrl, getAccessToken } from "../api/client";
 
 // -----------------------------------------------------------------------------
 // Types
@@ -110,9 +111,13 @@ export function useTransactions(kind: TransactionKind) {
                 ? "/api/invoices/list/"
                 : "/api/expenses/list/";
 
-            const res = await fetch(endpoint, {
+            const token = getAccessToken();
+            const res = await fetch(buildApiUrl(endpoint), {
                 credentials: "include",
-                headers: { "Accept": "application/json" },
+                headers: {
+                    "Accept": "application/json",
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
             });
 
             if (!res.ok) {

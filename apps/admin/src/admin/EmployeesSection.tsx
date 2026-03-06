@@ -505,9 +505,7 @@ export const EmployeesSection: React.FC<{
                   <SelectItem value="support">View only</SelectItem>
                   <SelectItem value="finance">Operations</SelectItem>
                   <SelectItem value="engineering">Admin</SelectItem>
-                  <SelectItem value="superadmin" disabled={!canGrantSuperadmin}>
-                    Superadmin
-                  </SelectItem>
+                  {canGrantSuperadmin && <SelectItem value="superadmin">Superadmin</SelectItem>}
                 </SelectContent>
               </Select>
               {!canGrantSuperadmin && (
@@ -550,9 +548,7 @@ export const EmployeesSection: React.FC<{
                 <SelectItem value="support">View only</SelectItem>
                 <SelectItem value="finance">Operations</SelectItem>
                 <SelectItem value="engineering">Admin</SelectItem>
-                <SelectItem value="superadmin" disabled={!canGrantSuperadmin}>
-                  Superadmin
-                </SelectItem>
+                {canGrantSuperadmin && <SelectItem value="superadmin">Superadmin</SelectItem>}
               </SelectContent>
             </Select>
 

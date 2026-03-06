@@ -19,19 +19,11 @@ use crate::AppState;
 // ============================================================================
 
 /// Get JWT secret from environment variable.
-/// SECURITY: In production, JWT_SECRET environment variable MUST be set.
+/// SECURITY: JWT_SECRET environment variable MUST be set.
 fn get_jwt_secret() -> Vec<u8> {
     match std::env::var("JWT_SECRET") {
         Ok(secret) if !secret.is_empty() => secret.into_bytes(),
-        _ => {
-            // Only allow fallback in development
-            let env = std::env::var("RUST_ENV").unwrap_or_else(|_| "development".to_string());
-            if env == "production" {
-                panic!("JWT_SECRET environment variable must be set in production!");
-            }
-            tracing::warn!("⚠️  Using default JWT secret - set JWT_SECRET env var for production!");
-            b"clover-books-dev-secret-CHANGE-IN-PRODUCTION".to_vec()
-        }
+        _ => panic!("JWT_SECRET environment variable must be set."),
     }
 }
 
@@ -528,6 +520,9 @@ pub async fn google_callback(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<GoogleCallbackParams>,
 ) -> impl IntoResponse {
+    if let Some(error) = params.error.as_deref() {
+        return error_html(&format!("Google login failed: {}", error));
+    }
     let code = match params.code {
         Some(c) => c,
         None => {
@@ -701,39 +696,23 @@ pub async fn google_callback(
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub struct GoogleCallbackParams {
     pub code: Option<String>,
     pub error: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct GoogleTokenResponse {
     access_token: String,
-    #[serde(default)]
-    token_type: String,
-    #[serde(default)]
-    expires_in: i64,
-    #[serde(default)]
-    refresh_token: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct GoogleUserInfo {
-    id: String,
     email: String,
-    #[serde(default)]
-    verified_email: bool,
-    #[serde(default)]
-    name: Option<String>,
     #[serde(default)]
     given_name: Option<String>,
     #[serde(default)]
     family_name: Option<String>,
-    #[serde(default)]
-    picture: Option<String>,
 }
 
 fn error_html(message: &str) -> (StatusCode, [(&'static str, &'static str); 1], String) {
@@ -908,3 +887,4 @@ mod tests {
         assert!(json.contains("\"business_id\":456"));
     }
 }
+

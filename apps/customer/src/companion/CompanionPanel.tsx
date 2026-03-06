@@ -130,19 +130,19 @@ const CompanionPanel: React.FC = () => {
       if (behavior === "review") {
         // Navigate to the target page (automatically dismisses)
         const targetUrl = action.payload?.metadata?.target_url;
-        if (targetUrl) {
-          // Dismiss the action first, then navigate
-          await dismissCompanionAction(action.id);
-          window.location.href = targetUrl;
-        } else {
-          // Fallback: navigate based on context
-          const context = action.context || action.payload?.metadata?.target_context;
-          if (context === "invoices") window.location.href = "/ invoices/";
-          else if (context === "expenses") window.location.href = "/expenses/";
-          else if (context === "bank") window.location.href = "/banking/";
-          else if (context === "reconciliation") window.location.href = "/reconciliation/";
-          await dismissCompanionAction(action.id);
-        }
+          if (targetUrl) {
+            // Dismiss the action first, then navigate
+            await dismissCompanionAction(action.id);
+            window.location.href = targetUrl;
+          } else {
+            // Fallback: navigate based on context
+            const context = action.context || action.payload?.metadata?.target_context;
+            if (context === "invoices") window.location.href = "/invoices";
+            else if (context === "expenses") window.location.href = "/expenses";
+            else if (context === "bank") window.location.href = "/banking";
+            else if (context === "reconciliation") window.location.href = "/reconciliation";
+            await dismissCompanionAction(action.id);
+          }
       } else {
         // Auto-fix and close actions: call apply
         await applyCompanionAction(action.id);

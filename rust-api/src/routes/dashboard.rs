@@ -2,8 +2,6 @@
 //!
 //! Native Rust endpoints that read directly from the existing database.
 //! Replaces legacy proxy calls for better performance.
-#![allow(dead_code)]
-
 use axum::{
     extract::{Path, Query, State},
     http::{StatusCode, HeaderMap},
@@ -114,32 +112,6 @@ pub struct BankAccountSummary {
     pub bank_name: String,
     pub balance: f64,
     pub unreconciled_count: i64,
-}
-
-// ============================================================================
-// List API Types
-// ============================================================================
-
-#[derive(Debug, Deserialize)]
-pub struct ListQuery {
-    #[serde(default = "default_limit")]
-    pub limit: i64,
-    #[serde(default)]
-    pub offset: i64,
-    pub status: Option<String>,
-}
-
-fn default_limit() -> i64 {
-    50
-}
-
-#[derive(Debug, Serialize)]
-pub struct ListResponse<T> {
-    pub ok: bool,
-    pub items: Vec<T>,
-    pub total: i64,
-    pub limit: i64,
-    pub offset: i64,
 }
 
 // ============================================================================
@@ -366,8 +338,13 @@ pub async fn list_invoices(
     let business_id = get_business_id_with_warning(params.business_id, "list_invoices");
     let limit = params.limit.unwrap_or(50);
     let offset = params.offset.unwrap_or(0);
+    let status_filter = params.status.as_deref().unwrap_or("all");
     
-    tracing::info!("Listing invoices for business_id={}", business_id);
+    tracing::info!(
+        "Listing invoices for business_id={} status={}",
+        business_id,
+        status_filter
+    );
     
     let invoices = sqlx::query_as::<_, (i64, String, String, f64, String, String, f64)>(
         "SELECT i.id, i.invoice_number, c.name, i.grand_total, i.status, i.issue_date, i.balance
@@ -436,8 +413,13 @@ pub async fn list_expenses(
     let business_id = get_business_id_with_warning(params.business_id, "list_invoices");
     let limit = params.limit.unwrap_or(50);
     let offset = params.offset.unwrap_or(0);
+    let status_filter = params.status.as_deref().unwrap_or("all");
     
-    tracing::info!("Listing expenses for business_id={}", business_id);
+    tracing::info!(
+        "Listing expenses for business_id={} status={}",
+        business_id,
+        status_filter
+    );
     
     let expenses = sqlx::query_as::<_, (i64, String, Option<String>, f64, String, String)>(
         "SELECT e.id, e.description, s.name, e.grand_total, e.status, e.date
@@ -491,49 +473,6 @@ pub struct ExpenseListQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
     pub status: Option<String>,
-}
-
-// ============================================================================
-// Customer List API
-// ============================================================================
-
-/// GET /api/customers
-pub async fn list_customers(
-    State(state): State<AppState>,
-    Query(params): Query<CustomerListQuery>,
-) -> impl IntoResponse {
-    let business_id = get_business_id_with_warning(params.business_id, "list_invoices");
-    let limit = params.limit.unwrap_or(100);
-    
-    let customers = sqlx::query_as::<_, (i64, String, Option<String>, String, bool)>(
-        "SELECT id, name, email, phone, is_active FROM core_customer 
-         WHERE business_id = ?
-         ORDER BY name
-         LIMIT ?"
-    )
-    .bind(business_id)
-    .bind(limit)
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
-    
-    let items: Vec<serde_json::Value> = customers
-        .into_iter()
-        .map(|(id, name, email, phone, is_active)| {
-            serde_json::json!({
-                "id": id,
-                "name": name,
-                "email": email,
-                "phone": phone,
-                "is_active": is_active
-            })
-        })
-        .collect();
-    
-    (StatusCode::OK, Json(serde_json::json!({
-        "ok": true,
-        "items": items
-    })))
 }
 
 #[derive(Debug, Deserialize)]
@@ -645,8 +584,13 @@ pub async fn list_bank_transactions(
 ) -> impl IntoResponse {
     let limit = params.limit.unwrap_or(50);
     let offset = params.offset.unwrap_or(0);
+    let status_filter = params.status.as_deref().unwrap_or("all");
     
-    tracing::info!("Listing transactions for bank_account_id={}", account_id);
+    tracing::info!(
+        "Listing transactions for bank_account_id={} status={}",
+        account_id,
+        status_filter
+    );
     
     let transactions = sqlx::query_as::<_, (i64, String, String, f64, String, i32, bool)>(
         "SELECT id, date, description, amount, status, 
@@ -713,6 +657,7 @@ pub async fn list_customers_full(
     Query(params): Query<CustomerListQuery>,
 ) -> impl IntoResponse {
     let business_id = get_business_id_with_warning(params.business_id, "list_invoices");
+    let limit = params.limit.unwrap_or(200);
     
     // Get business currency
     let currency: String = sqlx::query_scalar(
@@ -724,11 +669,13 @@ pub async fn list_customers_full(
     .unwrap_or_else(|_| "CAD".to_string());
     
     let customers = sqlx::query_as::<_, (i64, String, Option<String>, Option<String>, Option<String>, bool)>(
-        "SELECT id, name, email, phone, company, is_active FROM core_customer 
+        "SELECT id, name, email, phone, company, is_active FROM core_customer
          WHERE business_id = ?
-         ORDER BY name"
+         ORDER BY name
+         LIMIT ?"
     )
     .bind(business_id)
+    .bind(limit)
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
@@ -776,6 +723,9 @@ pub async fn list_products(
     Query(params): Query<ProductListQuery>,
 ) -> impl IntoResponse {
     let business_id = get_business_id_with_warning(params.business_id, "list_invoices");
+    let kind_filter = params.kind.as_deref().unwrap_or("all");
+    let status_filter = params.status.as_deref().unwrap_or("all");
+    let query_filter = params.q.as_deref().unwrap_or("").to_lowercase();
     
     // Get business currency
     let currency: String = sqlx::query_scalar(
@@ -812,6 +762,27 @@ pub async fn list_products(
                 "description": description,
                 "usage_count": 0
             })
+        })
+        .filter(|item| {
+            let status_matches = match status_filter {
+                "active" => item["status"] == "active",
+                "archived" => item["status"] == "archived",
+                _ => true,
+            };
+            let kind_matches = match kind_filter {
+                "product" | "service" => item["kind"] == kind_filter,
+                _ => true,
+            };
+            let text_matches = if query_filter.is_empty() {
+                true
+            } else {
+                item["name"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_lowercase()
+                    .contains(&query_filter)
+            };
+            status_matches && kind_matches && text_matches
         })
         .collect();
     
@@ -859,7 +830,13 @@ pub async fn create_product(
     // Default to business_id 1 (demo mode - in production, extract from JWT)
     let business_id = 1i64;
     
-    tracing::info!("Creating product for business_id={}: {:?}", business_id, body.name);
+    let kind = body.kind.clone().unwrap_or_else(|| "product".to_string());
+    tracing::info!(
+        "Creating product for business_id={}: {:?} kind={}",
+        business_id,
+        body.name,
+        kind
+    );
     
     // Generate SKU if not provided
     let sku = body.sku.unwrap_or_else(|| {
@@ -891,6 +868,7 @@ pub async fn create_product(
                 "id": item_id,
                 "name": body.name,
                 "sku": sku,
+                "kind": kind,
                 "message": "Product created successfully"
             })))
         }
@@ -1020,6 +998,8 @@ pub async fn list_categories(
     Query(params): Query<CategoryListQuery>,
 ) -> impl IntoResponse {
     let business_id = get_business_id_with_warning(params.business_id, "list_invoices");
+    let _parent_id = params.parent_id;
+    let _category_type = params.category_type.as_deref().unwrap_or("all");
     
     // Try to get categories from core_category or core_account table
     let categories = sqlx::query_as::<_, (i64, String, Option<String>, Option<i64>, Option<String>, bool)>(
@@ -1068,6 +1048,7 @@ pub async fn list_expenses_full(
     let business_id = get_business_id_with_warning(params.business_id, "list_invoices");
     let limit = params.limit.unwrap_or(100);
     let offset = params.offset.unwrap_or(0);
+    let _status_filter = params.status.as_deref().unwrap_or("all");
     
     // Get business currency
     let currency: String = sqlx::query_scalar(
@@ -1155,6 +1136,10 @@ pub async fn list_feed_transactions(
     
     if let Some(bank_account_id) = params.bank_account_id {
         query.push_str(&format!(" AND bank_account_id = {}", bank_account_id));
+    }
+    if let Some(status) = params.status.as_deref() {
+        let escaped = status.replace('\'', "''");
+        query.push_str(&format!(" AND status = '{}'", escaped));
     }
     
     query.push_str(" ORDER BY date DESC, id DESC");

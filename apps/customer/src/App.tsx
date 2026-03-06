@@ -3,7 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-route
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { CustomerLayout } from "./layouts/CustomerLayout";
 
-import CloverBooksDashboard from "./dashboard/CloverBooksDashboard";
+import CloverBooksDashboard, { CloverBooksDashboardProps } from "./dashboard/CloverBooksDashboard";
 import { cashflowSample, profitAndLossSample } from "./reports/sampleData";
 import CloverBooksLoginPage from "./auth/LoginPage";
 import CloverBooksWelcomePage from "./auth/CloverBooksWelcomePage";
@@ -11,7 +11,8 @@ import CloverBooksCreateAccount from "./auth/CloverBooksCreateAccount";
 import OAuthCallbackPage from "./auth/OAuthCallbackPage";
 import type { ChartOfAccountsBootPayload } from "./ChartOfAccountsPage";
 import { qboDefaultCoaPayload } from "./coa/qboDefaultCoa";
-import { buildApiUrl, fetchWithTimeout } from "./api/client";
+import { buildApiUrl, fetchWithTimeout, getAccessToken } from "./api/client";
+import type { AccountSettingsProps } from "./settings/AccountSettingsPage";
 
 const LazyCompanionControlTowerPage = React.lazy(() => import("./companion/CompanionControlTowerPage"));
 const LazyCompanionOverviewPage = React.lazy(() => import("./companion/CompanionOverviewPage"));
@@ -76,10 +77,143 @@ const RequireAuth: React.FC<{ children: React.ReactElement }> = ({ children }) =
   return children;
 };
 
+type DashboardApiResponse = {
+  ok?: boolean;
+  business?: { currency?: string } | null;
+  metrics?: {
+    total_revenue?: number;
+    total_expenses?: number;
+    net_income?: number;
+    outstanding_invoices?: number;
+    outstanding_bills?: number;
+    cash_balance?: number;
+  };
+  recent_invoices?: Array<{
+    invoice_number: string;
+    customer_name: string;
+    status: string;
+    issue_date: string;
+    total_amount: number;
+  }>;
+  recent_expenses?: Array<{
+    supplier_name?: string | null;
+    description: string;
+    amount: number;
+  }>;
+  bank_accounts?: Array<{
+    name: string;
+    bank_name: string;
+    balance?: number;
+  }>;
+};
+
 const DashboardRoute: React.FC = () => {
   const { auth } = useAuth();
   const username = auth.user?.name || auth.user?.firstName || auth.user?.email || "there";
-  return <CloverBooksDashboard username={username} />;
+  const [dashboardProps, setDashboardProps] = useState<Partial<CloverBooksDashboardProps>>({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+    setLoading(true);
+
+    fetchWithTimeout(
+      buildApiUrl("/api/dashboard"),
+      {
+        headers: {
+          Accept: "application/json",
+          ...(getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {}),
+        },
+        credentials: "include",
+      },
+      12_000,
+    )
+      .then(async (res) => {
+        if (!res.ok) {
+          throw new Error(`Failed to load dashboard (${res.status})`);
+        }
+        const data = (await res.json()) as DashboardApiResponse;
+        if (!mounted) return;
+
+        const expensesBySupplier = new Map<string, number>();
+        (data.recent_expenses || []).forEach((expense) => {
+          const key = expense.supplier_name || expense.description || "Unspecified";
+          expensesBySupplier.set(key, (expensesBySupplier.get(key) || 0) + Number(expense.amount || 0));
+        });
+        const topSuppliers = Array.from(expensesBySupplier.entries())
+          .map(([name, total]) => ({ name, mtdSpend: total }))
+          .sort((a, b) => (b.mtdSpend || 0) - (a.mtdSpend || 0))
+          .slice(0, 4);
+
+        setDashboardProps({
+          currency: data.business?.currency || "USD",
+          metrics: {
+            cash_on_hand: Number(data.metrics?.cash_balance || 0),
+            open_invoices_total: Number(data.metrics?.outstanding_invoices || 0),
+            open_invoices_count: (data.recent_invoices || []).length,
+            net_income_month: Number(data.metrics?.net_income || 0),
+            revenue_month: Number(data.metrics?.total_revenue || 0),
+            expenses_month: Number(data.metrics?.total_expenses || 0),
+            revenue_30: Number(data.metrics?.total_revenue || 0),
+            expenses_30: Number(data.metrics?.total_expenses || 0),
+            overdue_total: Number(data.metrics?.outstanding_invoices || 0),
+            overdue_count: (data.recent_invoices || []).filter((i) =>
+              String(i.status || "").toLowerCase().includes("overdue"),
+            ).length,
+            unpaid_expenses_total: Number(data.metrics?.outstanding_bills || 0),
+          },
+          recentInvoices: (data.recent_invoices || []).map((invoice) => ({
+            number: invoice.invoice_number,
+            customer: invoice.customer_name,
+            status: invoice.status,
+            issue_date: invoice.issue_date,
+            amount: Number(invoice.total_amount || 0),
+            due_label: invoice.issue_date,
+            url: "/invoices/list",
+          })),
+          bankFeed: (data.bank_accounts || []).map((account) => ({
+            description: account.name,
+            note: account.bank_name,
+            amount: Number(account.balance || 0),
+            direction: Number(account.balance || 0) >= 0 ? "in" : "out",
+          })),
+          topSuppliers,
+          urls: {
+            newInvoice: "/invoices",
+            invoices: "/invoices/list",
+            banking: "/banking",
+            expenses: "/expenses",
+            suppliers: "/suppliers",
+            profitAndLoss: "/reports/pl",
+            bankReview: "/bank-review",
+            overdueInvoices: "/invoices/list",
+            unpaidExpenses: "/expenses",
+            cashflowReport: "/reports/cashflow",
+          },
+        });
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setDashboardProps({});
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-slate-600">
+        Loading dashboard...
+      </div>
+    );
+  }
+
+  return <CloverBooksDashboard username={username} {...dashboardProps} />;
 };
 
 const LegacyCompanionRedirect: React.FC = () => {
@@ -125,9 +259,7 @@ const ChartOfAccountsRoute: React.FC = () => {
         if (aborted) {
           return;
         }
-        if (window.console) {
-          console.warn("Chart of accounts API unavailable, using fallback payload.", error);
-        }
+        void error;
       })
       .finally(() => {
         if (!aborted) {
@@ -161,20 +293,82 @@ const BankingRoute: React.FC = () => (
   />
 );
 
-// Settings page with mock form data to prevent crashes
-const mockFormField = (name: string, label: string, value = "") => ({
-  name, id: name, label, value, errors: [], type: "text", required: false
-});
-const mockSettingsProps = {
-  csrfToken: "",
-  profileForm: { form_id: "profile", fields: [mockFormField("name", "Name")], hidden_fields: [], non_field_errors: [] },
-  businessForm: { form_id: "business", fields: [mockFormField("business_name", "Business Name")], hidden_fields: [], non_field_errors: [] },
-  passwordForm: { form_id: "password", fields: [], hidden_fields: [], non_field_errors: [] },
-  sessions: { current_ip: "127.0.0.1", user_agent: "Browser" },
-  postUrls: { profile: "/api/settings/profile/", business: "/api/settings/business/", password: "/api/settings/password/", logoutAll: "/api/auth/logout-all/" },
-  messages: [],
+const AccountSettingsRoute: React.FC = () => {
+  const [payload, setPayload] = useState<AccountSettingsProps | null>(null);
+  const [loading, setLoading] = useState(true);
+  const { auth } = useAuth();
+
+  useEffect(() => {
+    let mounted = true;
+    setLoading(true);
+
+    fetchWithTimeout(
+      buildApiUrl("/api/settings/bootstrap/"),
+      {
+        headers: {
+          Accept: "application/json",
+          ...(getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {}),
+        },
+        credentials: "include",
+      },
+      10_000,
+    )
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (!mounted) return;
+        setPayload({
+          csrfToken: String(data?.csrfToken || data?.csrf_token || ""),
+          profileForm: data?.profileForm || data?.profile_form || null,
+          businessForm: data?.businessForm || data?.business_form || null,
+          passwordForm: data?.passwordForm || data?.password_form || null,
+          sessions: data?.sessions || {},
+          postUrls: data?.postUrls || {
+            profile: "/api/settings/profile/",
+            business: "/api/settings/business/",
+            password: "/api/settings/password/",
+            logoutAll: "/api/auth/logout-all/",
+          },
+          messages: Array.isArray(data?.messages) ? data.messages : [],
+          taxSettings: data?.taxSettings || data?.tax_settings,
+        });
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setPayload({
+          csrfToken: "",
+          profileForm: null,
+          businessForm: null,
+          passwordForm: null,
+          sessions: { user_agent: typeof navigator !== "undefined" ? navigator.userAgent : "" },
+          postUrls: {
+            profile: "/api/settings/profile/",
+            business: "/api/settings/business/",
+            password: "/api/settings/password/",
+            logoutAll: "/api/auth/logout-all/",
+          },
+          messages: [],
+        });
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [auth.user?.id]);
+
+  if (loading || !payload) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-slate-600">
+        Loading settings...
+      </div>
+    );
+  }
+
+  return <LazyAccountSettingsPage {...payload} />;
 };
-const AccountSettingsRoute: React.FC = () => <LazyAccountSettingsPage {...mockSettingsProps} />;
 
 
 
@@ -231,6 +425,7 @@ export const AppRoutes: React.FC = () => (
         <Route path="/invoices" element={<InvoicesRoute />} />
         <Route path="/invoices/list" element={<LazyInvoicesListPage />} />
         <Route path="/expenses" element={<LazyExpensesListPage />} />
+        <Route path="/receipts" element={<Navigate to="/expenses" replace />} />
         <Route path="/customers" element={<LazyCustomersPage />} />
         <Route path="/suppliers" element={<LazySuppliersPage />} />
         <Route path="/products" element={<LazyProductsPage />} />

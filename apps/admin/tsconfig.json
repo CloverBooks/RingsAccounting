@@ -18,7 +18,7 @@
       "@/*": ["src/*"],
       "@shared-ui/*": ["../shared-ui/src/*"]
     },
-    "types": ["vitest/globals"]
+    "types": ["vite/client", "vitest/globals"]
   },
   "include": ["src"],
   "exclude": ["**/*.test.tsx", "**/*.test.ts"]
