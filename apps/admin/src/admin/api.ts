@@ -183,8 +183,15 @@ type RequestOptions = {
 type ApiError = {
   status: number;
   message: string;
+  requestId?: string;
   data?: any;
 };
+
+const responseRequestId = (res: Response, data: any) =>
+  res.headers.get("x-request-id") || data?.request_id || undefined;
+
+const formatApiErrorMessage = (message: string, requestId?: string) =>
+  requestId ? `${message} (Request ID: ${requestId})` : message;
 
 const buildUrl = (path: string, params?: RequestOptions["params"]) => {
   const base = buildApiUrl(path);
@@ -223,9 +230,11 @@ const apiFetch = async <T>(path: string, options: RequestOptions = {}): Promise<
   const data = isJson ? await res.json().catch(() => ({})) : {};
 
   if (!res.ok) {
+    const requestId = responseRequestId(res, data);
     const error: ApiError = {
       status: res.status,
-      message: data?.detail || data?.message || "Request failed",
+      message: formatApiErrorMessage(data?.detail || data?.message || "Request failed", requestId),
+      requestId,
       data,
     };
     throw error;
@@ -256,9 +265,11 @@ const apiFetchBlob = async (path: string, options: RequestOptions = {}): Promise
   if (!res.ok) {
     const isJson = res.headers.get("content-type")?.includes("application/json");
     const data = isJson ? await res.json().catch(() => ({})) : {};
+    const requestId = responseRequestId(res, data);
     const error: ApiError = {
       status: res.status,
-      message: data?.detail || data?.message || "Request failed",
+      message: formatApiErrorMessage(data?.detail || data?.message || "Request failed", requestId),
+      requestId,
       data,
     };
     throw error;
@@ -290,9 +301,11 @@ const autonomyFetch = async <T>(path: string, options: RequestOptions = {}): Pro
   const data = isJson ? await res.json().catch(() => ({})) : {};
 
   if (!res.ok) {
+    const requestId = responseRequestId(res, data);
     const error: ApiError = {
       status: res.status,
-      message: data?.detail || data?.message || "Request failed",
+      message: formatApiErrorMessage(data?.detail || data?.message || "Request failed", requestId),
+      requestId,
       data,
     };
     throw error;

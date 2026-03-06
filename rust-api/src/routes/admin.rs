@@ -1,6 +1,7 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, Query, Request, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
+    middleware::Next,
     response::{IntoResponse, Response},
     Json,
 };
@@ -7889,13 +7890,7 @@ fn minutes_since(raw: &str) -> i64 {
 }
 
 fn request_context(headers: &HeaderMap) -> RequestContext {
-    let request_id = headers
-        .get("x-request-id")
-        .and_then(|value| value.to_str().ok())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let request_id = resolve_request_id(headers);
 
     let ip_address = headers
         .get("x-forwarded-for")
@@ -7919,6 +7914,33 @@ fn request_context(headers: &HeaderMap) -> RequestContext {
         ip_address,
         user_agent,
     }
+}
+
+fn resolve_request_id(headers: &HeaderMap) -> String {
+    headers
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| Uuid::new_v4().to_string())
+}
+
+pub async fn admin_request_id_middleware(mut request: Request, next: Next) -> Response {
+    let path = request.uri().path().to_string();
+    if !path.starts_with("/api/admin/") {
+        return next.run(request).await;
+    }
+
+    let request_id = resolve_request_id(request.headers());
+    if let Ok(value) = HeaderValue::from_str(&request_id) {
+        request.headers_mut().insert("x-request-id", value.clone());
+        let mut response = next.run(request).await;
+        response.headers_mut().insert("x-request-id", value);
+        return response;
+    }
+
+    next.run(request).await
 }
 
 fn api_error(
@@ -8651,7 +8673,8 @@ mod tests {
             .route("/api/admin/employees/:id/resend-invite/", post(resend_employee_invite))
             .route("/api/admin/employees/:id/revoke-invite/", post(revoke_employee_invite))
             .route("/api/admin/invite/:token/", get(get_invite).post(redeem_invite))
-            .with_state(state);
+            .with_state(state)
+            .layer(axum::middleware::from_fn(admin_request_id_middleware));
 
         (TestServer::new(app).unwrap(), pool)
     }
@@ -8708,6 +8731,7 @@ mod tests {
             }))
             .await;
         response.assert_status(StatusCode::BAD_REQUEST);
+        assert_eq!(response.header("x-request-id").to_str().unwrap(), "admin-error-01");
 
         let body: Value = response.json();
         assert_eq!(body["ok"], false);
@@ -8718,6 +8742,28 @@ mod tests {
         assert_eq!(body["error_code"], "ADMIN_REASON_IS_REQUIRED_ADMINERROR01");
         assert_eq!(body["request_id"], "admin-error-01");
         assert_eq!(body["http_status"], 400);
+    }
+
+    #[tokio::test]
+    async fn admin_routes_emit_response_request_ids() {
+        let (server, _pool) = setup().await;
+        let token = make_token(4);
+
+        let explicit = server
+            .get("/api/admin/contract")
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "admin-header-01")
+            .await;
+        explicit.assert_status_ok();
+        assert_eq!(explicit.header("x-request-id").to_str().unwrap(), "admin-header-01");
+
+        let generated = server
+            .get("/api/admin/contract")
+            .add_header("authorization", format!("Bearer {}", token))
+            .await;
+        generated.assert_status_ok();
+        let generated_header = generated.header("x-request-id");
+        assert!(!generated_header.to_str().unwrap().trim().is_empty());
     }
 
     #[tokio::test]

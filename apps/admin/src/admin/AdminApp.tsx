@@ -566,8 +566,19 @@ const roleFromAuth = (opts: { role?: string | null; isStaff?: boolean; isSuperus
 
 const roleLevel = (role: Role) => (role === "superadmin" ? 4 : role === "engineer" ? 3 : role === "finance" ? 2 : 1);
 
+const routeSection = (pathname: string): NavSectionId => {
+  const path = (pathname || "/").replace(/^\/+/, "");
+  const segment = path.split("/")[0] || "overview";
+  const aliases: Record<string, NavSectionId> = {
+    "control-tower": "overview",
+    audit: "logs",
+  };
+  const candidate = aliases[segment] || (segment === "" ? "overview" : segment);
+  const valid = navGroups.flatMap((group) => group.items).some((item) => item.id === candidate);
+  return valid ? (candidate as NavSectionId) : "overview";
+};
+
 export const AdminApp: React.FC = () => {
-  const [current, setCurrent] = useState<NavSectionId>("overview");
   const { auth } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
@@ -576,11 +587,12 @@ export const AdminApp: React.FC = () => {
   const role = useMemo(
     () =>
       roleFromAuth({
-        role: auth.user?.role,
-        isSuperuser: Boolean(auth.user?.isSuperuser ?? auth.user?.is_superuser ?? auth.user?.is_admin),
+      role: auth.user?.role,
+      isSuperuser: Boolean(auth.user?.isSuperuser ?? auth.user?.is_superuser ?? auth.user?.is_admin),
       }),
     [auth.user?.role, auth.user?.isSuperuser, auth.user?.is_superuser, auth.user?.is_admin]
   );
+  const current = useMemo(() => routeSection(location.pathname), [location.pathname]);
 
   const renderSection = () => {
     switch (current) {
@@ -621,22 +633,7 @@ export const AdminApp: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    const path = (location.pathname || "/").replace(/^\/+/, "");
-    const segment = path.split("/")[0] || "overview";
-    const aliases: Record<string, NavSectionId> = {
-      "control-tower": "overview",
-      audit: "logs",
-    };
-    const asSection = aliases[segment] || (segment === "" ? "overview" : segment);
-    const valid = navGroups.flatMap((g) => g.items).some((i) => i.id === asSection);
-    if (valid && asSection !== current) {
-      setCurrent(asSection as NavSectionId);
-    }
-  }, [location.pathname, current]);
-
   const handleSelect = (id: NavSectionId) => {
-    setCurrent(id);
     if (id === "overview") {
       navigate("/control-tower");
       return;

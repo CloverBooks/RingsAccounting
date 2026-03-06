@@ -277,6 +277,6 @@ describe("AdminRoutes route inventory", () => {
   ])("renders %s", async (path, heading) => {
     renderRoute(path);
 
-    expect(await screen.findByText(heading)).toBeInTheDocument();
+    expect((await screen.findAllByRole("heading", { name: heading })).length).toBeGreaterThan(0);
   });
 });

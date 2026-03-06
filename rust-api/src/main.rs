@@ -4,6 +4,7 @@
 //! All endpoints read directly from the SQLite database.
 
 use axum::{
+    middleware::from_fn,
     routing::{delete, get, post},
     Router,
 };
@@ -89,6 +90,7 @@ async fn main() {
             .allow_origin("http://localhost:5173".parse::<HeaderValue>().unwrap())
             .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::PATCH])
             .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::ACCEPT])
+            .expose_headers([header::HeaderName::from_static("x-request-id")])
             .allow_credentials(true)
     } else {
         tracing::info!("✅ CORS configured for {} origin(s)", allowed_origins.len());
@@ -96,6 +98,7 @@ async fn main() {
             .allow_origin(AllowOrigin::list(allowed_origins))
             .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::PATCH])
             .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::ACCEPT])
+            .expose_headers([header::HeaderName::from_static("x-request-id")])
             .allow_credentials(true)
     };
 
@@ -359,6 +362,7 @@ async fn main() {
         .with_state(app_state)
 
         // Add middleware
+        .layer(from_fn(routes::admin::admin_request_id_middleware))
         .layer(cors)
         .layer(TraceLayer::new_for_http());
 
