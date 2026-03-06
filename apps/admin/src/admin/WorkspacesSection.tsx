@@ -6,26 +6,14 @@ import {
   type Workspace,
 } from "./api";
 import {
-  Badge,
   Button,
   Card,
   CardHeader,
   CardContent,
   CardTitle,
   CardDescription,
-  Input,
-  ScrollArea,
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-  Separator,
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  TabsContent,
 } from "../components/ui";
+import { Workspace360Section } from "./Workspace360Section";
 
 // ----------------------
 // Helpers
@@ -593,34 +581,10 @@ const WorkspaceDetailsPanel: React.FC<WorkspaceDetailsPanelProps> = ({ workspace
         {/* Right: 360° view + Recent activity */}
         <div className="flex min-h-0 flex-col gap-3">
           {show360 && (
-            <div className="flex-1 rounded-2xl border border-slate-100 bg-white/90 p-3 text-[11px] text-slate-700">
-              <div className="mb-2 flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <span>🌐</span>
-                  <span className="text-xs font-medium text-slate-900">360° workspace view</span>
-                </div>
-                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">Read-only diagnostic</span>
-              </div>
-              <div className="grid gap-3 md:grid-cols-3">
-                <div className="flex flex-col gap-2 rounded-2xl bg-slate-50 p-3 border border-slate-100">
-                  <p className="text-[10px] uppercase tracking-wide text-slate-400">Reconciliation</p>
-                  <p className="text-xs font-semibold text-slate-900">{(workspace.unreconciled_count ?? 0).toLocaleString()} unreconciled lines</p>
-                  <p className="text-[11px] text-slate-600">Use the banking & reconciliation console to drill into specific statements and matches.</p>
-                </div>
-                <div className="flex flex-col gap-2 rounded-2xl bg-slate-50 p-3 border border-slate-100">
-                  <p className="text-[10px] uppercase tracking-wide text-slate-400">Tax Guardian</p>
-                  <p className="text-xs font-semibold text-slate-900">Linked to Tax Guardian periods</p>
-                  <p className="text-[11px] text-slate-600">Open anomalies, due dates, and filing workflow live under the Tax Guardian console.</p>
-                </div>
-                <div className="flex flex-col gap-2 rounded-2xl bg-slate-50 p-3 border border-slate-100">
-                  <p className="text-[10px] uppercase tracking-wide text-slate-400">Health & alerts</p>
-                  <p className="text-xs font-semibold text-slate-900">Ledger {ledgerStatusLabel(workspace.ledger_status)}</p>
-                  <p className="text-[11px] text-slate-600">Any AI nudges, anomaly clusters, or failed jobs related to this workspace will aggregate here.</p>
-                </div>
-              </div>
+            <div className="flex-1 overflow-y-auto rounded-2xl border border-slate-100 bg-white/90 p-3 text-[11px] text-slate-700">
+              <Workspace360Section workspaceId={workspace.id} workspaceName={workspace.name} />
             </div>
           )}
-
           {/* Recent admin activity (dark) */}
           <div className="rounded-2xl border border-slate-100 bg-slate-900 px-3.5 py-3 text-[11px] text-slate-50">
             <div className="flex items-start gap-2">
