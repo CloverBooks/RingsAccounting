@@ -1262,6 +1262,32 @@ mod tests {
         std::env::set_var("JWT_SECRET", "test-secret");
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         crate::companion_autonomy::schema::run_migrations(&pool).await.unwrap();
+        sqlx::query(
+            "CREATE TABLE auth_user (
+                id INTEGER PRIMARY KEY,
+                is_staff INTEGER NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE TABLE core_business (
+                id INTEGER PRIMARY KEY,
+                ai_companion_enabled INTEGER NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO auth_user (id, is_staff) VALUES (1, 1)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO core_business (id, ai_companion_enabled) VALUES (1, 1)")
+            .execute(&pool)
+            .await
+            .unwrap();
 
         let state = AppState { db: pool.clone() };
         let app = Router::new()
@@ -1269,6 +1295,15 @@ mod tests {
             .route("/api/companion/cockpit/status", get(cockpit_status))
             .route("/api/companion/autonomy/status", get(autonomy_status))
             .route("/api/companion/autonomy/work/:id/dismiss", post(dismiss_work_item))
+            .route("/api/companion/autonomy/work/:id/snooze", post(snooze_work_item))
+            .route("/api/companion/autonomy/work/:id/request-approval", post(request_approval))
+            .route("/api/companion/autonomy/approval/:id/approve", post(approve_request))
+            .route("/api/companion/autonomy/approval/:id/reject", post(reject_request))
+            .route("/api/companion/autonomy/actions/:id/apply", post(apply_action))
+            .route("/api/companion/autonomy/actions/batch-apply", post(batch_apply_actions))
+            .route("/api/companion/autonomy/tick", post(engine_tick))
+            .route("/api/companion/autonomy/materialize", post(engine_materialize))
+            .route("/api/companion/autonomy/policy", post(update_policy))
             .with_state(state)
             .layer(axum::middleware::from_fn(
                 crate::routes::request_ids::control_plane_request_id_middleware,
@@ -1346,6 +1381,91 @@ mod tests {
         .execute(pool)
         .await
         .unwrap();
+    }
+
+    async fn seed_active_ai_settings(pool: &SqlitePool, business_id: i64) {
+        store::upsert_ai_settings(
+            pool,
+            business_id,
+            true,
+            false,
+            "drafts",
+            60,
+            "1000",
+            "2.5",
+            "0.25",
+        )
+        .await
+        .unwrap();
+    }
+
+    async fn seed_core_bank_data(pool: &SqlitePool, tenant_id: i64) {
+        sqlx::query(
+            "CREATE TABLE core_bankaccount (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                business_id INTEGER NOT NULL
+            )"
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "CREATE TABLE core_banktransaction (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bank_account_id INTEGER NOT NULL,
+                description TEXT,
+                amount REAL,
+                date TEXT NOT NULL,
+                status TEXT NOT NULL,
+                category_id INTEGER
+            )"
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+
+        sqlx::query("INSERT INTO core_bankaccount (id, business_id) VALUES (?, ?)")
+            .bind(1)
+            .bind(tenant_id)
+            .execute(pool)
+            .await
+            .unwrap();
+
+        sqlx::query(
+            "INSERT INTO core_banktransaction (bank_account_id, description, amount, date, status, category_id)
+             VALUES (?, ?, ?, ?, ?, NULL)"
+        )
+        .bind(1)
+        .bind("Test transaction")
+        .bind(120.0)
+        .bind("2025-01-10")
+        .bind("NEW")
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn action_id_for_work_item(pool: &SqlitePool, work_item_id: i64) -> i64 {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT id FROM companion_autonomy_action_recommendations WHERE work_item_id = ?"
+        )
+        .bind(work_item_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    fn assert_success_metadata(
+        body: &serde_json::Value,
+        result_state: &str,
+        message: &str,
+        request_id: &str,
+    ) {
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["result_state"], result_state);
+        assert_eq!(body["message"], message);
+        assert_eq!(body["request_id"], request_id);
     }
 
     #[tokio::test]
@@ -1490,6 +1610,211 @@ mod tests {
         assert_eq!(body["result_state"], "updated");
         assert_eq!(body["message"], "Work item dismissal processed");
         assert_eq!(body["request_id"], "autonomy-success-01");
+    }
+
+    #[tokio::test]
+    async fn autonomy_workflow_mutation_routes_emit_parity_metadata() {
+        let (server, pool) = setup().await;
+        let token = make_token(1);
+
+        let snooze_item_id = seed_work_item(&pool, 1, "Snooze me").await;
+        let snooze_response = server
+            .post(&format!("/api/companion/autonomy/work/{}/snooze", snooze_item_id))
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "autonomy-snooze-01")
+            .json(&serde_json::json!({
+                "until": "2026-03-07T00:00:00Z"
+            }))
+            .await;
+        snooze_response.assert_status_ok();
+        let snooze_body: serde_json::Value = snooze_response.json();
+        assert_success_metadata(
+            &snooze_body,
+            "updated",
+            "Work item snooze processed",
+            "autonomy-snooze-01",
+        );
+        assert_eq!(snooze_body["snoozed"], true);
+
+        let approval_item_id = seed_work_item(&pool, 1, "Approve me").await;
+        let create_response = server
+            .post(&format!(
+                "/api/companion/autonomy/work/{}/request-approval",
+                approval_item_id
+            ))
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "autonomy-request-approval-01")
+            .json(&serde_json::json!({
+                "reason_required": false
+            }))
+            .await;
+        create_response.assert_status_ok();
+        let create_body: serde_json::Value = create_response.json();
+        assert_success_metadata(
+            &create_body,
+            "created",
+            "Approval request created",
+            "autonomy-request-approval-01",
+        );
+        let approval_id = create_body["approval"]["id"].as_i64().unwrap();
+
+        let approve_response = server
+            .post(&format!("/api/companion/autonomy/approval/{}/approve", approval_id))
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "autonomy-approve-01")
+            .json(&serde_json::json!({}))
+            .await;
+        approve_response.assert_status_ok();
+        let approve_body: serde_json::Value = approve_response.json();
+        assert_success_metadata(
+            &approve_body,
+            "updated",
+            "Approval request approved",
+            "autonomy-approve-01",
+        );
+        assert_eq!(approve_body["approved"], true);
+
+        let reject_item_id = seed_work_item(&pool, 1, "Reject me").await;
+        let reject_create_response = server
+            .post(&format!(
+                "/api/companion/autonomy/work/{}/request-approval",
+                reject_item_id
+            ))
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "autonomy-request-approval-02")
+            .json(&serde_json::json!({
+                "reason_required": true
+            }))
+            .await;
+        reject_create_response.assert_status_ok();
+        let reject_create_body: serde_json::Value = reject_create_response.json();
+        let reject_approval_id = reject_create_body["approval"]["id"].as_i64().unwrap();
+
+        let reject_response = server
+            .post(&format!("/api/companion/autonomy/approval/{}/reject", reject_approval_id))
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "autonomy-reject-01")
+            .json(&serde_json::json!({
+                "reason_text": "needs manual review"
+            }))
+            .await;
+        reject_response.assert_status_ok();
+        let reject_body: serde_json::Value = reject_response.json();
+        assert_success_metadata(
+            &reject_body,
+            "updated",
+            "Approval request rejected",
+            "autonomy-reject-01",
+        );
+        assert_eq!(reject_body["rejected"], true);
+    }
+
+    #[tokio::test]
+    async fn autonomy_action_mutation_routes_emit_parity_metadata() {
+        let (server, pool) = setup().await;
+        let token = make_token(1);
+        seed_active_ai_settings(&pool, 1).await;
+
+        let apply_item_id = seed_work_item(&pool, 1, "Apply action").await;
+        let apply_action_id = action_id_for_work_item(&pool, apply_item_id).await;
+        let apply_response = server
+            .post(&format!("/api/companion/autonomy/actions/{}/apply", apply_action_id))
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "autonomy-apply-action-01")
+            .await;
+        apply_response.assert_status_ok();
+        let apply_body: serde_json::Value = apply_response.json();
+        assert_success_metadata(
+            &apply_body,
+            "completed",
+            "Action apply processed",
+            "autonomy-apply-action-01",
+        );
+        assert_eq!(apply_body["applied"], true);
+
+        let batch_item_one = seed_work_item(&pool, 1, "Batch one").await;
+        let batch_item_two = seed_work_item(&pool, 1, "Batch two").await;
+        let batch_action_one = action_id_for_work_item(&pool, batch_item_one).await;
+        let batch_action_two = action_id_for_work_item(&pool, batch_item_two).await;
+        let batch_response = server
+            .post("/api/companion/autonomy/actions/batch-apply")
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "autonomy-batch-apply-01")
+            .json(&serde_json::json!({
+                "action_ids": [batch_action_one, batch_action_two]
+            }))
+            .await;
+        batch_response.assert_status_ok();
+        let batch_body: serde_json::Value = batch_response.json();
+        assert_success_metadata(
+            &batch_body,
+            "completed",
+            "Batch action apply processed",
+            "autonomy-batch-apply-01",
+        );
+        assert_eq!(batch_body["results"].as_array().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn autonomy_staff_mutation_routes_emit_parity_metadata() {
+        let (server, pool) = setup().await;
+        let token = make_token(1);
+        seed_core_bank_data(&pool, 1).await;
+
+        let tick_response = server
+            .post("/api/companion/autonomy/tick")
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "autonomy-tick-01")
+            .json(&serde_json::json!({
+                "tenant_id": 1,
+                "business_id": 1
+            }))
+            .await;
+        tick_response.assert_status_ok();
+        let tick_body: serde_json::Value = tick_response.json();
+        assert_success_metadata(
+            &tick_body,
+            "completed",
+            "Engine tick completed",
+            "autonomy-tick-01",
+        );
+
+        let materialize_response = server
+            .post("/api/companion/autonomy/materialize")
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "autonomy-materialize-01")
+            .json(&serde_json::json!({
+                "tenant_id": 1,
+                "business_id": 1,
+                "max_age_minutes": 15
+            }))
+            .await;
+        materialize_response.assert_status_ok();
+        let materialize_body: serde_json::Value = materialize_response.json();
+        assert_success_metadata(
+            &materialize_body,
+            "completed",
+            "Engine materialize completed",
+            "autonomy-materialize-01",
+        );
+
+        let policy_response = server
+            .post("/api/companion/autonomy/policy")
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "autonomy-policy-01")
+            .json(&serde_json::json!({
+                "mode": "drafts",
+                "budgets": { "runs_per_day": 25 }
+            }))
+            .await;
+        policy_response.assert_status_ok();
+        let policy_body: serde_json::Value = policy_response.json();
+        assert_success_metadata(
+            &policy_body,
+            "updated",
+            "Autonomy policy updated",
+            "autonomy-policy-01",
+        );
     }
 
     #[test]

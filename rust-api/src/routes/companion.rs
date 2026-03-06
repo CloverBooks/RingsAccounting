@@ -1623,7 +1623,7 @@ mod tests {
     use super::*;
     use crate::companion_autonomy::models::{RecommendationSeed, WorkItemSeed};
     use crate::companion_autonomy::schema;
-    use axum::{routing::{get, post}, Router};
+    use axum::{routing::{get, patch, post}, Router};
     use axum_test::TestServer;
     use chrono::{Duration, Utc};
     use jsonwebtoken::{EncodingKey, Header};
@@ -1642,9 +1642,19 @@ mod tests {
         TestServer::new(app).unwrap()
     }
 
-    async fn issue_mutation_setup() -> (TestServer, SqlitePool) {
+    async fn companion_mutation_setup(business_id: i64) -> (TestServer, SqlitePool) {
         std::env::set_var("JWT_SECRET", "test-secret");
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        schema::run_migrations(&pool).await.unwrap();
+        sqlx::query(
+            "CREATE TABLE core_business (
+                id INTEGER PRIMARY KEY,
+                ai_companion_enabled INTEGER NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         sqlx::query(
             "CREATE TABLE core_companionissue (
                 id INTEGER PRIMARY KEY,
@@ -1656,16 +1666,92 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
+        sqlx::query(
+            "CREATE TABLE core_highriskaudit (
+                id INTEGER PRIMARY KEY,
+                business_id INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                reviewed_at TEXT,
+                updated_at TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO core_business (id, ai_companion_enabled) VALUES (?, 1)",
+        )
+        .bind(business_id)
+        .execute(&pool)
+        .await
+        .unwrap();
 
         let state = AppState { db: pool.clone() };
         let app = Router::new()
             .route("/api/companion/issues/:id/dismiss", post(dismiss_issue))
+            .route("/api/companion/issues/:id/snooze", post(snooze_issue))
+            .route("/api/companion/issues/:id/resolve", post(resolve_issue))
+            .route("/api/companion/audits/:id/approve", post(approve_audit))
+            .route("/api/companion/audits/:id/reject", post(reject_audit))
+            .route("/api/companion/v2/settings/", patch(patch_ai_settings_v2))
+            .route("/api/companion/v2/policy/", patch(patch_business_policy_v2))
+            .route("/api/companion/v2/proposals/:id/apply/", post(apply_proposal))
+            .route("/api/companion/v2/proposals/:id/reject/", post(reject_proposal))
+            .route("/api/companion/v2/shadow-events/:id/apply/", post(apply_shadow_event))
+            .route("/api/companion/v2/shadow-events/:id/reject/", post(reject_shadow_event))
             .with_state(state)
             .layer(axum::middleware::from_fn(
                 crate::routes::request_ids::control_plane_request_id_middleware,
             ));
 
         (TestServer::new(app).unwrap(), pool)
+    }
+
+    async fn seed_companion_issue(pool: &SqlitePool, issue_id: i64, business_id: i64) {
+        sqlx::query(
+            "INSERT INTO core_companionissue (id, business_id, status, updated_at)
+             VALUES (?, ?, 'open', datetime('now'))",
+        )
+        .bind(issue_id)
+        .bind(business_id)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn seed_high_risk_audit(pool: &SqlitePool, audit_id: i64, business_id: i64) {
+        sqlx::query(
+            "INSERT INTO core_highriskaudit (id, business_id, status, reviewed_at, updated_at)
+             VALUES (?, ?, 'pending', NULL, datetime('now'))",
+        )
+        .bind(audit_id)
+        .bind(business_id)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn seed_active_ai_settings(pool: &SqlitePool, business_id: i64) {
+        autonomy_store::upsert_ai_settings(
+            pool,
+            business_id,
+            true,
+            false,
+            "drafts",
+            60,
+            "1000",
+            "2.5",
+            "0.25",
+        )
+        .await
+        .unwrap();
+    }
+
+    fn assert_success_metadata(body: &Value, result_state: &str, message: &str, request_id: &str) {
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["result_state"], result_state);
+        assert_eq!(body["message"], message);
+        assert_eq!(body["request_id"], request_id);
     }
 
     fn make_token(business_id: i64) -> String {
@@ -1925,14 +2011,8 @@ mod tests {
 
     #[tokio::test]
     async fn companion_mutations_include_success_request_metadata() {
-        let (server, pool) = issue_mutation_setup().await;
-        sqlx::query(
-            "INSERT INTO core_companionissue (id, business_id, status, updated_at)
-             VALUES (1, 42, 'open', datetime('now'))",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        let (server, pool) = companion_mutation_setup(42).await;
+        seed_companion_issue(&pool, 1, 42).await;
 
         let token = make_token(42);
         let response = server
@@ -1947,10 +2027,167 @@ mod tests {
             "companion-success-01"
         );
         let body: Value = response.json();
-        assert_eq!(body["ok"], true);
-        assert_eq!(body["result_state"], "updated");
-        assert_eq!(body["message"], "Issue dismissed");
-        assert_eq!(body["request_id"], "companion-success-01");
+        assert_success_metadata(&body, "updated", "Issue dismissed", "companion-success-01");
+    }
+
+    #[tokio::test]
+    async fn companion_issue_and_audit_mutation_routes_emit_parity_metadata() {
+        let (server, pool) = companion_mutation_setup(42).await;
+        seed_companion_issue(&pool, 10, 42).await;
+        seed_companion_issue(&pool, 11, 42).await;
+        seed_companion_issue(&pool, 12, 42).await;
+        seed_high_risk_audit(&pool, 20, 42).await;
+        seed_high_risk_audit(&pool, 21, 42).await;
+
+        let token = make_token(42);
+        let cases = [
+            ("/api/companion/issues/10/dismiss", "companion-issue-dismiss-01", "Issue dismissed"),
+            ("/api/companion/issues/11/snooze", "companion-issue-snooze-01", "Issue snoozed"),
+            ("/api/companion/issues/12/resolve", "companion-issue-resolve-01", "Issue resolved"),
+            ("/api/companion/audits/20/approve", "companion-audit-approve-01", "Audit approved"),
+            ("/api/companion/audits/21/reject", "companion-audit-reject-01", "Audit rejected"),
+        ];
+
+        for (path, request_id, message) in cases {
+            let response = server
+                .post(path)
+                .add_header("authorization", format!("Bearer {}", token))
+                .add_header("x-request-id", request_id)
+                .await;
+
+            response.assert_status_ok();
+            let body: Value = response.json();
+            assert_success_metadata(&body, "updated", message, request_id);
+        }
+    }
+
+    #[tokio::test]
+    async fn companion_settings_and_policy_mutation_routes_emit_parity_metadata() {
+        let (server, _pool) = companion_mutation_setup(42).await;
+
+        let token = make_token(42);
+        let settings_response = server
+            .patch("/api/companion/v2/settings/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "companion-settings-01")
+            .json(&json!({
+                "ai_mode": "drafts",
+                "velocity_limit_per_minute": 90
+            }))
+            .await;
+        settings_response.assert_status_ok();
+        let settings_body: Value = settings_response.json();
+        assert_success_metadata(
+            &settings_body,
+            "updated",
+            "AI settings updated",
+            "companion-settings-01",
+        );
+        assert_eq!(settings_body["settings"]["ai_mode"], "drafts");
+        assert_eq!(settings_body["settings"]["velocity_limit_per_minute"], 90);
+
+        let policy_response = server
+            .patch("/api/companion/v2/policy/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "companion-policy-01")
+            .json(&json!({
+                "materiality_threshold": "2500",
+                "risk_appetite": "conservative"
+            }))
+            .await;
+        policy_response.assert_status_ok();
+        let policy_body: Value = policy_response.json();
+        assert_success_metadata(
+            &policy_body,
+            "updated",
+            "Business policy updated",
+            "companion-policy-01",
+        );
+        assert_eq!(policy_body["materiality_threshold"], "2500");
+        assert_eq!(policy_body["risk_appetite"], "conservative");
+    }
+
+    #[tokio::test]
+    async fn companion_proposal_and_shadow_mutation_routes_emit_parity_metadata() {
+        let business_id = 42;
+        let workspace_id = 420;
+        let (server, pool) = companion_mutation_setup(business_id).await;
+        seed_active_ai_settings(&pool, business_id).await;
+
+        let proposal_apply_id = seed_work_item(&pool, workspace_id, business_id, "match_bank", 1001, 90).await;
+        let proposal_reject_id = seed_work_item(&pool, workspace_id, business_id, "categorize_tx", 1002, 80).await;
+        let shadow_apply_id = seed_work_item(&pool, workspace_id, business_id, "match_bank", 1003, 70).await;
+        let shadow_reject_id = seed_work_item(&pool, workspace_id, business_id, "categorize_tx", 1004, 60).await;
+
+        let token = make_token(business_id);
+        let proposal_apply = server
+            .post(&format!("/api/companion/v2/proposals/{}/apply/", proposal_apply_id))
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "proposal-apply-01")
+            .json(&json!({ "workspace_id": workspace_id }))
+            .await;
+        proposal_apply.assert_status_ok();
+        let proposal_apply_body: Value = proposal_apply.json();
+        assert_success_metadata(
+            &proposal_apply_body,
+            "completed",
+            "Proposal apply processed",
+            "proposal-apply-01",
+        );
+        assert_eq!(proposal_apply_body["result"]["applied"], true);
+
+        let proposal_reject = server
+            .post(&format!("/api/companion/v2/proposals/{}/reject/", proposal_reject_id))
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "proposal-reject-01")
+            .json(&json!({
+                "workspace_id": workspace_id,
+                "reason": "not needed"
+            }))
+            .await;
+        proposal_reject.assert_status_ok();
+        let proposal_reject_body: Value = proposal_reject.json();
+        assert_success_metadata(
+            &proposal_reject_body,
+            "updated",
+            "Proposal rejected",
+            "proposal-reject-01",
+        );
+        assert_eq!(proposal_reject_body["event_type"], "CategorizationProposed");
+
+        let shadow_apply = server
+            .post(&format!("/api/companion/v2/shadow-events/{}/apply/", shadow_apply_id))
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "shadow-apply-01")
+            .json(&json!({ "workspace_id": workspace_id }))
+            .await;
+        shadow_apply.assert_status_ok();
+        let shadow_apply_body: Value = shadow_apply.json();
+        assert_success_metadata(
+            &shadow_apply_body,
+            "completed",
+            "Shadow event apply processed",
+            "shadow-apply-01",
+        );
+        assert_eq!(shadow_apply_body["applied"], true);
+
+        let shadow_reject = server
+            .post(&format!("/api/companion/v2/shadow-events/{}/reject/", shadow_reject_id))
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "shadow-reject-01")
+            .json(&json!({
+                "workspace_id": workspace_id,
+                "reason": "handled manually"
+            }))
+            .await;
+        shadow_reject.assert_status_ok();
+        let shadow_reject_body: Value = shadow_reject.json();
+        assert_success_metadata(
+            &shadow_reject_body,
+            "updated",
+            "Suggestion rejected",
+            "shadow-reject-01",
+        );
     }
 
     async fn seed_work_item(
