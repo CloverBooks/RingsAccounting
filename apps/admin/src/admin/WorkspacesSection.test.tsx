@@ -1,6 +1,7 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
 import { WorkspacesSection } from "./WorkspacesSection";
+import * as api from "./api";
 
 vi.mock("./api", () => {
   const mockWorkspaces = {
@@ -94,5 +95,27 @@ describe("WorkspacesSection", () => {
     expect(screen.getByText("Workspace")).toBeInTheDocument();
     expect(screen.getByText("Plan")).toBeInTheDocument();
     expect(await screen.findByText(/Main Ops/i)).toBeInTheDocument();
+  });
+
+  it("collects a reason before soft-delete workspace updates", async () => {
+    render(<WorkspacesSection roleLevel={4} />);
+    await screen.findByText(/Main Ops/i);
+
+    fireEvent.click(screen.getByLabelText(/soft delete tenant/i));
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+    fireEvent.change(await screen.findByLabelText(/reason/i), {
+      target: { value: "Fraud review closure." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /submit deletion request/i }));
+
+    await waitFor(() =>
+      expect(api.updateWorkspace).toHaveBeenLastCalledWith(1, {
+        name: "Clover Books Labs Inc.",
+        plan: "Pro",
+        status: "active",
+        is_deleted: true,
+        reason: "Fraud review closure.",
+      }),
+    );
   });
 });
