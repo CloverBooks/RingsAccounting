@@ -1,5 +1,43 @@
 import "@testing-library/jest-dom";
+import { vi } from "vitest";
 import "./strictConsole";
+
+vi.mock("recharts", async () => {
+  const actual = await vi.importActual<typeof import("recharts")>("recharts");
+  const React = await import("react");
+
+  function ResponsiveContainer({
+    width = 1024,
+    height = 320,
+    children,
+  }: {
+    width?: number | string;
+    height?: number | string;
+    children?: React.ReactNode;
+  }) {
+    const resolvedWidth = typeof width === "number" ? width : 1024;
+    const resolvedHeight = typeof height === "number" ? height : 320;
+    const style = { width: resolvedWidth, height: resolvedHeight };
+
+    if (!React.isValidElement(children)) {
+      return React.createElement("div", { style }, children);
+    }
+
+    return React.createElement(
+      "div",
+      { style },
+      React.cloneElement(children, {
+        width: resolvedWidth,
+        height: resolvedHeight,
+      }),
+    );
+  }
+
+  return {
+    ...actual,
+    ResponsiveContainer,
+  };
+});
 
 class ResizeObserverMock {
   observe() {}

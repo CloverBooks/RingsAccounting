@@ -1,5 +1,5 @@
 import React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 
@@ -180,15 +180,17 @@ describe("OnboardingPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
 
-    expect(onboardingMock.updateProfile).toHaveBeenCalled();
-    expect(onboardingMock.logEvent).toHaveBeenCalledWith(
-      "Onboarding_Step_Completed",
-      expect.objectContaining({
-        step: "professional_profile",
-        required_fields_complete: true,
-      }),
+    await waitFor(() => expect(onboardingMock.updateProfile).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(onboardingMock.logEvent).toHaveBeenCalledWith(
+        "Onboarding_Step_Completed",
+        expect.objectContaining({
+          step: "professional_profile",
+          required_fields_complete: true,
+        }),
+      ),
     );
-    expect(onboardingMock.setStep).toHaveBeenCalledWith("ai_handshake");
+    await waitFor(() => expect(onboardingMock.setStep).toHaveBeenCalledWith("ai_handshake"));
   });
 
   it("sends incomplete completion back to professional setup", () => {
