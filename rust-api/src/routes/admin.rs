@@ -4473,46 +4473,63 @@ pub async fn revoke_employee_invite(
 
 pub async fn get_invite(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(token): Path<String>,
 ) -> impl IntoResponse {
+    let req = request_context(&headers);
     match fetch_employee_by_invite_token(&state.db, &token).await {
         Ok(Some(employee)) => {
             if employee.invite_status.as_deref() != Some("pending")
                 || is_expired_timestamp(employee.invite_expires_at.as_deref())
             {
-                return (
+                return mutation_response(
                     StatusCode::OK,
-                    Json(json!({
+                    "invalid",
+                    "This invite link is invalid or has expired.",
+                    &req.request_id,
+                    json!({
+                        "ok": false,
                         "valid": false,
                         "error": "This invite link is invalid or has expired."
-                    })),
+                    }),
                 );
             }
-            (
+            mutation_response(
                 StatusCode::OK,
-                Json(json!({
+                "validated",
+                "Invite is valid.",
+                &req.request_id,
+                json!({
                     "valid": true,
                     "role": employee.primary_admin_role,
                     "email": employee.email,
                     "email_locked": true
-                })),
+                }),
             )
         }
-        Ok(None) => (
+        Ok(None) => mutation_response(
             StatusCode::OK,
-            Json(json!({
+            "invalid",
+            "This invite link is invalid or has expired.",
+            &req.request_id,
+            json!({
+                "ok": false,
                 "valid": false,
                 "error": "This invite link is invalid or has expired."
-            })),
+            }),
         ),
         Err(error) => {
             tracing::error!("Failed to validate invite token: {}", error);
-            (
+            mutation_response(
                 StatusCode::OK,
-                Json(json!({
+                "invalid",
+                "Could not validate invite.",
+                &req.request_id,
+                json!({
+                    "ok": false,
                     "valid": false,
                     "error": "Could not validate invite."
-                })),
+                }),
             )
         }
     }
@@ -4520,32 +4537,27 @@ pub async fn get_invite(
 
 pub async fn redeem_invite(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(token): Path<String>,
     Json(body): Json<InviteRedeemBody>,
 ) -> impl IntoResponse {
+    let req = request_context(&headers);
     let employee = match fetch_employee_by_invite_token(&state.db, &token).await {
         Ok(Some(value)) => value,
-        Ok(None) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": "Invite is invalid or expired." })),
-            )
-        }
+        Ok(None) => return api_error(StatusCode::BAD_REQUEST, "Invite is invalid or expired.", &req.request_id),
         Err(error) => {
             tracing::error!("Failed to fetch invite by token: {}", error);
-            return (
+            return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Could not validate invite." })),
+                "Could not validate invite.",
+                &req.request_id,
             );
         }
     };
     if employee.invite_status.as_deref() != Some("pending")
         || is_expired_timestamp(employee.invite_expires_at.as_deref())
     {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "Invite is invalid or expired." })),
-        );
+        return api_error(StatusCode::BAD_REQUEST, "Invite is invalid or expired.", &req.request_id);
     }
 
     let username = body
@@ -4573,19 +4585,11 @@ pub async fn redeem_invite(
         .filter(|value| !value.is_empty())
         .unwrap_or(employee.email.as_str());
     if !email.eq_ignore_ascii_case(employee.email.as_str()) {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "Invite email does not match." })),
-        );
+        return api_error(StatusCode::BAD_REQUEST, "Invite email does not match.", &req.request_id);
     }
     let password = match body.password.as_deref() {
         Some(value) if value.len() >= 8 => value,
-        _ => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": "Password must be at least 8 characters." })),
-            )
-        }
+        _ => return api_error(StatusCode::BAD_REQUEST, "Password must be at least 8 characters.", &req.request_id),
     };
 
     let user_id = match ensure_invite_user(
@@ -4597,14 +4601,15 @@ pub async fn redeem_invite(
         email,
         password,
     )
-    .await
+        .await
     {
         Ok(value) => value,
         Err(error) => {
             tracing::error!("Failed to create invite user: {}", error);
-            return (
+            return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Failed to create account." })),
+                "Failed to create account.",
+                &req.request_id,
             );
         }
     };
@@ -4624,12 +4629,47 @@ pub async fn redeem_invite(
         tracing::error!("Failed to mark invite as accepted: {}", error);
     }
 
-    (
+    let is_superadmin = employee.primary_admin_role == "superadmin";
+    let (role, level) = infer_role_and_level(true, is_superadmin, Some(employee.primary_admin_role.as_str()));
+    let invite_principal = AdminPrincipal {
+        user_id,
+        email: email.to_string(),
+        role: role.to_string(),
+        level,
+        is_staff: true,
+        is_superuser: is_superadmin,
+    };
+    let details = json!({
+        "employee_id": employee.id,
+        "redeemed_user_id": user_id,
+        "invite_role": employee.primary_admin_role
+    });
+    if let Err(error) = insert_audit_event(
+        &state.db,
+        &req.request_id,
+        "employee.invite.redeem",
+        "accepted",
+        &invite_principal,
+        "employee",
+        &employee.id.to_string(),
+        None,
+        req.ip_address.as_deref(),
+        req.user_agent.as_deref(),
+        &details,
+    )
+    .await
+    {
+        tracing::error!("Failed to write employee.invite.redeem audit event: {}", error);
+    }
+
+    mutation_response(
         StatusCode::OK,
-        Json(json!({
-            "message": "Account created successfully.",
+        "completed",
+        "Account created successfully.",
+        &req.request_id,
+        json!({
             "redirect": "/login"
-        })),
+        }),
     )
 }
 
@@ -9022,13 +9062,17 @@ mod tests {
 
         let invite_lookup = server
             .get(&format!("/api/admin/invite/{}/", invite_token))
+            .add_header("x-request-id", "invite-lookup-01")
             .await;
         invite_lookup.assert_status_ok();
         let invite_lookup_body: Value = invite_lookup.json();
+        assert_eq!(invite_lookup_body["result_state"], "validated");
+        assert_eq!(invite_lookup_body["request_id"], "invite-lookup-01");
         assert_eq!(invite_lookup_body["valid"], true);
 
         let redeem = server
             .post(&format!("/api/admin/invite/{}/", invite_token))
+            .add_header("x-request-id", "invite-redeem-01")
             .json(&json!({
                 "username": "invitee",
                 "email": "invitee@example.com",
@@ -9039,6 +9083,8 @@ mod tests {
             .await;
         redeem.assert_status_ok();
         let redeem_body: Value = redeem.json();
+        assert_eq!(redeem_body["result_state"], "completed");
+        assert_eq!(redeem_body["request_id"], "invite-redeem-01");
         assert_eq!(redeem_body["redirect"], "/login");
     }
 
@@ -9082,5 +9128,38 @@ mod tests {
         assert_eq!(updated_user.0, "customer-admin");
         assert_eq!(updated_user.1, 1);
         assert_eq!(updated_user.2, 1);
+    }
+
+    #[tokio::test]
+    async fn invalid_invite_routes_return_traced_envelopes() {
+        let (server, _pool) = setup().await;
+
+        let invite_lookup = server
+            .get("/api/admin/invite/missing-token/")
+            .add_header("x-request-id", "invite-invalid-01")
+            .await;
+        invite_lookup.assert_status_ok();
+        let invite_lookup_body: Value = invite_lookup.json();
+        assert_eq!(invite_lookup_body["ok"], false);
+        assert_eq!(invite_lookup_body["result_state"], "invalid");
+        assert_eq!(invite_lookup_body["request_id"], "invite-invalid-01");
+        assert_eq!(invite_lookup_body["valid"], false);
+
+        let redeem = server
+            .post("/api/admin/invite/missing-token/")
+            .add_header("x-request-id", "invite-invalid-02")
+            .json(&json!({
+                "username": "ghost-user",
+                "email": "ghost@example.com",
+                "password": "secure-pass-999"
+            }))
+            .await;
+        redeem.assert_status(StatusCode::BAD_REQUEST);
+        let redeem_body: Value = redeem.json();
+        assert_eq!(redeem_body["ok"], false);
+        assert_eq!(redeem_body["result_state"], "failed");
+        assert_eq!(redeem_body["error_type"], "invite_is_invalid_or_expired");
+        assert_eq!(redeem_body["error_code"], "ADMIN_INVITE_IS_INVALID_OR_EXPIRED_INVITEINVALI");
+        assert_eq!(redeem_body["request_id"], "invite-invalid-02");
     }
 }
