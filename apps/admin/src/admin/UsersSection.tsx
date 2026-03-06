@@ -30,6 +30,7 @@ import {
   TabsTrigger,
   TabsContent,
 } from "../components/ui";
+import { AdminReasonDialog } from "./AdminReasonDialog";
 
 // ----------------------
 // Types
@@ -381,6 +382,14 @@ interface UserDetailsPanelProps {
   roleLevel: number;
 }
 
+interface ReasonRequest {
+  title: string;
+  description: string;
+  confirmLabel: string;
+  loadingLabel: string;
+  action: (reason: string) => Promise<void>;
+}
+
 const UserDetailsPanel: React.FC<UserDetailsPanelProps> = ({ user, onUpdate, roleLevel }) => {
   const [firstName, setFirstName] = useState(user.first_name || "");
   const [lastName, setLastName] = useState(user.last_name || "");
@@ -397,6 +406,10 @@ const UserDetailsPanel: React.FC<UserDetailsPanelProps> = ({ user, onUpdate, rol
   const [impersonateLoading, setImpersonateLoading] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
   const [resetApprovalId, setResetApprovalId] = useState<string | null>(null);
+  const [reasonRequest, setReasonRequest] = useState<ReasonRequest | null>(null);
+  const [reasonValue, setReasonValue] = useState("");
+  const [reasonError, setReasonError] = useState<string | null>(null);
+  const [reasonSubmitting, setReasonSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState("profile");
 
   // Reset form when user changes
@@ -411,6 +424,10 @@ const UserDetailsPanel: React.FC<UserDetailsPanelProps> = ({ user, onUpdate, rol
     setMessage(null);
     setError(null);
     setResetApprovalId(null);
+    setReasonRequest(null);
+    setReasonValue("");
+    setReasonError(null);
+    setReasonSubmitting(false);
   }, [user.id]);
 
   const hasPassword = user.has_usable_password ?? false;
@@ -419,47 +436,53 @@ const UserDetailsPanel: React.FC<UserDetailsPanelProps> = ({ user, onUpdate, rol
   const canEdit = roleLevel >= 2;
   const canChangePrivileges = roleLevel >= 4;
 
-  const promptRequiredReason = (label: string): string | null => {
-    const value = window.prompt(`Reason required: ${label}`);
-    if (value === null) return null;
-    const trimmed = value.trim();
-    if (!trimmed) {
-      window.alert("Reason is required.");
-      return null;
-    }
-    return trimmed;
+  const resetReasonDialog = () => {
+    setReasonRequest(null);
+    setReasonValue("");
+    setReasonError(null);
   };
 
-  const handleSave = async () => {
-    if (!canEdit) {
-      setError("View-only: OPS or higher required to edit users.");
-      return;
-    }
+  const queueReasonDialog = (request: ReasonRequest) => {
+    setReasonRequest(request);
+    setReasonValue("");
+    setReasonError(null);
+  };
+
+  const closeReasonDialog = () => {
+    if (reasonSubmitting) return;
+    resetReasonDialog();
+  };
+
+  const saveUserChanges = async (reason?: string) => {
     setSaving(true);
     setMessage(null);
     setError(null);
     try {
-      const safePayload: Record<string, unknown> = {};
-      if ((user.first_name || "") !== firstName) safePayload.first_name = firstName;
-      if ((user.last_name || "") !== lastName) safePayload.last_name = lastName;
-      if ((user.email || "") !== email) safePayload.email = email;
-
       const desiredAdminRole = adminRole === "none" ? null : adminRole.toUpperCase();
       const originalAdminRole = user.admin_role ? user.admin_role.toUpperCase() : null;
-
       const isActiveChanged = Boolean(user.is_active) !== Boolean(isActive);
       const privilegeChanged =
         Boolean(user.is_staff) !== Boolean(isStaff) ||
         Boolean(user.is_superuser) !== Boolean(isSuperuser) ||
         desiredAdminRole !== originalAdminRole;
 
+      if ((isActiveChanged || privilegeChanged) && !reason) {
+        throw new Error("Reason is required.");
+      }
+
       if (privilegeChanged && !canChangePrivileges) {
-        setError("Privilege changes require SUPERADMIN+.");
+        const msg = "Privilege changes require SUPERADMIN+.";
+        setError(msg);
         setIsStaff(Boolean(user.is_staff));
         setIsSuperuser(Boolean(user.is_superuser));
         setAdminRole((user.admin_role?.toLowerCase() as AdminRole) || "none");
-        return;
+        throw new Error(msg);
       }
+
+      const safePayload: Record<string, unknown> = {};
+      if ((user.first_name || "") !== firstName) safePayload.first_name = firstName;
+      if ((user.last_name || "") !== lastName) safePayload.last_name = lastName;
+      if ((user.email || "") !== email) safePayload.email = email;
 
       const createdApprovalIds: string[] = [];
 
@@ -472,10 +495,6 @@ const UserDetailsPanel: React.FC<UserDetailsPanelProps> = ({ user, onUpdate, rol
       }
 
       if (isActiveChanged) {
-        const reason = promptRequiredReason(
-          `Change active status for ${user.email} from ${user.is_active ? "active" : "suspended"} to ${isActive ? "active" : "suspended"}`
-        );
-        if (!reason) return;
         const res = await updateUser(user.id, { is_active: isActive, reason });
         if ("approval_required" in res && res.approval_required) {
           createdApprovalIds.push(res.approval_request_id);
@@ -484,8 +503,6 @@ const UserDetailsPanel: React.FC<UserDetailsPanelProps> = ({ user, onUpdate, rol
       }
 
       if (privilegeChanged) {
-        const reason = promptRequiredReason(`Change privileges for ${user.email}`);
-        if (!reason) return;
         const res = await updateUser(user.id, {
           is_staff: isStaff,
           is_superuser: isSuperuser,
@@ -509,19 +526,59 @@ const UserDetailsPanel: React.FC<UserDetailsPanelProps> = ({ user, onUpdate, rol
       }
       onUpdate();
     } catch (err: any) {
-      setError(err?.message || "Failed to update user");
+      const msg = err?.message || "Failed to update user";
+      setError(msg);
+      throw err;
     } finally {
       setSaving(false);
     }
   };
 
-  const handleImpersonate = async () => {
+  const handleSave = async () => {
     if (!canEdit) {
-      setError("View-only: OPS or higher required to start impersonation.");
+      setError("View-only: OPS or higher required to edit users.");
       return;
     }
-    const reason = promptRequiredReason(`Impersonate ${user.email}`);
-    if (!reason) return;
+    const desiredAdminRole = adminRole === "none" ? null : adminRole.toUpperCase();
+    const originalAdminRole = user.admin_role ? user.admin_role.toUpperCase() : null;
+    const isActiveChanged = Boolean(user.is_active) !== Boolean(isActive);
+    const privilegeChanged =
+      Boolean(user.is_staff) !== Boolean(isStaff) ||
+      Boolean(user.is_superuser) !== Boolean(isSuperuser) ||
+      desiredAdminRole !== originalAdminRole;
+
+    if (privilegeChanged && !canChangePrivileges) {
+      setError("Privilege changes require SUPERADMIN+.");
+      setIsStaff(Boolean(user.is_staff));
+      setIsSuperuser(Boolean(user.is_superuser));
+      setAdminRole((user.admin_role?.toLowerCase() as AdminRole) || "none");
+      return;
+    }
+
+    if (isActiveChanged || privilegeChanged) {
+      const actions: string[] = [];
+      if (isActiveChanged) actions.push("account status");
+      if (privilegeChanged) actions.push("admin privileges");
+      queueReasonDialog({
+        title: "Reason required",
+        description: `Document why you are changing ${actions.join(" and ")} for ${user.email}.`,
+        confirmLabel: "Save changes",
+        loadingLabel: "Saving...",
+        action: async (reason) => {
+          await saveUserChanges(reason);
+        },
+      });
+      return;
+    }
+
+    try {
+      await saveUserChanges();
+    } catch {
+      return;
+    }
+  };
+
+  const runImpersonation = async (reason: string) => {
     setImpersonateLoading(true);
     try {
       const data = await startImpersonation(user.id, reason);
@@ -531,19 +588,29 @@ const UserDetailsPanel: React.FC<UserDetailsPanelProps> = ({ user, onUpdate, rol
           : buildApiUrl(data.redirect_url);
       }
     } catch (err: any) {
-      setError(err?.message || "Failed to start impersonation");
+      const msg = err?.message || "Failed to start impersonation";
+      setError(msg);
+      throw err;
     } finally {
       setImpersonateLoading(false);
     }
   };
 
-  const handleResetPassword = async () => {
+  const handleImpersonate = async () => {
     if (!canEdit) {
-      setError("View-only: OPS or higher required to request reset links.");
+      setError("View-only: OPS or higher required to start impersonation.");
       return;
     }
-    const reason = promptRequiredReason(`Create password reset link for ${user.email}`);
-    if (!reason) return;
+    queueReasonDialog({
+      title: "Reason required",
+      description: `Document why you need to impersonate ${user.email}. This action is fully audited.`,
+      confirmLabel: "Start impersonation",
+      loadingLabel: "Starting...",
+      action: runImpersonation,
+    });
+  };
+
+  const runResetPassword = async (reason: string) => {
     setResetLoading(true);
     setResetApprovalId(null);
     setError(null);
@@ -552,9 +619,44 @@ const UserDetailsPanel: React.FC<UserDetailsPanelProps> = ({ user, onUpdate, rol
       setResetApprovalId(data.approval_request_id);
       setMessage(`Created approval request ${data.approval_request_id}. Approve it to generate the reset link.`);
     } catch (err: any) {
-      setError(err?.message || "Failed to reset password");
+      const msg = err?.message || "Failed to reset password";
+      setError(msg);
+      throw err;
     } finally {
       setResetLoading(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!canEdit) {
+      setError("View-only: OPS or higher required to request reset links.");
+      return;
+    }
+    queueReasonDialog({
+      title: "Reason required",
+      description: `Document why you need to create a password reset link for ${user.email}.`,
+      confirmLabel: "Create reset request",
+      loadingLabel: "Creating...",
+      action: runResetPassword,
+    });
+  };
+
+  const submitReasonDialog = async () => {
+    if (!reasonRequest) return;
+    const trimmedReason = reasonValue.trim();
+    if (!trimmedReason) {
+      setReasonError("Reason is required.");
+      return;
+    }
+    setReasonSubmitting(true);
+    setReasonError(null);
+    try {
+      await reasonRequest.action(trimmedReason);
+      resetReasonDialog();
+    } catch (err: any) {
+      setReasonError(err?.message || "Action failed");
+    } finally {
+      setReasonSubmitting(false);
     }
   };
 
@@ -893,6 +995,23 @@ const UserDetailsPanel: React.FC<UserDetailsPanelProps> = ({ user, onUpdate, rol
           </div>
         </div>
       </CardContent>
+      <AdminReasonDialog
+        open={Boolean(reasonRequest)}
+        title={reasonRequest?.title || "Reason required"}
+        description={reasonRequest?.description || "Document why this privileged action is necessary."}
+        confirmLabel={reasonRequest?.confirmLabel || "Continue"}
+        loadingLabel={reasonRequest?.loadingLabel || "Saving..."}
+        reason={reasonValue}
+        error={reasonError}
+        loading={reasonSubmitting}
+        onReasonChange={setReasonValue}
+        onConfirm={submitReasonDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeReasonDialog();
+          }
+        }}
+      />
     </Card>
   );
 };

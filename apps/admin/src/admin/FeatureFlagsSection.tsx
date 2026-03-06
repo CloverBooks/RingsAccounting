@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { fetchFeatureFlags, updateFeatureFlag, type FeatureFlag } from "./api";
+import { AdminReasonDialog } from "./AdminReasonDialog";
 import { Card, SimpleTable, StatusPill } from "./AdminUI";
 
 type Role = "support" | "finance" | "engineer" | "superadmin";
@@ -14,12 +15,43 @@ const isFeatureFlag = (value: unknown): value is FeatureFlag =>
       "rollout_percent" in value,
   );
 
+type PendingFlagChange = {
+  flag: FeatureFlag;
+  previous: FeatureFlag;
+  payload: Partial<Pick<FeatureFlag, "is_enabled" | "rollout_percent">>;
+};
+
 export const FeatureFlagsSection: React.FC<{ role?: Role }> = ({ role = "superadmin" }) => {
   const [flags, setFlags] = useState<FeatureFlag[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [pendingChange, setPendingChange] = useState<PendingFlagChange | null>(null);
+  const [reason, setReason] = useState("");
+  const [reasonError, setReasonError] = useState<string | null>(null);
+  const [reasonLoading, setReasonLoading] = useState(false);
   const canEdit = role === "engineer" || role === "superadmin";
+
+  const applyLocalFlagState = (flagId: number, payload: PendingFlagChange["payload"]) => {
+    setFlags((list) =>
+      list.map((item) => (item.id === flagId ? { ...item, ...payload } : item))
+    );
+  };
+
+  const revertLocalFlagState = (previous: FeatureFlag) => {
+    setFlags((list) => list.map((item) => (item.id === previous.id ? previous : item)));
+  };
+
+  const resetReasonDialog = () => {
+    setPendingChange(null);
+    setReason("");
+    setReasonError(null);
+  };
+
+  const closeReasonDialog = () => {
+    if (reasonLoading) return;
+    resetReasonDialog();
+  };
 
   const loadFlags = async () => {
     setLoading(true);
@@ -39,50 +71,49 @@ export const FeatureFlagsSection: React.FC<{ role?: Role }> = ({ role = "superad
     loadFlags();
   }, []);
 
-  const handleToggle = async (flag: FeatureFlag, enabled: boolean) => {
-    if (!canEdit) return;
-    setError(null);
-    setMessage(null);
-    const previous = flag;
-    setFlags((list) => list.map((f) => (f.id === flag.id ? { ...f, is_enabled: enabled } : f)));
+  const applyFlagChange = async (
+    change: PendingFlagChange,
+    extraPayload?: Record<string, unknown>,
+  ) => {
+    const payload = { ...change.payload, ...extraPayload };
     try {
-      const res = await updateFeatureFlag(flag.id, { is_enabled: enabled });
+      const res = await updateFeatureFlag(change.flag.id, payload);
       if ("approval_required" in res && res.approval_required) {
-        setFlags((list) => list.map((f) => (f.id === flag.id ? previous : f)));
+        revertLocalFlagState(change.previous);
         setMessage(`Change queued for approval: ${res.approval_request_id}`);
         return;
       }
       if (isFeatureFlag(res)) {
-        setFlags((list) => list.map((f) => (f.id === flag.id ? res : f)));
+        setFlags((list) => list.map((item) => (item.id === change.flag.id ? res : item)));
       }
     } catch (err: any) {
       const msg = err?.message || "Unable to update flag";
-      if (String(msg).toLowerCase().includes("reason is required")) {
-        const reason = window.prompt("Reason required: critical feature flag change (approval required)");
-        if (!reason || !reason.trim()) {
-          setFlags((list) => list.map((f) => (f.id === flag.id ? previous : f)));
-          setError("Cancelled: reason is required for this change.");
-          return;
-        }
-        try {
-          const res = await updateFeatureFlag(flag.id, { is_enabled: enabled, reason: reason.trim() });
-          if ("approval_required" in res && res.approval_required) {
-            setFlags((list) => list.map((f) => (f.id === flag.id ? previous : f)));
-            setMessage(`Change queued for approval: ${res.approval_request_id}`);
-            return;
-          }
-          if (isFeatureFlag(res)) {
-            setFlags((list) => list.map((f) => (f.id === flag.id ? res : f)));
-          }
-          return;
-        } catch (err2: any) {
-          setFlags((list) => list.map((f) => (f.id === flag.id ? previous : f)));
-          setError(err2?.message || "Unable to update flag");
-          return;
-        }
+      if (String(msg).toLowerCase().includes("reason is required") && !extraPayload?.reason) {
+        revertLocalFlagState(change.previous);
+        setPendingChange(change);
+        setReason("");
+        setReasonError(null);
+        return;
       }
-      setFlags((list) => list.map((f) => (f.id === flag.id ? previous : f)));
-      setError(msg);
+      revertLocalFlagState(change.previous);
+      throw err;
+    }
+  };
+
+  const handleToggle = async (flag: FeatureFlag, enabled: boolean) => {
+    if (!canEdit) return;
+    setError(null);
+    setMessage(null);
+    const change: PendingFlagChange = {
+      flag,
+      previous: flag,
+      payload: { is_enabled: enabled },
+    };
+    applyLocalFlagState(flag.id, change.payload);
+    try {
+      await applyFlagChange(change);
+    } catch (err: any) {
+      setError(err?.message || "Unable to update flag");
     }
   };
 
@@ -91,46 +122,38 @@ export const FeatureFlagsSection: React.FC<{ role?: Role }> = ({ role = "superad
     setError(null);
     setMessage(null);
     const nextValue = Math.min(100, Math.max(0, value));
-    const previous = flag;
-    setFlags((list) => list.map((f) => (f.id === flag.id ? { ...f, rollout_percent: nextValue } : f)));
+    const change: PendingFlagChange = {
+      flag,
+      previous: flag,
+      payload: { rollout_percent: nextValue },
+    };
+    applyLocalFlagState(flag.id, change.payload);
     try {
-      const res = await updateFeatureFlag(flag.id, { rollout_percent: nextValue });
-      if ("approval_required" in res && res.approval_required) {
-        setFlags((list) => list.map((f) => (f.id === flag.id ? previous : f)));
-        setMessage(`Change queued for approval: ${res.approval_request_id}`);
-        return;
-      }
-      if (isFeatureFlag(res)) {
-        setFlags((list) => list.map((f) => (f.id === flag.id ? res : f)));
-      }
+      await applyFlagChange(change);
     } catch (err: any) {
-      const msg = err?.message || "Unable to update flag";
-      if (String(msg).toLowerCase().includes("reason is required")) {
-        const reason = window.prompt("Reason required: critical feature flag change (approval required)");
-        if (!reason || !reason.trim()) {
-          setFlags((list) => list.map((f) => (f.id === flag.id ? previous : f)));
-          setError("Cancelled: reason is required for this change.");
-          return;
-        }
-        try {
-          const res = await updateFeatureFlag(flag.id, { rollout_percent: nextValue, reason: reason.trim() });
-          if ("approval_required" in res && res.approval_required) {
-            setFlags((list) => list.map((f) => (f.id === flag.id ? previous : f)));
-            setMessage(`Change queued for approval: ${res.approval_request_id}`);
-            return;
-          }
-          if (isFeatureFlag(res)) {
-            setFlags((list) => list.map((f) => (f.id === flag.id ? res : f)));
-          }
-          return;
-        } catch (err2: any) {
-          setFlags((list) => list.map((f) => (f.id === flag.id ? previous : f)));
-          setError(err2?.message || "Unable to update flag");
-          return;
-        }
-      }
-      setFlags((list) => list.map((f) => (f.id === flag.id ? previous : f)));
-      setError(msg);
+      setError(err?.message || "Unable to update flag");
+    }
+  };
+
+  const handleReasonConfirm = async () => {
+    if (!pendingChange) return;
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) {
+      setReasonError("Reason is required.");
+      return;
+    }
+    setReasonLoading(true);
+    setReasonError(null);
+    setError(null);
+    setMessage(null);
+    applyLocalFlagState(pendingChange.flag.id, pendingChange.payload);
+    try {
+      await applyFlagChange(pendingChange, { reason: trimmedReason });
+      resetReasonDialog();
+    } catch (err: any) {
+      setReasonError(err?.message || "Unable to update flag");
+    } finally {
+      setReasonLoading(false);
     }
   };
 
@@ -189,6 +212,23 @@ export const FeatureFlagsSection: React.FC<{ role?: Role }> = ({ role = "superad
           View-only: engineering or superadmin required to edit feature flags.
         </p>
       )}
+      <AdminReasonDialog
+        open={Boolean(pendingChange)}
+        title="Reason required"
+        description="Critical feature flag changes require a documented reason before the update is queued or applied."
+        confirmLabel="Apply change"
+        loadingLabel="Applying..."
+        reason={reason}
+        error={reasonError}
+        loading={reasonLoading}
+        onReasonChange={setReason}
+        onConfirm={handleReasonConfirm}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeReasonDialog();
+          }
+        }}
+      />
     </Card>
   );
 };

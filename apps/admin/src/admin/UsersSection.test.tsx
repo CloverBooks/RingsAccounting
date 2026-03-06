@@ -47,7 +47,6 @@ describe("UsersSection", () => {
   it("starts impersonation and redirects to returned URL", async () => {
     const startImpersonation = api.startImpersonation as unknown as vi.Mock;
     startImpersonation.mockResolvedValueOnce({ redirect_url: "/internal/impersonate/redirect-token/" });
-    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("Debugging session");
     const originalLocation = window.location;
     // @ts-expect-error - allow overriding for test
     delete window.location;
@@ -57,13 +56,14 @@ describe("UsersSection", () => {
     render(<UsersSection roleLevel={2} />);
     const button = await screen.findByRole("button", { name: /impersonate/i });
     fireEvent.click(button);
+    fireEvent.change(await screen.findByLabelText(/reason/i), { target: { value: "Debugging session" } });
+    fireEvent.click(screen.getByRole("button", { name: /start impersonation/i }));
 
     await waitFor(() =>
       expect((window as any).location.href).toContain("/internal/impersonate/redirect-token/")
     );
 
     window.location = originalLocation;
-    promptSpy.mockRestore();
   });
 
   it("applies filters to fetch users", async () => {

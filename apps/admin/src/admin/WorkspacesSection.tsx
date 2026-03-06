@@ -13,6 +13,7 @@ import {
   CardTitle,
   CardDescription,
 } from "../components/ui";
+import { AdminReasonDialog } from "./AdminReasonDialog";
 import { Workspace360Section } from "./Workspace360Section";
 
 // ----------------------
@@ -300,6 +301,9 @@ const WorkspaceDetailsPanel: React.FC<WorkspaceDetailsPanelProps> = ({ workspace
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [deleteReasonOpen, setDeleteReasonOpen] = useState(false);
+  const [deleteReason, setDeleteReason] = useState("");
+  const [deleteReasonError, setDeleteReasonError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("ai");
   const [show360, setShow360] = useState(true);
 
@@ -310,30 +314,19 @@ const WorkspaceDetailsPanel: React.FC<WorkspaceDetailsPanelProps> = ({ workspace
     setIsDeleted(workspace.is_deleted);
     setMessage(null);
     setError(null);
+    setDeleteReasonOpen(false);
+    setDeleteReason("");
+    setDeleteReasonError(null);
   }, [workspace.id]);
 
   const canEdit = roleLevel >= 2;
   const canDelete = roleLevel >= 4;
 
-  const handleSave = async () => {
-    if (!canEdit) {
-      setError("View-only: OPS or higher required to edit workspaces.");
-      return;
-    }
+  const saveWorkspace = async (reason?: string) => {
     const wantsDelete = Boolean(isDeleted) && !workspace.is_deleted;
-    if (wantsDelete && !canDelete) {
-      setError("Soft-delete requires superadmin approval rights.");
-      return;
-    }
     const payload: Record<string, unknown> = { name, plan: plan || null, status, is_deleted: isDeleted };
-    if (wantsDelete) {
-      const reason = window.prompt("Reason required: Soft-delete workspace (approval required)");
-      if (reason === null) return;
-      if (!reason.trim()) {
-        window.alert("Reason is required.");
-        return;
-      }
-      payload.reason = reason.trim();
+    if (wantsDelete && reason) {
+      payload.reason = reason;
     }
     setSaving(true);
     setMessage(null);
@@ -348,9 +341,50 @@ const WorkspaceDetailsPanel: React.FC<WorkspaceDetailsPanelProps> = ({ workspace
       }
       onUpdate();
     } catch (err: any) {
-      setError(err?.message || "Failed to update workspace");
+      const msg = err?.message || "Failed to update workspace";
+      setError(msg);
+      throw err;
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!canEdit) {
+      setError("View-only: OPS or higher required to edit workspaces.");
+      return;
+    }
+    const wantsDelete = Boolean(isDeleted) && !workspace.is_deleted;
+    if (wantsDelete && !canDelete) {
+      setError("Soft-delete requires superadmin approval rights.");
+      return;
+    }
+    if (wantsDelete) {
+      setDeleteReason("");
+      setDeleteReasonError(null);
+      setDeleteReasonOpen(true);
+      return;
+    }
+    try {
+      await saveWorkspace();
+    } catch {
+      return;
+    }
+  };
+
+  const confirmDeleteReason = async () => {
+    const trimmedReason = deleteReason.trim();
+    if (!trimmedReason) {
+      setDeleteReasonError("Reason is required.");
+      return;
+    }
+    setDeleteReasonError(null);
+    try {
+      await saveWorkspace(trimmedReason);
+      setDeleteReasonOpen(false);
+      setDeleteReason("");
+    } catch (err: any) {
+      setDeleteReasonError(err?.message || "Failed to update workspace");
     }
   };
 
@@ -602,6 +636,27 @@ const WorkspaceDetailsPanel: React.FC<WorkspaceDetailsPanelProps> = ({ workspace
 
       {message && <p className="text-xs text-emerald-700">{message}</p>}
       {error && <p className="text-xs text-rose-700">{error}</p>}
+      <AdminReasonDialog
+        open={deleteReasonOpen}
+        title="Reason required"
+        description={`Soft-deleting ${workspace.name} requires a documented reason before the request is sent.`}
+        confirmLabel="Submit deletion request"
+        loadingLabel="Submitting..."
+        reason={deleteReason}
+        error={deleteReasonError}
+        loading={saving}
+        onReasonChange={setDeleteReason}
+        onConfirm={confirmDeleteReason}
+        onOpenChange={(open) => {
+          if (!saving) {
+            setDeleteReasonOpen(open);
+            if (!open) {
+              setDeleteReason("");
+              setDeleteReasonError(null);
+            }
+          }
+        }}
+      />
     </section>
   );
 };
