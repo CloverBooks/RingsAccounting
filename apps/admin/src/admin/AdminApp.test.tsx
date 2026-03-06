@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 import { AdminApp } from "./AdminApp";
 import { AdminRoutes } from "./AdminRoutes";
@@ -145,7 +145,7 @@ vi.mock("./api", () => {
 });
 
 afterEach(() => {
-  vi.restoreAllMocks();
+  vi.clearAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -177,7 +177,7 @@ describe("AdminApp", () => {
         </MemoryRouter>
       </AuthProvider>
     );
-    await waitFor(() => expect(screen.getByText(/Clover Books · Admin/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Clover Books .* Admin/i)).toBeInTheDocument());
   });
 
   it("renders admin view for internal routes without customer navigation", async () => {
@@ -209,7 +209,7 @@ describe("AdminApp", () => {
     );
 
     await waitFor(() =>
-      expect(screen.getByText(/Clover Books · Admin/i)).toBeInTheDocument()
+      expect(screen.getByText(/Clover Books .* Admin/i)).toBeInTheDocument()
     );
     expect(screen.queryByText(/Products & Services/i)).not.toBeInTheDocument();
   });
@@ -241,8 +241,47 @@ describe("AdminApp", () => {
       </AuthProvider>
     );
 
-    await waitFor(() => expect(screen.getByText(/Clover Books · Admin/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Clover Books .* Admin/i)).toBeInTheDocument());
     expect(screen.queryByText(/^Employees$/i)).not.toBeInTheDocument();
+  });
+
+  it("uses runtime-backed shell chrome and a live top-bar action", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        authenticated: true,
+        user: {
+          email: "ops@cernbooks.com",
+          internalAdmin: {
+            role: "OPS",
+            canAccessInternalAdmin: true,
+            canManageAdminUsers: false,
+            canGrantSuperadmin: false,
+            adminPanelAccess: true,
+          },
+        },
+      }),
+    });
+
+    vi.stubGlobal("fetch", mockFetch as unknown as typeof fetch);
+
+    render(
+      <AuthProvider>
+        <MemoryRouter initialEntries={["/users"]}>
+          <AdminApp />
+        </MemoryRouter>
+      </AuthProvider>
+    );
+
+    await waitFor(() => expect(screen.getByText(/prod \/ rust-api/i)).toBeInTheDocument());
+    expect(screen.queryByText(/Prod .* eu-central-1/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Open runtime settings/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /Admin settings/i })).toBeInTheDocument()
+    );
+    expect(screen.getByRole("button", { name: /Open audit logs/i })).toBeInTheDocument();
   });
 
   it("shows Not authorized on /employees for non-managers", async () => {

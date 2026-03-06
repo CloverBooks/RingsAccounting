@@ -6,10 +6,12 @@ import {
   fetchLedgerHealth,
   fetchInvoicesAudit,
   fetchExpensesAudit,
+  fetchRuntimeSettings,
   type ReconciliationMetrics,
   type LedgerHealth,
   type InvoicesAudit,
   type ExpensesAudit,
+  type RuntimeSettingsSnapshot,
 } from "./api";
 import { UsersSection } from "./UsersSection";
 import { WorkspacesSection } from "./WorkspacesSection";
@@ -419,10 +421,47 @@ const LogsSection: React.FC = () => (
   </div>
 );
 
-const TopBar: React.FC<{ currentSection: NavSectionId }> = ({ currentSection }) => {
+const TopBar: React.FC<{
+  currentSection: NavSectionId;
+  onSelect: (id: NavSectionId) => void;
+}> = ({ currentSection, onSelect }) => {
+  const [runtime, setRuntime] = useState<RuntimeSettingsSnapshot | null>(null);
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchRuntimeSettings()
+      .then((snapshot) => {
+        if (!cancelled) {
+          setRuntime(snapshot);
+          setRuntimeError(null);
+        }
+      })
+      .catch((error: any) => {
+        if (!cancelled) {
+          setRuntimeError(error?.message || "Runtime unavailable");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const sectionLabel = navGroups
     .flatMap((g) => g.items)
     .find((i) => i.id === currentSection)?.label;
+  const runtimeSummary = runtime
+    ? `${runtime.environment.name} / ${runtime.build.service}`
+    : runtimeError
+      ? "runtime unavailable"
+      : "loading runtime";
+  const runtimeTone = runtime?.environment.jwt_secret_configured ? "good" : "warning";
+  const oauthTone = runtime?.environment.google_oauth_enabled ? "good" : "warning";
+  const quickAction = currentSection === "settings"
+    ? { label: "Open audit logs", target: "logs" as NavSectionId }
+    : { label: "Open runtime settings", target: "settings" as NavSectionId };
 
   return (
     <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 backdrop-blur">
@@ -432,17 +471,25 @@ const TopBar: React.FC<{ currentSection: NavSectionId }> = ({ currentSection }) 
             CB
           </div>
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Clover Books · Admin</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Clover Books - Admin</p>
             <p className="text-xs text-slate-700">{sectionLabel ?? "Overview"}</p>
           </div>
         </div>
         <div className="flex items-center gap-3 text-xs text-slate-700">
           <div className="hidden sm:flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.25)]" />
-            <span>Prod · eu-central-1</span>
+            <StatusPill tone={runtimeTone} label={runtimeSummary} />
+            {runtime ? (
+              <StatusPill
+                tone={oauthTone}
+                label={runtime.environment.google_oauth_enabled ? "oauth on" : "oauth off"}
+              />
+            ) : null}
           </div>
-          <button className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 shadow-sm">
-            View error traces
+          <button
+            onClick={() => onSelect(quickAction.target)}
+            className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+          >
+            {quickAction.label}
           </button>
         </div>
       </div>
@@ -607,7 +654,7 @@ export const AdminApp: React.FC = () => {
   return (
     <AppShell className="bg-transparent">
       <div className="min-h-screen text-slate-900 flex flex-col">
-        <TopBar currentSection={current} />
+        <TopBar currentSection={current} onSelect={handleSelect} />
         <div className="flex flex-1">
           <Sidebar current={current} onSelect={handleSelect} canManageAdminUsers={canManageAdminUsers} />
           <main className="flex-1 px-4 py-4 sm:px-6 lg:px-8">
@@ -618,4 +665,5 @@ export const AdminApp: React.FC = () => {
     </AppShell>
   );
 };
+
 
