@@ -413,9 +413,6 @@ const LogsSection: React.FC = () => (
           Append-only trail of admin actions across users, workspaces, and configuration.
         </p>
       </div>
-      <button className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm">
-        Export log
-      </button>
     </header>
     <AuditLogSection />
   </div>

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
-import { fetchAuditLog, type AuditEntry, type Paginated } from "./api";
+import { downloadAuditLogCsv, fetchAuditLog, type AuditEntry, type Paginated } from "./api";
 
 // ----------------------
 // Types  
@@ -24,6 +24,28 @@ interface AuditSummary {
   security_events: number;
   impersonations_today: number;
   high_risk_events_24h: number;
+}
+
+function buildAuditLogParams(filters: AuditFilters, page: number): Record<string, string | number | undefined | null> {
+  const params: Record<string, string | number | undefined | null> = {
+    page,
+    start: rangeToDate(filters.dateRange) || undefined,
+    action: filters.search || undefined,
+    admin_user: filters.actor || undefined,
+    level:
+      filters.risk === "high" || filters.risk === "critical"
+        ? "ERROR"
+        : filters.risk === "medium"
+          ? "WARNING"
+          : undefined,
+    category: filters.category || undefined,
+  };
+
+  if (filters.tab === "security") params.category = "security";
+  if (filters.tab === "impersonation") params.category = "impersonation";
+  if (filters.tab === "config") params.category = "config";
+
+  return params;
 }
 
 // ----------------------
@@ -205,6 +227,7 @@ const LogDetailDrawer: React.FC<LogDetailDrawerProps> = ({ entry, onClose }) => 
 export const AuditLogSection: React.FC = () => {
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [next, setNext] = useState<string | null>(null);
   const [previous, setPrevious] = useState<string | null>(null);
@@ -226,20 +249,7 @@ export const AuditLogSection: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const params: Record<string, string | number | undefined | null> = {
-        page: opts?.page ?? page,
-        start: rangeToDate(filters.dateRange) || undefined,
-        action: filters.search || undefined,
-        admin_user: filters.actor || undefined,
-        level: filters.risk === "high" || filters.risk === "critical" ? "ERROR" : filters.risk === "medium" ? "WARNING" : undefined,
-        category: filters.category || undefined,
-      };
-      // Add tab-based scope filtering
-      if (filters.tab === "security") params.category = "security";
-      if (filters.tab === "impersonation") params.action = "IMPERSONATE";
-      if (filters.tab === "config") params.category = "config";
-
-      const res: Paginated<AuditEntry> = await fetchAuditLog(params);
+      const res: Paginated<AuditEntry> = await fetchAuditLog(buildAuditLogParams(filters, opts?.page ?? page));
       setEntries(res.results || []);
       setNext(res.next || null);
       setPrevious(res.previous || null);
@@ -252,7 +262,7 @@ export const AuditLogSection: React.FC = () => {
 
   useEffect(() => {
     loadLogs({ page });
-  }, [page, filters.dateRange, filters.risk, filters.category, filters.tab, filters.actor]);
+  }, [page, filters.dateRange, filters.risk, filters.category, filters.tab, filters.actor, filters.search]);
 
   // Live mode polling
   useEffect(() => {
@@ -287,6 +297,28 @@ export const AuditLogSection: React.FC = () => {
     };
   }, [entries]);
 
+  const handleExport = useCallback(async () => {
+    setExporting(true);
+    setError(null);
+    try {
+      const blob = await downloadAuditLogCsv(buildAuditLogParams(filters, 1));
+      if (typeof document === "undefined" || typeof URL.createObjectURL !== "function") {
+        return;
+      }
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `admin-audit-log-${new Date().toISOString().slice(0, 10)}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err?.message || "Failed to export audit logs");
+    } finally {
+      setExporting(false);
+    }
+  }, [filters]);
+
   return (
     <div className="flex h-full w-full flex-col space-y-4">
       {/* Header */}
@@ -311,8 +343,12 @@ export const AuditLogSection: React.FC = () => {
               className="h-3 w-3 rounded border-slate-300 text-emerald-600"
             />
           </label>
-          <button className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-900 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-black">
-            📥 Export CSV
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-900 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {exporting ? "Exporting..." : "Export CSV"}
           </button>
         </div>
       </div>

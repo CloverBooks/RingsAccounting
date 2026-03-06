@@ -234,6 +234,39 @@ const apiFetch = async <T>(path: string, options: RequestOptions = {}): Promise<
   return data as T;
 };
 
+const apiFetchBlob = async (path: string, options: RequestOptions = {}): Promise<Blob> => {
+  const { method = "GET", body, params } = options;
+  const url = buildUrl(`${BASE}${path}`, params);
+  const headers: Record<string, string> = {
+    Accept: "text/csv",
+  };
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+  const token = getAccessToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(url, {
+    method,
+    headers,
+    credentials: "include",
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+
+  if (!res.ok) {
+    const isJson = res.headers.get("content-type")?.includes("application/json");
+    const data = isJson ? await res.json().catch(() => ({})) : {};
+    const error: ApiError = {
+      status: res.status,
+      message: data?.detail || data?.message || "Request failed",
+      data,
+    };
+    throw error;
+  }
+
+  return res.blob();
+};
+
 const autonomyFetch = async <T>(path: string, options: RequestOptions = {}): Promise<T> => {
   const { method = "GET", body, params } = options;
   const url = buildUrl(path, params);
@@ -515,6 +548,9 @@ export const fetchBankAccounts = (params?: Record<string, string | number | unde
 
 export const fetchAuditLog = (params?: Record<string, string | number | undefined | null>) =>
   apiFetch<Paginated<AuditEntry>>("audit-log/", { params });
+
+export const downloadAuditLogCsv = (params?: Record<string, string | number | undefined | null>) =>
+  apiFetchBlob("audit-log/export/", { params });
 
 export const fetchSupportTickets = (params?: Record<string, string | number | undefined | null>) =>
   apiFetch<Paginated<SupportTicket>>("support-tickets/", { params });

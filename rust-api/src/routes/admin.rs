@@ -1,7 +1,7 @@
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
-    response::IntoResponse,
+    http::{header, HeaderMap, HeaderValue, StatusCode},
+    response::{IntoResponse, Response},
     Json,
 };
 use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -99,6 +99,10 @@ pub struct AuditLogQuery {
     pub page_size: Option<i64>,
     pub action: Option<String>,
     pub actor_user_id: Option<i64>,
+    pub admin_user: Option<String>,
+    pub start: Option<String>,
+    pub level: Option<String>,
+    pub category: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -295,6 +299,227 @@ struct AuditEventRow {
     user_agent: Option<String>,
     details_json: String,
     created_at: String,
+}
+
+#[derive(Debug, Clone)]
+struct AuditLogFilters {
+    search_term: Option<String>,
+    search_like: Option<String>,
+    actor_user_id: Option<i64>,
+    admin_user: Option<String>,
+    start: Option<String>,
+    level: Option<String>,
+    category: Option<String>,
+}
+
+fn normalized_query_value(value: Option<&String>) -> Option<String> {
+    value
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn audit_log_filters(params: &AuditLogQuery) -> AuditLogFilters {
+    let search_term = normalized_query_value(params.action.as_ref());
+    AuditLogFilters {
+        search_like: search_term.as_ref().map(|value| format!("%{}%", value)),
+        search_term,
+        actor_user_id: params.actor_user_id,
+        admin_user: normalized_query_value(params.admin_user.as_ref()),
+        start: normalized_query_value(params.start.as_ref()),
+        level: normalized_query_value(params.level.as_ref()).map(|value| value.to_uppercase()),
+        category: normalized_query_value(params.category.as_ref()).map(|value| value.to_lowercase()),
+    }
+}
+
+fn audit_level_for_row(action: &str, outcome: &str) -> &'static str {
+    if outcome.starts_with("denied") || outcome.starts_with("rejected") || outcome.contains("failed")
+    {
+        "ERROR"
+    } else if action.contains("break_glass") || outcome.contains("expired") {
+        "WARNING"
+    } else {
+        "INFO"
+    }
+}
+
+fn audit_category_for_action(action: &str) -> String {
+    action
+        .split('.')
+        .next()
+        .unwrap_or("admin")
+        .trim()
+        .to_lowercase()
+}
+
+fn audit_level_sql() -> &'static str {
+    "CASE
+        WHEN outcome LIKE 'denied%' OR outcome LIKE 'rejected%' OR outcome LIKE '%failed%' THEN 'ERROR'
+        WHEN action LIKE '%break_glass%' OR outcome LIKE '%expired%' THEN 'WARNING'
+        ELSE 'INFO'
+     END"
+}
+
+fn audit_category_sql() -> &'static str {
+    "CASE
+        WHEN instr(action, '.') > 0 THEN lower(substr(action, 1, instr(action, '.') - 1))
+        ELSE 'admin'
+     END"
+}
+
+fn apply_audit_log_filters(
+    builder: &mut QueryBuilder<'_, Sqlite>,
+    filters: &AuditLogFilters,
+) {
+    builder.push(" WHERE 1=1");
+
+    if let Some(search_like) = &filters.search_like {
+        builder
+            .push(" AND (action LIKE ")
+            .push_bind(search_like.clone())
+            .push(" OR COALESCE(actor_email, '') LIKE ")
+            .push_bind(search_like.clone())
+            .push(" OR COALESCE(ip_address, '') LIKE ")
+            .push_bind(search_like.clone())
+            .push(" OR COALESCE(target_type, '') LIKE ")
+            .push_bind(search_like.clone())
+            .push(" OR COALESCE(target_id, '') LIKE ")
+            .push_bind(search_like.clone())
+            .push(" OR COALESCE(reason, '') LIKE ")
+            .push_bind(search_like.clone())
+            .push(")");
+    }
+
+    if let Some(actor_user_id) = filters.actor_user_id {
+        builder.push(" AND actor_user_id = ").push_bind(actor_user_id);
+    }
+
+    if let Some(admin_user) = &filters.admin_user {
+        builder
+            .push(" AND lower(COALESCE(actor_email, '')) = ")
+            .push_bind(admin_user.to_lowercase());
+    }
+
+    if let Some(start) = &filters.start {
+        builder
+            .push(" AND datetime(created_at) >= datetime(")
+            .push_bind(start.clone())
+            .push(")");
+    }
+
+    if let Some(level) = &filters.level {
+        builder
+            .push(" AND ")
+            .push(audit_level_sql())
+            .push(" = ")
+            .push_bind(level.clone());
+    }
+
+    if let Some(category) = &filters.category {
+        builder
+            .push(" AND ")
+            .push(audit_category_sql())
+            .push(" = ")
+            .push_bind(category.clone());
+    }
+}
+
+async fn fetch_audit_event_rows(
+    pool: &SqlitePool,
+    filters: &AuditLogFilters,
+    page: Option<i64>,
+    page_size: Option<i64>,
+) -> Result<(i64, Vec<AuditEventRow>), sqlx::Error> {
+    let mut count_query = QueryBuilder::<Sqlite>::new("SELECT COUNT(*) FROM admin_audit_events");
+    apply_audit_log_filters(&mut count_query, filters);
+    let total = count_query.build_query_scalar::<i64>().fetch_one(pool).await?;
+
+    let mut rows_query = QueryBuilder::<Sqlite>::new(
+        "SELECT
+            id,
+            request_id,
+            action,
+            outcome,
+            actor_user_id,
+            actor_email,
+            actor_role,
+            target_type,
+            target_id,
+            reason,
+            ip_address,
+            user_agent,
+            details_json,
+            created_at
+         FROM admin_audit_events",
+    );
+    apply_audit_log_filters(&mut rows_query, filters);
+    rows_query.push(" ORDER BY id DESC");
+
+    if let (Some(page), Some(page_size)) = (page, page_size) {
+        let offset = (page - 1) * page_size;
+        rows_query
+            .push(" LIMIT ")
+            .push_bind(page_size)
+            .push(" OFFSET ")
+            .push_bind(offset);
+    }
+
+    let rows = rows_query.build_query_as::<AuditEventRow>().fetch_all(pool).await?;
+    Ok((total, rows))
+}
+
+fn audit_event_row_to_value(row: AuditEventRow) -> Value {
+    let level = audit_level_for_row(&row.action, &row.outcome);
+    let category = audit_category_for_action(&row.action);
+    json!({
+        "id": row.id,
+        "timestamp": row.created_at,
+        "admin_email": row.actor_email,
+        "actor_role": row.actor_role,
+        "action": row.action,
+        "object_type": row.target_type.unwrap_or_else(|| "unknown".to_string()),
+        "object_id": row.target_id.unwrap_or_default(),
+        "extra": parse_payload_value(&row.details_json),
+        "remote_ip": row.ip_address,
+        "user_agent": row.user_agent,
+        "request_id": row.request_id,
+        "level": level,
+        "category": category,
+        "actor_user_id": row.actor_user_id,
+        "reason": row.reason
+    })
+}
+
+fn audit_log_pagination_params(filters: &AuditLogFilters) -> Vec<(&'static str, String)> {
+    let mut extra = Vec::new();
+    if let Some(search_term) = &filters.search_term {
+        extra.push(("action", search_term.clone()));
+    }
+    if let Some(actor_user_id) = filters.actor_user_id {
+        extra.push(("actor_user_id", actor_user_id.to_string()));
+    }
+    if let Some(admin_user) = &filters.admin_user {
+        extra.push(("admin_user", admin_user.clone()));
+    }
+    if let Some(start) = &filters.start {
+        extra.push(("start", start.clone()));
+    }
+    if let Some(level) = &filters.level {
+        extra.push(("level", level.clone()));
+    }
+    if let Some(category) = &filters.category {
+        extra.push(("category", category.clone()));
+    }
+    extra
+}
+
+fn csv_escape(value: &str) -> String {
+    if value.contains(',') || value.contains('"') || value.contains('\n') || value.contains('\r') {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
+    }
 }
 
 #[derive(Debug, FromRow)]
@@ -623,7 +848,7 @@ pub async fn contract(
         StatusCode::OK,
         Json(json!({
             "ok": true,
-            "contract_version": "2026-03-04",
+            "contract_version": "2026-03-06",
             "owner": "rust-api",
             "admin_model": {
                 "canonical_namespace": "/api/admin/*",
@@ -667,7 +892,8 @@ pub async fn contract(
                 "approval_break_glass": "/api/admin/approvals/:id/break-glass/",
                 "impersonations": "/api/admin/impersonations/",
                 "impersonation_stop": "/api/admin/impersonations/:id/stop/",
-                "audit_log": "/api/admin/audit-log/"
+                "audit_log": "/api/admin/audit-log/",
+                "audit_log_export": "/api/admin/audit-log/export/"
             }
         })),
     )
@@ -1805,54 +2031,9 @@ pub async fn list_audit_events(
 
     let page = params.page.unwrap_or(1).max(1);
     let page_size = params.page_size.unwrap_or(50).clamp(1, 200);
-    let offset = (page - 1) * page_size;
-    let action_filter = params
-        .action
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string);
+    let filters = audit_log_filters(&params);
 
-    let total = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*)
-         FROM admin_audit_events
-         WHERE (?1 IS NULL OR action = ?1)
-           AND (?2 IS NULL OR actor_user_id = ?2)",
-    )
-    .bind(action_filter.as_deref())
-    .bind(params.actor_user_id)
-    .fetch_one(&state.db)
-    .await
-    .unwrap_or(0);
-
-    let rows = match sqlx::query_as::<_, AuditEventRow>(
-        "SELECT
-            id,
-            request_id,
-            action,
-            outcome,
-            actor_user_id,
-            actor_email,
-            actor_role,
-            target_type,
-            target_id,
-            reason,
-            ip_address,
-            user_agent,
-            details_json,
-            created_at
-         FROM admin_audit_events
-         WHERE (?1 IS NULL OR action = ?1)
-           AND (?2 IS NULL OR actor_user_id = ?2)
-         ORDER BY id DESC
-         LIMIT ?3 OFFSET ?4",
-    )
-    .bind(action_filter.as_deref())
-    .bind(params.actor_user_id)
-    .bind(page_size)
-    .bind(offset)
-    .fetch_all(&state.db)
-    .await
+    let (total, rows) = match fetch_audit_event_rows(&state.db, &filters, Some(page), Some(page_size)).await
     {
         Ok(value) => value,
         Err(error) => {
@@ -1865,43 +2046,17 @@ pub async fn list_audit_events(
         }
     };
 
-    let results: Vec<Value> = rows
-        .into_iter()
-        .map(|row| {
-            let level = if row.outcome.starts_with("denied") || row.outcome.contains("failed") {
-                "WARNING"
-            } else {
-                "INFO"
-            };
-            let category = row.action.split('.').next().unwrap_or("admin");
-            json!({
-                "id": row.id,
-                "timestamp": row.created_at,
-                "admin_email": row.actor_email,
-                "actor_role": row.actor_role,
-                "action": row.action,
-                "object_type": row.target_type.unwrap_or_else(|| "unknown".to_string()),
-                "object_id": row.target_id.unwrap_or_else(|| "".to_string()),
-                "extra": parse_payload_value(&row.details_json),
-                "remote_ip": row.ip_address,
-                "user_agent": row.user_agent,
-                "request_id": row.request_id,
-                "level": level,
-                "category": category,
-                "actor_user_id": row.actor_user_id,
-                "reason": row.reason
-            })
-        })
-        .collect();
+    let results: Vec<Value> = rows.into_iter().map(audit_event_row_to_value).collect();
+    let extra_params = audit_log_pagination_params(&filters);
 
     let has_next = page * page_size < total;
     let next = if has_next {
-        Some(pagination_link(page + 1, page_size, action_filter.as_deref(), params.actor_user_id))
+        Some(pagination_link_generic(page + 1, page_size, &extra_params))
     } else {
         None
     };
     let previous = if page > 1 {
-        Some(pagination_link(page - 1, page_size, action_filter.as_deref(), params.actor_user_id))
+        Some(pagination_link_generic(page - 1, page_size, &extra_params))
     } else {
         None
     };
@@ -1915,6 +2070,83 @@ pub async fn list_audit_events(
             "count": total
         })),
     )
+}
+
+pub async fn export_audit_events_csv(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(params): Query<AuditLogQuery>,
+) -> Response {
+    let req = request_context(&headers);
+    if let Err(response) = require_admin_level(&state, &headers, 1, &req.request_id).await {
+        return response.into_response();
+    }
+
+    let filters = audit_log_filters(&params);
+    let rows = match fetch_audit_event_rows(&state.db, &filters, None, None).await {
+        Ok((_, rows)) => rows,
+        Err(error) => {
+            tracing::error!("Failed to export admin_audit_events: {}", error);
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to export audit events",
+                &req.request_id,
+            )
+            .into_response();
+        }
+    };
+
+    let mut csv = String::from(
+        "id,timestamp,admin_email,actor_role,action,object_type,object_id,category,level,request_id,remote_ip,user_agent,reason,extra\n",
+    );
+
+    for row in rows {
+        let level = audit_level_for_row(&row.action, &row.outcome);
+        let category = audit_category_for_action(&row.action);
+        let extra = parse_payload_value(&row.details_json).to_string();
+        let values = [
+            row.id.to_string(),
+            row.created_at,
+            row.actor_email.unwrap_or_default(),
+            row.actor_role.unwrap_or_default(),
+            row.action,
+            row.target_type.unwrap_or_else(|| "unknown".to_string()),
+            row.target_id.unwrap_or_default(),
+            category,
+            level.to_string(),
+            row.request_id,
+            row.ip_address.unwrap_or_default(),
+            row.user_agent.unwrap_or_default(),
+            row.reason.unwrap_or_default(),
+            extra,
+        ];
+        csv.push_str(
+            &values
+                .iter()
+                .map(|value| csv_escape(value))
+                .collect::<Vec<_>>()
+                .join(","),
+        );
+        csv.push('\n');
+    }
+
+    let mut response_headers = HeaderMap::new();
+    response_headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/csv; charset=utf-8"),
+    );
+    let filename = format!(
+        "attachment; filename=\"admin-audit-log-{}.csv\"",
+        Utc::now().format("%Y-%m-%d")
+    );
+    response_headers.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&filename).unwrap_or_else(|_| {
+            HeaderValue::from_static("attachment; filename=\"admin-audit-log.csv\"")
+        }),
+    );
+
+    (StatusCode::OK, response_headers, csv).into_response()
 }
 
 pub async fn overview_metrics(
@@ -7627,22 +7859,6 @@ fn build_password_reset_url(target_user_id: i64) -> String {
     )
 }
 
-fn pagination_link(
-    page: i64,
-    page_size: i64,
-    action: Option<&str>,
-    actor_user_id: Option<i64>,
-) -> String {
-    let mut query = format!("?page={}&page_size={}", page, page_size);
-    if let Some(action) = action {
-        query.push_str(&format!("&action={}", urlencoding::encode(action)));
-    }
-    if let Some(actor_user_id) = actor_user_id {
-        query.push_str(&format!("&actor_user_id={}", actor_user_id));
-    }
-    query
-}
-
 async fn expire_stale_pending_approvals(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query(
         "UPDATE admin_approval_requests
@@ -7918,6 +8134,7 @@ mod tests {
             .route("/api/admin/impersonations/", post(start_impersonation))
             .route("/api/admin/impersonations/:id/stop/", post(stop_impersonation))
             .route("/api/admin/audit-log/", get(list_audit_events))
+            .route("/api/admin/audit-log/export/", get(export_audit_events_csv))
             .route("/api/admin/support-tickets/", get(list_support_tickets).post(create_support_ticket))
             .route("/api/admin/support-tickets/:id/", patch(patch_support_ticket))
             .route("/api/admin/support-tickets/:id/add_note/", post(add_support_ticket_note))
@@ -8158,6 +8375,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn audit_log_filters_and_export_follow_backend_contract() {
+        let (server, _pool) = setup().await;
+        let token = make_token(4);
+        let _ = server
+            .post("/api/admin/approvals/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .json(&json!({
+                "action_type": "LEDGER_ADJUST",
+                "reason": "Export parity check"
+            }))
+            .await;
+
+        let filtered = server
+            .get("/api/admin/audit-log/?category=approval&admin_user=superadmin@example.com&action=approval.request.create")
+            .add_header("authorization", format!("Bearer {}", token))
+            .await;
+        filtered.assert_status_ok();
+        let filtered_body: Value = filtered.json();
+        assert!(filtered_body["count"].as_i64().unwrap_or(0) >= 1);
+        assert_eq!(filtered_body["results"][0]["category"], "approval");
+        assert_eq!(filtered_body["results"][0]["admin_email"], "superadmin@example.com");
+        assert_eq!(filtered_body["results"][0]["level"], "INFO");
+
+        let export = server
+            .get("/api/admin/audit-log/export/?category=approval&admin_user=superadmin@example.com")
+            .add_header("authorization", format!("Bearer {}", token))
+            .await;
+        export.assert_status_ok();
+        let csv = export.text();
+        assert!(csv.contains("id,timestamp,admin_email,actor_role,action"));
+        assert!(csv.contains("approval.request.create"));
+        assert!(csv.contains("superadmin@example.com"));
+    }
+
+    #[tokio::test]
     async fn contract_reports_phase_two_admin_surface() {
         let (server, _pool) = setup().await;
         let token = make_token(4);
@@ -8169,7 +8421,7 @@ mod tests {
         response.assert_status_ok();
         let body: Value = response.json();
 
-        assert_eq!(body["contract_version"], "2026-03-04");
+        assert_eq!(body["contract_version"], "2026-03-06");
         assert_eq!(body["endpoints"]["overview_metrics"], "/api/admin/overview-metrics/");
         assert_eq!(body["endpoints"]["runtime_settings"], "/api/admin/runtime-settings/");
         assert_eq!(body["endpoints"]["ai_ops"], "/api/admin/ai-ops/");
@@ -8177,6 +8429,7 @@ mod tests {
         assert_eq!(body["endpoints"]["employees"], "/api/admin/employees/");
         assert_eq!(body["endpoints"]["support_tickets"], "/api/admin/support-tickets/");
         assert_eq!(body["endpoints"]["feature_flags"], "/api/admin/feature-flags/");
+        assert_eq!(body["endpoints"]["audit_log_export"], "/api/admin/audit-log/export/");
     }
 
     #[tokio::test]

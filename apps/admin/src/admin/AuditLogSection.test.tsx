@@ -1,6 +1,7 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
 import { AuditLogSection } from "./AuditLogSection";
+import { downloadAuditLogCsv } from "./api";
 
 vi.mock("./api", () => {
   const mockLogs = {
@@ -23,6 +24,7 @@ vi.mock("./api", () => {
   };
   return {
     fetchAuditLog: vi.fn().mockResolvedValue(mockLogs),
+    downloadAuditLogCsv: vi.fn().mockResolvedValue(new Blob(["id,timestamp\n1,2024-01-01T00:00:00Z"], { type: "text/csv" })),
   };
 });
 
@@ -37,5 +39,27 @@ describe("AuditLogSection", () => {
     render(<AuditLogSection />);
     await waitFor(() => expect(screen.getByText(/All risks/i)).toBeInTheDocument());
     expect(screen.getByPlaceholderText(/Search by actor, IP, action/i)).toBeInTheDocument();
+  });
+
+  it("exports audit log csv", async () => {
+    const createObjectURL = vi.fn(() => "blob:admin-audit");
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL,
+      revokeObjectURL,
+    } as unknown as typeof URL);
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+    render(<AuditLogSection />);
+    await waitFor(() => expect(screen.getByRole("button", { name: /Export CSV/i })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: /Export CSV/i }));
+
+    await waitFor(() => expect(vi.mocked(downloadAuditLogCsv)).toHaveBeenCalled());
+    expect(createObjectURL).toHaveBeenCalled();
+    expect(clickSpy).toHaveBeenCalled();
+
+    clickSpy.mockRestore();
   });
 });

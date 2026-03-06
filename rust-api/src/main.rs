@@ -223,6 +223,10 @@ async fn main() {
             post(routes::admin::stop_impersonation),
         )
         .route("/api/admin/audit-log/", get(routes::admin::list_audit_events))
+        .route(
+            "/api/admin/audit-log/export/",
+            get(routes::admin::export_audit_events_csv),
+        )
         // Banking routes (native matching engine)
         .route("/api/banking/health", get(routes::matching::health))
         .route("/api/banking/find-matches", post(routes::matching::find_matches))

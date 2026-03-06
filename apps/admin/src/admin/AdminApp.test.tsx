@@ -24,6 +24,7 @@ vi.mock("./api", () => {
     fetchWorkspaces: vi.fn().mockResolvedValue({ results: [] }),
     fetchUsers: vi.fn().mockResolvedValue({ results: [] }),
     fetchAuditLog: vi.fn().mockResolvedValue({ results: [] }),
+    downloadAuditLogCsv: vi.fn().mockResolvedValue(new Blob(["id\n1"], { type: "text/csv" })),
     fetchSupportTickets: vi.fn().mockResolvedValue({ results: [] }),
     addSupportTicketNote: vi.fn().mockResolvedValue({}),
     createSupportTicket: vi.fn().mockResolvedValue({}),
