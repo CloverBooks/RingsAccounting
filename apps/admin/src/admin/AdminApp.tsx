@@ -39,9 +39,7 @@ type NavSectionId =
   | "invoices"
   | "expenses"
   | "autonomy"
-  | "ai-monitoring"
   | "feature-flags"
-  | "settings"
   | "logs";
 
 interface NavItem {
@@ -77,9 +75,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
     label: "Intelligence & Ops",
     items: [
       { id: "autonomy", label: "Autonomy Engine", description: "Queues, breakers, and modes" },
-      { id: "ai-monitoring", label: "AI monitoring", description: "Agent reports & metrics" },
       { id: "feature-flags", label: "Feature flags", description: "Rollouts & experiments" },
-      { id: "settings", label: "Settings", description: "Security & config" },
     ],
   },
 ];
@@ -400,86 +396,6 @@ const ExpensesSection: React.FC = () => {
 };
 
 
-const AiMonitoringSection: React.FC = () => (
-  <div className="space-y-4">
-    <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900">AI monitoring & metrics</h2>
-        <p className="text-sm text-slate-600 max-w-xl">
-          Direct window into the master monitoring agent: metrics JSON, last run, domain coverage, and alerts.
-        </p>
-      </div>
-      <div className="flex gap-2">
-        <button className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm">
-          View latest JSON
-        </button>
-        <button className="rounded-full bg-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-900 hover:bg-slate-100 shadow-sm">
-          Run analysis now
-        </button>
-      </div>
-    </header>
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1.4fr)]">
-      <Card title="Domains covered" subtitle="Seven domains, three runs per day.">
-        <ul className="space-y-2 text-sm text-slate-700">
-          <li>• Product & Engineering health</li>
-          <li>• Ledger & Accounting integrity</li>
-          <li>• Banking & Reconciliation hygiene</li>
-          <li>• Tax & FX consistency</li>
-          <li>• Business & Revenue pacing</li>
-          <li>• Marketing & Traffic patterns</li>
-          <li>• Support & Feedback signals</li>
-        </ul>
-      </Card>
-      <Card title="Last run" subtitle="11:02 UTC · duration 3.4s">
-        <p className="text-sm text-slate-700 mb-2">Snapshot from latest agent run:</p>
-        <ul className="space-y-1.5 text-xs text-slate-700">
-          <li>• No unbalanced entries across tenants.</li>
-          <li>• 2 bank feeds with elevated error_rate_pct &gt; 3%.</li>
-          <li>• 3 invoices with tax calculation anomalies within tolerance.</li>
-          <li>• Response p95 steady at 186ms.</li>
-        </ul>
-      </Card>
-    </div>
-  </div>
-);
-
-const SettingsSection: React.FC = () => (
-  <div className="space-y-4">
-    <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900">Admin settings</h2>
-        <p className="text-sm text-slate-600 max-w-xl">
-          Security posture, SSO, maintenance windows, and environment introspection. Internal-only; changes are
-          fully audited.
-        </p>
-      </div>
-      <button className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm">
-        View audit config
-      </button>
-    </header>
-    <Card title="Environment">
-      <dl className="grid grid-cols-1 sm:grid-cols-2 gap-y-2 text-sm text-slate-800">
-        <div>
-          <dt className="text-xs text-slate-500">Environment</dt>
-          <dd>production-eu-1</dd>
-        </div>
-        <div>
-          <dt className="text-xs text-slate-500">Deploy SHA</dt>
-          <dd className="font-mono text-xs text-slate-800">a7b9e23</dd>
-        </div>
-        <div>
-          <dt className="text-xs text-slate-500">AI model</dt>
-          <dd>gpt-5.1-monitoring</dd>
-        </div>
-        <div>
-          <dt className="text-xs text-slate-500">Admin SSO</dt>
-          <dd>Google Workspace (@cernbooks.com)</dd>
-        </div>
-      </dl>
-    </Card>
-  </div>
-);
-
 const LogsSection: React.FC = () => (
   <div className="space-y-4">
     <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -642,12 +558,8 @@ export const AdminApp: React.FC = () => {
         return <ExpensesSection />;
       case "autonomy":
         return <AutonomySection />;
-      case "ai-monitoring":
-        return <AiMonitoringSection />;
       case "feature-flags":
         return <FeatureFlagsSection role={role} />;
-      case "settings":
-        return <SettingsSection />;
       case "logs":
         return <LogsSection />;
       default:
@@ -661,6 +573,8 @@ export const AdminApp: React.FC = () => {
     const aliases: Record<string, NavSectionId> = {
       "control-tower": "overview",
       audit: "logs",
+      "ai-monitoring": "overview",
+      settings: "overview",
     };
     const asSection = aliases[segment] || (segment === "" ? "overview" : segment);
     const valid = navGroups.flatMap((g) => g.items).some((i) => i.id === asSection);
@@ -696,3 +610,4 @@ export const AdminApp: React.FC = () => {
     </AppShell>
   );
 };
+
