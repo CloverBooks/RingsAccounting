@@ -7411,7 +7411,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{routing::get, routing::post, Router};
+    use axum::{routing::{get, post, patch}, Router};
     use axum_test::TestServer;
     use chrono::{Duration as ChronoDuration, Utc};
     use jsonwebtoken::{EncodingKey, Header};
@@ -7425,9 +7425,16 @@ mod tests {
             "CREATE TABLE auth_user (
                 id INTEGER PRIMARY KEY,
                 email TEXT NOT NULL,
+                username TEXT NULL,
+                first_name TEXT NULL,
+                last_name TEXT NULL,
+                password TEXT NULL,
+                last_login TEXT NULL,
                 is_active INTEGER NOT NULL DEFAULT 1,
                 is_staff INTEGER NOT NULL DEFAULT 0,
-                is_superuser INTEGER NOT NULL DEFAULT 0
+                is_superuser INTEGER NOT NULL DEFAULT 0,
+                admin_role TEXT NULL,
+                date_joined TEXT NULL
             )",
         )
         .execute(&pool)
@@ -7435,13 +7442,128 @@ mod tests {
         .unwrap();
 
         sqlx::query(
-            "INSERT INTO auth_user (id, email, is_active, is_staff, is_superuser) VALUES
-             (1, 'ops-maker@example.com', 1, 1, 0),
-             (2, 'ops-checker@example.com', 1, 1, 0),
-             (3, 'viewer@example.com', 1, 0, 0),
-             (4, 'superadmin@example.com', 1, 1, 1),
-             (5, 'customer@example.com', 1, 0, 0),
-             (6, 'super-target@example.com', 1, 1, 1)",
+            "INSERT INTO auth_user (
+                id, email, username, first_name, last_name, password, last_login,
+                is_active, is_staff, is_superuser, admin_role, date_joined
+             ) VALUES
+             (1, 'ops-maker@example.com', 'ops-maker', 'Ops', 'Maker', '', datetime('now'), 1, 1, 0, 'ops', datetime('now')),
+             (2, 'ops-checker@example.com', 'ops-checker', 'Ops', 'Checker', '', datetime('now'), 1, 1, 0, 'ops', datetime('now')),
+             (3, 'viewer@example.com', 'viewer', 'View', 'Only', '', datetime('now'), 1, 0, 0, NULL, datetime('now')),
+             (4, 'superadmin@example.com', 'superadmin', 'Super', 'Admin', '', datetime('now'), 1, 1, 1, 'superadmin', datetime('now')),
+             (5, 'customer@example.com', 'customer', 'Casey', 'Customer', '', datetime('now'), 1, 0, 0, NULL, datetime('now')),
+             (6, 'super-target@example.com', 'super-target', 'Target', 'Admin', '', datetime('now'), 1, 1, 1, 'superadmin', datetime('now'))",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "CREATE TABLE core_business (
+                id INTEGER PRIMARY KEY,
+                owner_user_id INTEGER NULL,
+                name TEXT NOT NULL,
+                plan TEXT NULL,
+                status TEXT NULL,
+                is_deleted INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO core_business (id, owner_user_id, name, plan, status, is_deleted, created_at) VALUES
+             (10, 5, 'Acme Books', 'growth', 'active', 0, datetime('now')),
+             (11, 1, 'Ops Sandbox', 'starter', 'active', 0, datetime('now'))",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "CREATE TABLE core_bankaccount (
+                id INTEGER PRIMARY KEY,
+                business_id INTEGER NOT NULL,
+                bank_name TEXT NULL,
+                name TEXT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                last_imported_at TEXT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO core_bankaccount (id, business_id, bank_name, name, is_active, last_imported_at) VALUES
+             (100, 10, 'RBC', 'Operating', 1, datetime('now')),
+             (101, 11, 'BMO', 'Reserve', 1, datetime('now'))",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "CREATE TABLE core_banktransaction (
+                id INTEGER PRIMARY KEY,
+                bank_account_id INTEGER NOT NULL,
+                status TEXT NULL,
+                is_reconciled INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO core_banktransaction (id, bank_account_id, status, is_reconciled, created_at) VALUES
+             (1000, 100, 'NEW', 0, datetime('now')),
+             (1001, 100, 'MATCHED', 1, datetime('now')),
+             (1002, 101, 'NEW', 0, datetime('now'))",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "CREATE TABLE core_invoice (
+                id INTEGER PRIMARY KEY,
+                business_id INTEGER NOT NULL,
+                customer_id INTEGER NULL,
+                status TEXT NULL,
+                grand_total REAL NULL,
+                created_at TEXT NULL,
+                issue_date TEXT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO core_invoice (id, business_id, customer_id, status, grand_total, created_at, issue_date) VALUES
+             (2000, 10, NULL, 'DRAFT', 120.0, datetime('now'), datetime('now')),
+             (2001, 10, NULL, 'PAID', 250.0, datetime('now'), datetime('now')),
+             (2002, 11, NULL, 'SENT', 500.0, datetime('now'), datetime('now'))",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "CREATE TABLE core_expense (
+                id INTEGER PRIMARY KEY,
+                business_id INTEGER NOT NULL,
+                category_id INTEGER NULL,
+                status TEXT NULL,
+                grand_total REAL NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO core_expense (id, business_id, category_id, status, grand_total) VALUES
+             (3000, 10, NULL, 'NEW', 75.0),
+             (3001, 10, 1, 'APPROVED', 30.0)",
         )
         .execute(&pool)
         .await
@@ -7453,6 +7575,15 @@ mod tests {
         let app = Router::new()
             .route("/api/admin/contract", get(contract))
             .route("/api/admin/authz/me", get(authz_me))
+            .route("/api/admin/overview-metrics/", get(overview_metrics))
+            .route("/api/admin/operations-overview/", get(operations_overview))
+            .route("/api/admin/users/", get(list_users))
+            .route("/api/admin/users/:id/", patch(patch_user))
+            .route("/api/admin/users/:id/reset-password/", post(reset_user_password))
+            .route("/api/admin/workspaces/", get(list_workspaces))
+            .route("/api/admin/workspaces/:id/", patch(patch_workspace))
+            .route("/api/admin/workspaces/:id/overview/", get(workspace_overview))
+            .route("/api/admin/bank-accounts/", get(list_bank_accounts_admin))
             .route("/api/admin/approvals/", get(list_approvals).post(create_approval))
             .route("/api/admin/approvals/:id/approve/", post(approve_approval))
             .route("/api/admin/approvals/:id/reject/", post(reject_approval))
@@ -7460,6 +7591,24 @@ mod tests {
             .route("/api/admin/impersonations/", post(start_impersonation))
             .route("/api/admin/impersonations/:id/stop/", post(stop_impersonation))
             .route("/api/admin/audit-log/", get(list_audit_events))
+            .route("/api/admin/support-tickets/", get(list_support_tickets).post(create_support_ticket))
+            .route("/api/admin/support-tickets/:id/", patch(patch_support_ticket))
+            .route("/api/admin/support-tickets/:id/add_note/", post(add_support_ticket_note))
+            .route("/api/admin/feature-flags/", get(list_feature_flags))
+            .route("/api/admin/feature-flags/:id/", patch(patch_feature_flag))
+            .route("/api/admin/reconciliation-metrics/", get(reconciliation_metrics))
+            .route("/api/admin/ledger-health/", get(ledger_health))
+            .route("/api/admin/invoices-audit/", get(invoices_audit))
+            .route("/api/admin/expenses-audit/", get(expenses_audit))
+            .route("/api/admin/employees/", get(list_employees).post(create_employee))
+            .route("/api/admin/employees/:id/", get(get_employee).patch(patch_employee))
+            .route("/api/admin/employees/:id/suspend/", post(suspend_employee))
+            .route("/api/admin/employees/:id/reactivate/", post(reactivate_employee))
+            .route("/api/admin/employees/:id/delete/", post(delete_employee))
+            .route("/api/admin/employees/invite/", post(invite_employee))
+            .route("/api/admin/employees/:id/resend-invite/", post(resend_employee_invite))
+            .route("/api/admin/employees/:id/revoke-invite/", post(revoke_employee_invite))
+            .route("/api/admin/invite/:token/", get(get_invite).post(redeem_invite))
             .with_state(state);
 
         (TestServer::new(app).unwrap(), pool)
@@ -7679,5 +7828,271 @@ mod tests {
         audit_response.assert_status_ok();
         let body: Value = audit_response.json();
         assert!(body["count"].as_i64().unwrap_or(0) >= 1);
+    }
+
+    #[tokio::test]
+    async fn contract_reports_phase_two_admin_surface() {
+        let (server, _pool) = setup().await;
+        let token = make_token(4);
+
+        let response = server
+            .get("/api/admin/contract")
+            .add_header("authorization", format!("Bearer {}", token))
+            .await;
+        response.assert_status_ok();
+        let body: Value = response.json();
+
+        assert_eq!(body["contract_version"], "2026-03-04");
+        assert_eq!(body["endpoints"]["overview_metrics"], "/api/admin/overview-metrics/");
+        assert_eq!(body["endpoints"]["workspaces"], "/api/admin/workspaces/");
+        assert_eq!(body["endpoints"]["employees"], "/api/admin/employees/");
+        assert_eq!(body["endpoints"]["support_tickets"], "/api/admin/support-tickets/");
+        assert_eq!(body["endpoints"]["feature_flags"], "/api/admin/feature-flags/");
+    }
+
+    #[tokio::test]
+    async fn overview_and_inventory_endpoints_return_backend_shapes() {
+        let (server, _pool) = setup().await;
+        let token = make_token(4);
+
+        let overview = server
+            .get("/api/admin/overview-metrics/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .await;
+        overview.assert_status_ok();
+        let overview_body: Value = overview.json();
+        assert!(overview_body.get("active_users_30d").is_some());
+        assert!(overview_body["workspaces_health"].is_array());
+
+        let ops = server
+            .get("/api/admin/operations-overview/?env=prod&window_hours=24")
+            .add_header("authorization", format!("Bearer {}", token))
+            .await;
+        ops.assert_status_ok();
+        let ops_body: Value = ops.json();
+        assert_eq!(ops_body["env"], "prod");
+        assert!(ops_body["queues"].is_array());
+
+        let users = server
+            .get("/api/admin/users/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .await;
+        users.assert_status_ok();
+        let users_body: Value = users.json();
+        assert!(users_body["count"].as_i64().unwrap_or_default() >= 6);
+
+        let workspaces = server
+            .get("/api/admin/workspaces/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .await;
+        workspaces.assert_status_ok();
+        let workspace_body: Value = workspaces.json();
+        assert!(workspace_body["count"].as_i64().unwrap_or_default() >= 2);
+
+        let bank_accounts = server
+            .get("/api/admin/bank-accounts/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .await;
+        bank_accounts.assert_status_ok();
+        let bank_body: Value = bank_accounts.json();
+        assert!(bank_body["count"].as_i64().unwrap_or_default() >= 2);
+
+        let workspace_overview = server
+            .get("/api/admin/workspaces/10/overview/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .await;
+        workspace_overview.assert_status_ok();
+        let workspace_overview_body: Value = workspace_overview.json();
+        assert_eq!(workspace_overview_body["workspace"]["id"], 10);
+        assert!(workspace_overview_body["banking"]["accounts"].is_array());
+
+        server
+            .get("/api/admin/reconciliation-metrics/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .await
+            .assert_status_ok();
+        server
+            .get("/api/admin/ledger-health/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .await
+            .assert_status_ok();
+        server
+            .get("/api/admin/invoices-audit/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .await
+            .assert_status_ok();
+        server
+            .get("/api/admin/expenses-audit/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .await
+            .assert_status_ok();
+    }
+
+    #[tokio::test]
+    async fn privileged_user_workspace_and_flag_mutations_return_approval_envelopes() {
+        let (server, _pool) = setup().await;
+        let token = make_token(4);
+
+        let user_patch = server
+            .patch("/api/admin/users/5/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .json(&json!({
+                "is_active": false,
+                "reason": "Fraud review"
+            }))
+            .await;
+        user_patch.assert_status_ok();
+        let user_patch_body: Value = user_patch.json();
+        assert_eq!(user_patch_body["approval_required"], true);
+        assert_eq!(user_patch_body["approval_status"], "PENDING");
+
+        let workspace_patch = server
+            .patch("/api/admin/workspaces/10/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .json(&json!({
+                "is_deleted": true,
+                "reason": "Workspace shutdown"
+            }))
+            .await;
+        workspace_patch.assert_status_ok();
+        let workspace_patch_body: Value = workspace_patch.json();
+        assert_eq!(workspace_patch_body["approval_required"], true);
+
+        let flags = server
+            .get("/api/admin/feature-flags/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .await;
+        flags.assert_status_ok();
+        let flags_body: Value = flags.json();
+        let critical_flag_id = flags_body
+            .as_array()
+            .and_then(|items| {
+                items.iter().find(|item| item["is_critical"] == true)
+            })
+            .and_then(|item| item["id"].as_i64())
+            .unwrap();
+
+        let flag_patch = server
+            .patch(&format!("/api/admin/feature-flags/{}/", critical_flag_id))
+            .add_header("authorization", format!("Bearer {}", token))
+            .json(&json!({
+                "is_enabled": false,
+                "rollout_percent": 0,
+                "reason": "Emergency rollback"
+            }))
+            .await;
+        flag_patch.assert_status_ok();
+        let flag_patch_body: Value = flag_patch.json();
+        assert_eq!(flag_patch_body["approval_required"], true);
+    }
+
+    #[tokio::test]
+    async fn employee_support_and_invite_routes_are_backend_complete() {
+        let (server, _pool) = setup().await;
+        let token = make_token(4);
+
+        let created_employee = server
+            .post("/api/admin/employees/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .json(&json!({
+                "email": "operator@example.com",
+                "display_name": "Ops Operator",
+                "primary_admin_role": "support",
+                "admin_panel_access": true,
+                "is_active_employee": true
+            }))
+            .await;
+        created_employee.assert_status_ok();
+        let created_employee_body: Value = created_employee.json();
+        let employee_id = created_employee_body["id"].as_i64().unwrap();
+
+        server
+            .get(&format!("/api/admin/employees/{}/", employee_id))
+            .add_header("authorization", format!("Bearer {}", token))
+            .await
+            .assert_status_ok();
+
+        server
+            .post(&format!("/api/admin/employees/{}/suspend/", employee_id))
+            .add_header("authorization", format!("Bearer {}", token))
+            .json(&json!({}))
+            .await
+            .assert_status_ok();
+
+        server
+            .post(&format!("/api/admin/employees/{}/reactivate/", employee_id))
+            .add_header("authorization", format!("Bearer {}", token))
+            .json(&json!({}))
+            .await
+            .assert_status_ok();
+
+        let ticket = server
+            .post("/api/admin/support-tickets/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .json(&json!({
+                "subject": "Close books review",
+                "user_id": 5,
+                "workspace_id": 10
+            }))
+            .await;
+        ticket.assert_status_ok();
+        let ticket_body: Value = ticket.json();
+        let ticket_id = ticket_body["id"].as_i64().unwrap();
+
+        server
+            .patch(&format!("/api/admin/support-tickets/{}/", ticket_id))
+            .add_header("authorization", format!("Bearer {}", token))
+            .json(&json!({
+                "status": "IN_PROGRESS",
+                "priority": "HIGH"
+            }))
+            .await
+            .assert_status_ok();
+
+        let ticket_with_note = server
+            .post(&format!("/api/admin/support-tickets/{}/add_note/", ticket_id))
+            .add_header("authorization", format!("Bearer {}", token))
+            .json(&json!({
+                "body": "Operator assigned."
+            }))
+            .await;
+        ticket_with_note.assert_status_ok();
+        let ticket_with_note_body: Value = ticket_with_note.json();
+        assert_eq!(ticket_with_note_body["notes"].as_array().unwrap().len(), 1);
+
+        let invite_response = server
+            .post("/api/admin/employees/invite/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .json(&json!({
+                "email": "invitee@example.com",
+                "full_name": "Invited Operator",
+                "role": "support"
+            }))
+            .await;
+        invite_response.assert_status_ok();
+        let invite_body: Value = invite_response.json();
+        let invite_url = invite_body["invite"]["invite_url"].as_str().unwrap();
+        let invite_token = invite_url.trim_matches('/').split('/').last().unwrap();
+
+        let invite_lookup = server
+            .get(&format!("/api/admin/invite/{}/", invite_token))
+            .await;
+        invite_lookup.assert_status_ok();
+        let invite_lookup_body: Value = invite_lookup.json();
+        assert_eq!(invite_lookup_body["valid"], true);
+
+        let redeem = server
+            .post(&format!("/api/admin/invite/{}/", invite_token))
+            .json(&json!({
+                "username": "invitee",
+                "email": "invitee@example.com",
+                "password": "secure-pass-123",
+                "first_name": "Invite",
+                "last_name": "User"
+            }))
+            .await;
+        redeem.assert_status_ok();
+        let redeem_body: Value = redeem.json();
+        assert_eq!(redeem_body["redirect"], "/login");
     }
 }
