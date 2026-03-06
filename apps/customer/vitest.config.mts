@@ -17,6 +17,6 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: "./src/test/setupTests.ts",
-    exclude: [...configDefaults.exclude, "src/admin/**", "src/admin.tsx"],
+    exclude: [...configDefaults.exclude],
   },
 });
