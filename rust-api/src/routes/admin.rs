@@ -5622,51 +5622,59 @@ async fn update_workspace_record(
 
     let mut builder = QueryBuilder::<Sqlite>::new("UPDATE core_business SET ");
     let mut changed = false;
-    {
-        let mut separated = builder.separated(", ");
+    if let Some(name) = body.name.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        if changed {
+            builder.push(", ");
+        }
+        builder.push(name_col.as_str());
+        builder.push(" = ");
+        builder.push_bind(name.to_string());
+        changed = true;
+    }
 
-        if let Some(name) = body.name.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
-            separated.push(name_col.as_str());
-            separated.push(" = ");
-            separated.push_bind(name.to_string());
+    if body.plan.is_some() {
+        if let Some(plan_col) = plan_col.as_deref() {
+            let plan = body
+                .plan
+                .clone()
+                .flatten()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty());
+            if changed {
+                builder.push(", ");
+            }
+            builder.push(plan_col);
+            builder.push(" = ");
+            builder.push_bind(plan);
             changed = true;
         }
+    }
 
-        if body.plan.is_some() {
-            if let Some(plan_col) = plan_col.as_deref() {
-                let plan = body
-                    .plan
-                    .clone()
-                    .flatten()
-                    .map(|value| value.trim().to_string())
-                    .filter(|value| !value.is_empty());
-                separated.push(plan_col);
-                separated.push(" = ");
-                separated.push_bind(plan);
-                changed = true;
+    if let Some(status_col) = status_col.as_deref() {
+        if let Some(status) = body.status.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+            if changed {
+                builder.push(", ");
             }
+            builder.push(status_col);
+            builder.push(" = ");
+            builder.push_bind(status.to_string());
+            changed = true;
         }
+    }
 
-        if let Some(status_col) = status_col.as_deref() {
-            if let Some(status) = body.status.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
-                separated.push(status_col);
-                separated.push(" = ");
-                separated.push_bind(status.to_string());
-                changed = true;
+    if has_deleted_col {
+        if let Some(is_deleted) = body.is_deleted {
+            if changed {
+                builder.push(", ");
             }
+            builder.push("is_deleted = ");
+            builder.push_bind(if is_deleted { 1 } else { 0 });
+            changed = true;
         }
+    }
 
-        if has_deleted_col {
-            if let Some(is_deleted) = body.is_deleted {
-                separated.push("is_deleted = ");
-                separated.push_bind(if is_deleted { 1 } else { 0 });
-                changed = true;
-            }
-        }
-
-        if changed && has_updated_at {
-            separated.push("updated_at = datetime('now')");
-        }
+    if changed && has_updated_at {
+        builder.push(", updated_at = datetime('now')");
     }
 
     if changed {
@@ -6474,74 +6482,100 @@ async fn update_employee_record(
 
     let mut builder = QueryBuilder::<Sqlite>::new("UPDATE admin_employees SET ");
     let mut changed = false;
-    {
-        let mut separated = builder.separated(", ");
-
-        if let Some(user_id) = body.user_id {
-            separated.push("user_id = ");
-            separated.push_bind(user_id);
-            changed = true;
-        }
-        if let Some(email) = body.email.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
-            separated.push("email = ");
-            separated.push_bind(email.to_ascii_lowercase());
-            changed = true;
-        }
-        if let Some(name) = body.display_name.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
-            separated.push("name = ");
-            separated.push_bind(name.to_string());
-            changed = true;
-        }
-        if body.title.is_some() {
-            separated.push("title = ");
-            separated.push_bind(
-                body.title
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .map(str::to_string),
-            );
-            changed = true;
-        }
-        if body.department.is_some() {
-            separated.push("department = ");
-            separated.push_bind(
-                body.department
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .map(str::to_string),
-            );
-            changed = true;
-        }
-        if let Some(access) = body.admin_panel_access {
-            separated.push("admin_panel_access = ");
-            separated.push_bind(if access { 1 } else { 0 });
-            changed = true;
-        }
-        if let Some(role) = body.primary_admin_role.as_deref() {
-            separated.push("primary_admin_role = ");
-            separated.push_bind(normalize_employee_role(Some(role)).to_string());
-            changed = true;
-        }
-        if let Some(active) = body.is_active_employee {
-            separated.push("is_active_employee = ");
-            separated.push_bind(if active { 1 } else { 0 });
-            changed = true;
-        }
-        if body.manager_id.is_some() {
-            separated.push("manager_id = ");
-            separated.push_bind(body.manager_id);
-            changed = true;
-        }
-        if body.workspace_scope.is_some() {
-            separated.push("workspace_scope_json = ");
-            separated.push_bind(normalize_workspace_scope(body.workspace_scope.clone()));
-            changed = true;
-        }
+    if let Some(user_id) = body.user_id {
         if changed {
-            separated.push("updated_at = datetime('now')");
+            builder.push(", ");
         }
+        builder.push("user_id = ");
+        builder.push_bind(user_id);
+        changed = true;
+    }
+    if let Some(email) = body.email.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        if changed {
+            builder.push(", ");
+        }
+        builder.push("email = ");
+        builder.push_bind(email.to_ascii_lowercase());
+        changed = true;
+    }
+    if let Some(name) = body.display_name.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        if changed {
+            builder.push(", ");
+        }
+        builder.push("name = ");
+        builder.push_bind(name.to_string());
+        changed = true;
+    }
+    if body.title.is_some() {
+        if changed {
+            builder.push(", ");
+        }
+        builder.push("title = ");
+        builder.push_bind(
+            body.title
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+        );
+        changed = true;
+    }
+    if body.department.is_some() {
+        if changed {
+            builder.push(", ");
+        }
+        builder.push("department = ");
+        builder.push_bind(
+            body.department
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+        );
+        changed = true;
+    }
+    if let Some(access) = body.admin_panel_access {
+        if changed {
+            builder.push(", ");
+        }
+        builder.push("admin_panel_access = ");
+        builder.push_bind(if access { 1 } else { 0 });
+        changed = true;
+    }
+    if let Some(role) = body.primary_admin_role.as_deref() {
+        if changed {
+            builder.push(", ");
+        }
+        builder.push("primary_admin_role = ");
+        builder.push_bind(normalize_employee_role(Some(role)).to_string());
+        changed = true;
+    }
+    if let Some(active) = body.is_active_employee {
+        if changed {
+            builder.push(", ");
+        }
+        builder.push("is_active_employee = ");
+        builder.push_bind(if active { 1 } else { 0 });
+        changed = true;
+    }
+    if body.manager_id.is_some() {
+        if changed {
+            builder.push(", ");
+        }
+        builder.push("manager_id = ");
+        builder.push_bind(body.manager_id);
+        changed = true;
+    }
+    if body.workspace_scope.is_some() {
+        if changed {
+            builder.push(", ");
+        }
+        builder.push("workspace_scope_json = ");
+        builder.push_bind(normalize_workspace_scope(body.workspace_scope.clone()));
+        changed = true;
+    }
+    if changed {
+        builder.push(", updated_at = datetime('now')");
     }
 
     if changed {
@@ -6873,56 +6907,55 @@ async fn ensure_invite_user(
 
     let user_id = if let Some(user_id) = existing_user {
         let mut builder = QueryBuilder::<Sqlite>::new("UPDATE auth_user SET ");
-        {
-            let mut separated = builder.separated(", ");
-            separated.push("email = ");
-            separated.push_bind(email.to_ascii_lowercase());
-            if has_username {
-                let collision = sqlx::query_scalar::<_, i64>(
-                    "SELECT COUNT(*) FROM auth_user WHERE lower(username) = lower(?) AND id != ?",
-                )
-                .bind(&final_username)
-                .bind(user_id)
-                .fetch_one(&mut *tx)
-                .await
-                .unwrap_or(0);
-                let unique_username = if collision > 0 {
-                    format!("{}-{}", final_username, &Uuid::new_v4().to_string()[..8])
-                } else {
-                    final_username.clone()
-                };
-                separated.push("username = ");
-                separated.push_bind(unique_username);
-            }
-            if has_first_name {
-                separated.push("first_name = ");
-                separated.push_bind(first_name.trim().to_string());
-            }
-            if has_last_name {
-                separated.push("last_name = ");
-                separated.push_bind(last_name.trim().to_string());
-            }
-            if has_password {
-                separated.push("password = ");
-                separated.push_bind(password_hash.clone());
-            }
-            if has_is_active {
-                separated.push("is_active = ");
-                separated.push_bind(1);
-            }
-            if has_is_staff {
-                separated.push("is_staff = ");
-                separated.push_bind(1);
-            }
-            if has_is_superuser {
-                separated.push("is_superuser = ");
-                separated.push_bind(if is_superadmin { 1 } else { 0 });
-            }
-            if let Some(role_column) = role_column.as_deref() {
-                separated.push(role_column);
-                separated.push(" = ");
-                separated.push_bind(normalized_role.clone());
-            }
+        builder.push("email = ");
+        builder.push_bind(email.to_ascii_lowercase());
+        if has_username {
+            let collision = sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM auth_user WHERE lower(username) = lower(?) AND id != ?",
+            )
+            .bind(&final_username)
+            .bind(user_id)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap_or(0);
+            let unique_username = if collision > 0 {
+                format!("{}-{}", final_username, &Uuid::new_v4().to_string()[..8])
+            } else {
+                final_username.clone()
+            };
+            builder.push(", ");
+            builder.push("username = ");
+            builder.push_bind(unique_username);
+        }
+        if has_first_name {
+            builder.push(", first_name = ");
+            builder.push_bind(first_name.trim().to_string());
+        }
+        if has_last_name {
+            builder.push(", last_name = ");
+            builder.push_bind(last_name.trim().to_string());
+        }
+        if has_password {
+            builder.push(", password = ");
+            builder.push_bind(password_hash.clone());
+        }
+        if has_is_active {
+            builder.push(", is_active = ");
+            builder.push_bind(1);
+        }
+        if has_is_staff {
+            builder.push(", is_staff = ");
+            builder.push_bind(1);
+        }
+        if has_is_superuser {
+            builder.push(", is_superuser = ");
+            builder.push_bind(if is_superadmin { 1 } else { 0 });
+        }
+        if let Some(role_column) = role_column.as_deref() {
+            builder.push(", ");
+            builder.push(role_column);
+            builder.push(" = ");
+            builder.push_bind(normalized_role.clone());
         }
         builder.push(" WHERE id = ");
         builder.push_bind(user_id);
@@ -7987,6 +8020,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn employee_patch_updates_mutable_fields_without_error() {
+        let (server, _pool) = setup().await;
+        let token = make_token(4);
+
+        let created_employee = server
+            .post("/api/admin/employees/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .json(&json!({
+                "email": "patch-target@example.com",
+                "display_name": "Patch Target",
+                "primary_admin_role": "support",
+                "admin_panel_access": true,
+                "is_active_employee": true
+            }))
+            .await;
+        created_employee.assert_status_ok();
+        let employee_id = created_employee.json::<Value>()["id"].as_i64().unwrap();
+
+        let patched = server
+            .patch(&format!("/api/admin/employees/{}/", employee_id))
+            .add_header("authorization", format!("Bearer {}", token))
+            .json(&json!({
+                "title": "Support Lead",
+                "department": "Operations",
+                "workspace_scope": { "mode": "all" }
+            }))
+            .await;
+        patched.assert_status_ok();
+        let patched_body: Value = patched.json();
+        assert_eq!(patched_body["title"], "Support Lead");
+        assert_eq!(patched_body["department"], "Operations");
+        assert_eq!(patched_body["workspace_scope"]["mode"], "all");
+    }
+
+    #[tokio::test]
+    async fn workspace_patch_updates_mutable_fields_without_error() {
+        let (server, _pool) = setup().await;
+        let token = make_token(4);
+
+        let patched = server
+            .patch("/api/admin/workspaces/10/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .json(&json!({
+                "name": "Acme Books Intl",
+                "plan": "enterprise",
+                "status": "review"
+            }))
+            .await;
+        patched.assert_status_ok();
+        let patched_body: Value = patched.json();
+        assert_eq!(patched_body["name"], "Acme Books Intl");
+        assert_eq!(patched_body["plan"], "enterprise");
+        assert_eq!(patched_body["status"], "review");
+    }
+
+    #[tokio::test]
     async fn employee_support_and_invite_routes_are_backend_complete() {
         let (server, _pool) = setup().await;
         let token = make_token(4);
@@ -8094,5 +8183,47 @@ mod tests {
         redeem.assert_status_ok();
         let redeem_body: Value = redeem.json();
         assert_eq!(redeem_body["redirect"], "/login");
+    }
+
+    #[tokio::test]
+    async fn invite_redeem_updates_existing_auth_user_accounts() {
+        let (server, pool) = setup().await;
+        let token = make_token(4);
+
+        let invite_response = server
+            .post("/api/admin/employees/invite/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .json(&json!({
+                "email": "customer@example.com",
+                "full_name": "Customer Support Escalation",
+                "role": "support"
+            }))
+            .await;
+        invite_response.assert_status_ok();
+        let invite_body: Value = invite_response.json();
+        let invite_url = invite_body["invite"]["invite_url"].as_str().unwrap();
+        let invite_token = invite_url.trim_matches('/').split('/').last().unwrap();
+
+        let redeem = server
+            .post(&format!("/api/admin/invite/{}/", invite_token))
+            .json(&json!({
+                "username": "customer-admin",
+                "email": "customer@example.com",
+                "password": "secure-pass-456",
+                "first_name": "Customer",
+                "last_name": "Admin"
+            }))
+            .await;
+        redeem.assert_status_ok();
+
+        let updated_user = sqlx::query_as::<_, (String, i64, i64)>(
+            "SELECT username, is_staff, is_active FROM auth_user WHERE id = 5",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(updated_user.0, "customer-admin");
+        assert_eq!(updated_user.1, 1);
+        assert_eq!(updated_user.2, 1);
     }
 }
