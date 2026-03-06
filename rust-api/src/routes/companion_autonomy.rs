@@ -1220,7 +1220,10 @@ mod tests {
             .route("/api/companion/cockpit/queues", get(cockpit_queues))
             .route("/api/companion/cockpit/status", get(cockpit_status))
             .route("/api/companion/autonomy/status", get(autonomy_status))
-            .with_state(state);
+            .with_state(state)
+            .layer(axum::middleware::from_fn(
+                crate::routes::request_ids::control_plane_request_id_middleware,
+            ));
 
         (TestServer::new(app).unwrap(), pool)
     }
@@ -1351,6 +1354,52 @@ mod tests {
         let (server, _pool) = setup().await;
         let response = server.get("/api/companion/autonomy/status").await;
         response.assert_status(StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn companion_routes_echo_explicit_request_ids() {
+        let (server, pool) = setup().await;
+        seed_policy(&pool, 1, "drafts").await;
+
+        let token = make_token(1);
+        let response = server
+            .get("/api/companion/cockpit/status")
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "companion-header-01")
+            .await;
+        response.assert_status_ok();
+        assert_eq!(
+            response.header("x-request-id").to_str().unwrap(),
+            "companion-header-01"
+        );
+    }
+
+    #[tokio::test]
+    async fn companion_routes_echo_request_ids_on_errors() {
+        let (server, _pool) = setup().await;
+        let response = server
+            .get("/api/companion/cockpit/queues")
+            .add_header("x-request-id", "companion-error-01")
+            .await;
+        response.assert_status(StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            response.header("x-request-id").to_str().unwrap(),
+            "companion-error-01"
+        );
+    }
+
+    #[tokio::test]
+    async fn companion_routes_generate_request_ids_when_missing() {
+        let (server, pool) = setup().await;
+        seed_policy(&pool, 1, "drafts").await;
+
+        let token = make_token(1);
+        let response = server
+            .get("/api/companion/cockpit/status")
+            .add_header("authorization", format!("Bearer {}", token))
+            .await;
+        response.assert_status_ok();
+        assert!(!response.header("x-request-id").to_str().unwrap().trim().is_empty());
     }
 
     #[test]

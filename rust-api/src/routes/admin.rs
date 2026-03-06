@@ -1,7 +1,6 @@
 use axum::{
-    extract::{Path, Query, Request, State},
+    extract::{Path, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
-    middleware::Next,
     response::{IntoResponse, Response},
     Json,
 };
@@ -18,6 +17,7 @@ use uuid::Uuid;
 
 use crate::companion_autonomy::policy::{BudgetConfig, PolicyConfig};
 use crate::routes::auth::{extract_claims_from_header, Claims};
+use crate::routes::request_ids::resolve_request_id;
 use crate::AppState;
 
 const APPROVAL_DEFAULT_EXPIRY_HOURS: i64 = 24;
@@ -7916,33 +7916,6 @@ fn request_context(headers: &HeaderMap) -> RequestContext {
     }
 }
 
-fn resolve_request_id(headers: &HeaderMap) -> String {
-    headers
-        .get("x-request-id")
-        .and_then(|value| value.to_str().ok())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| Uuid::new_v4().to_string())
-}
-
-pub async fn admin_request_id_middleware(mut request: Request, next: Next) -> Response {
-    let path = request.uri().path().to_string();
-    if !path.starts_with("/api/admin/") {
-        return next.run(request).await;
-    }
-
-    let request_id = resolve_request_id(request.headers());
-    if let Ok(value) = HeaderValue::from_str(&request_id) {
-        request.headers_mut().insert("x-request-id", value.clone());
-        let mut response = next.run(request).await;
-        response.headers_mut().insert("x-request-id", value);
-        return response;
-    }
-
-    next.run(request).await
-}
-
 fn api_error(
     status: StatusCode,
     message: &str,
@@ -8674,7 +8647,9 @@ mod tests {
             .route("/api/admin/employees/:id/revoke-invite/", post(revoke_employee_invite))
             .route("/api/admin/invite/:token/", get(get_invite).post(redeem_invite))
             .with_state(state)
-            .layer(axum::middleware::from_fn(admin_request_id_middleware));
+            .layer(axum::middleware::from_fn(
+                crate::routes::request_ids::control_plane_request_id_middleware,
+            ));
 
         (TestServer::new(app).unwrap(), pool)
     }

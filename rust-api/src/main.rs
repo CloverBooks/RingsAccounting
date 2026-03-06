@@ -362,7 +362,7 @@ async fn main() {
         .with_state(app_state)
 
         // Add middleware
-        .layer(from_fn(routes::admin::admin_request_id_middleware))
+        .layer(from_fn(routes::request_ids::control_plane_request_id_middleware))
         .layer(cors)
         .layer(TraceLayer::new_for_http());
 

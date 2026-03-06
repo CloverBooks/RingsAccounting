@@ -7,4 +7,5 @@ pub mod dashboard;
 pub mod matching;
 pub mod onboarding;
 pub mod reconciliation;
+pub mod request_ids;
 pub mod tax;
