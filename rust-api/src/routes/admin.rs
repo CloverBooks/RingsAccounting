@@ -9,7 +9,7 @@ use chrono::{Duration, Utc};
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use sha2::Sha256;
 use sqlx::{FromRow, QueryBuilder, Row, Sqlite, SqlitePool};
 use std::collections::{BTreeMap, HashMap};
@@ -1222,13 +1222,16 @@ pub async fn create_approval(
         );
     }
 
-    (
+    mutation_response(
         StatusCode::OK,
-        Json(json!({
+        "created",
+        "Approval request created.",
+        &req.request_id,
+        json!({
             "id": approval_id,
             "status": "PENDING",
             "created_at": created_at
-        })),
+        }),
     )
 }
 
@@ -1397,14 +1400,17 @@ pub async fn approve_approval(
         );
     }
 
-    (
+    mutation_response(
         StatusCode::OK,
-        Json(json!({
+        "approved",
+        "Approval request approved.",
+        &req.request_id,
+        json!({
             "id": approval_id,
             "status": "APPROVED",
             "resolved_at": now_sqlite(),
             "execution_error": Value::Null
-        })),
+        }),
     )
 }
 
@@ -1556,13 +1562,16 @@ pub async fn reject_approval(
         );
     }
 
-    (
+    mutation_response(
         StatusCode::OK,
-        Json(json!({
+        "rejected",
+        "Approval request rejected.",
+        &req.request_id,
+        json!({
             "id": approval_id,
             "status": "REJECTED",
             "resolved_at": now_sqlite()
-        })),
+        }),
     )
 }
 
@@ -1719,12 +1728,15 @@ pub async fn break_glass_approval(
         );
     }
 
-    (
+    mutation_response(
         StatusCode::OK,
-        Json(json!({
+        "granted",
+        "Break-glass access granted.",
+        &req.request_id,
+        json!({
             "success": true,
             "expires_at": expires_at
-        })),
+        }),
     )
 }
 
@@ -1874,11 +1886,14 @@ pub async fn start_impersonation(
     }
 
     let redirect_url = format!("/?impersonation_session={}", session_id);
-    (
+    mutation_response(
         StatusCode::OK,
-        Json(json!({
+        "started",
+        "Impersonation session started.",
+        &req.request_id,
+        json!({
             "redirect_url": redirect_url
-        })),
+        }),
     )
 }
 
@@ -1936,13 +1951,15 @@ pub async fn stop_impersonation(
     }
 
     if session.status != "ACTIVE" {
-        return (
+        return mutation_response(
             StatusCode::OK,
-            Json(json!({
-                "ok": true,
+            "noop",
+            "Impersonation session already inactive.",
+            &req.request_id,
+            json!({
                 "id": session.id,
                 "status": session.status
-            })),
+            }),
         );
     }
 
@@ -2008,14 +2025,16 @@ pub async fn stop_impersonation(
         );
     }
 
-    (
+    mutation_response(
         StatusCode::OK,
-        Json(json!({
-            "ok": true,
+        "stopped",
+        "Impersonation session stopped.",
+        &req.request_id,
+        json!({
             "id": session.id,
             "status": "STOPPED",
             "stopped_at": now_sqlite()
-        })),
+        }),
     )
 }
 
@@ -2829,14 +2848,17 @@ pub async fn patch_user(
         };
 
         let user_payload = build_user_payload(&state.db, &existing).await;
-        return (
+        return mutation_response(
             StatusCode::OK,
-            Json(json!({
+            "approval_required",
+            "Privileged user change queued for approval.",
+            &req.request_id,
+            json!({
                 "approval_required": true,
                 "approval_request_id": approval,
                 "approval_status": "PENDING",
                 "user": user_payload
-            })),
+            }),
         );
     }
 
@@ -2869,9 +2891,12 @@ pub async fn patch_user(
     }
 
     if set_clauses.is_empty() {
-        return (
+        return mutation_response(
             StatusCode::OK,
-            Json(build_user_payload(&state.db, &existing).await),
+            "noop",
+            "No user changes applied.",
+            &req.request_id,
+            build_user_payload(&state.db, &existing).await,
         );
     }
 
@@ -2914,7 +2939,13 @@ pub async fn patch_user(
     }
 
     match load_basic_user_by_id(&state.db, user_id).await {
-        Ok(Some(updated)) => (StatusCode::OK, Json(build_user_payload(&state.db, &updated).await)),
+        Ok(Some(updated)) => mutation_response(
+            StatusCode::OK,
+            "updated",
+            "User updated.",
+            &req.request_id,
+            build_user_payload(&state.db, &updated).await,
+        ),
         _ => api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "failed to load updated user",
@@ -2975,13 +3006,16 @@ pub async fn reset_user_password(
         }
     };
 
-    (
+    mutation_response(
         StatusCode::OK,
-        Json(json!({
+        "approval_required",
+        "Password reset request queued for approval.",
+        &req.request_id,
+        json!({
             "approval_required": true,
             "approval_request_id": approval,
             "approval_status": "PENDING"
-        })),
+        }),
     )
 }
 
@@ -3131,14 +3165,17 @@ pub async fn patch_workspace(
                 );
             }
         };
-        return (
+        return mutation_response(
             StatusCode::OK,
-            Json(json!({
+            "approval_required",
+            "Workspace delete queued for approval.",
+            &req.request_id,
+            json!({
                 "approval_required": true,
                 "approval_request_id": approval,
                 "approval_status": "PENDING",
                 "workspace": workspace_payload(&state.db, &current).await
-            })),
+            }),
         );
     }
 
@@ -3178,7 +3215,13 @@ pub async fn patch_workspace(
         tracing::error!("Failed to write workspace.update audit event: {}", error);
     }
 
-    (StatusCode::OK, Json(workspace_payload(&state.db, &updated).await))
+    mutation_response(
+        StatusCode::OK,
+        "updated",
+        "Workspace updated.",
+        &req.request_id,
+        workspace_payload(&state.db, &updated).await,
+    )
 }
 
 pub async fn workspace_overview(
@@ -3481,7 +3524,13 @@ pub async fn create_support_ticket(
     }
 
     match fetch_support_ticket_by_id(&state.db, ticket_id).await {
-        Ok(Some(ticket)) => (StatusCode::OK, Json(ticket)),
+        Ok(Some(ticket)) => mutation_response(
+            StatusCode::OK,
+            "created",
+            "Support ticket created.",
+            &req.request_id,
+            ticket,
+        ),
         _ => api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "failed to load created support ticket",
@@ -3511,7 +3560,13 @@ pub async fn patch_support_ticket(
     }
     if set_clauses.is_empty() {
         return match fetch_support_ticket_by_id(&state.db, ticket_id).await {
-            Ok(Some(ticket)) => (StatusCode::OK, Json(ticket)),
+            Ok(Some(ticket)) => mutation_response(
+                StatusCode::OK,
+                "noop",
+                "No support ticket changes applied.",
+                &req.request_id,
+                ticket,
+            ),
             Ok(None) => api_error(StatusCode::NOT_FOUND, "support ticket not found", &req.request_id),
             Err(error) => {
                 tracing::error!("Failed to fetch support ticket {}: {}", ticket_id, error);
@@ -3579,7 +3634,13 @@ pub async fn patch_support_ticket(
     }
 
     match fetch_support_ticket_by_id(&state.db, ticket_id).await {
-        Ok(Some(ticket)) => (StatusCode::OK, Json(ticket)),
+        Ok(Some(ticket)) => mutation_response(
+            StatusCode::OK,
+            "updated",
+            "Support ticket updated.",
+            &req.request_id,
+            ticket,
+        ),
         _ => api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "failed to load updated support ticket",
@@ -3667,7 +3728,13 @@ pub async fn add_support_ticket_note(
     }
 
     match fetch_support_ticket_by_id(&state.db, ticket_id).await {
-        Ok(Some(ticket)) => (StatusCode::OK, Json(ticket)),
+        Ok(Some(ticket)) => mutation_response(
+            StatusCode::OK,
+            "updated",
+            "Support ticket note added.",
+            &req.request_id,
+            ticket,
+        ),
         _ => api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "failed to load updated support ticket",
@@ -3751,7 +3818,13 @@ pub async fn patch_feature_flag(
     let changed = next_is_enabled != (current.is_enabled > 0)
         || next_rollout_percent != current.rollout_percent;
     if !changed {
-        return (StatusCode::OK, Json(feature_flag_to_json(&current)));
+        return mutation_response(
+            StatusCode::OK,
+            "noop",
+            "No feature flag changes applied.",
+            &req.request_id,
+            feature_flag_to_json(&current),
+        );
     }
 
     let reason = body
@@ -3802,13 +3875,16 @@ pub async fn patch_feature_flag(
                 );
             }
         };
-        return (
+        return mutation_response(
             StatusCode::OK,
-            Json(json!({
+            "approval_required",
+            "Critical feature flag change queued for approval.",
+            &req.request_id,
+            json!({
                 "approval_required": true,
                 "approval_request_id": approval,
                 "approval_status": "PENDING"
-            })),
+            }),
         );
     }
 
@@ -3863,7 +3939,13 @@ pub async fn patch_feature_flag(
     .fetch_optional(&state.db)
     .await
     {
-        Ok(Some(updated)) => (StatusCode::OK, Json(feature_flag_to_json(&updated))),
+        Ok(Some(updated)) => mutation_response(
+            StatusCode::OK,
+            "updated",
+            "Feature flag updated.",
+            &req.request_id,
+            feature_flag_to_json(&updated),
+        ),
         _ => api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "failed to load updated feature flag",
@@ -3935,7 +4017,13 @@ pub async fn get_employee(
     }
 
     match fetch_employee_by_id(&state.db, employee_id).await {
-        Ok(Some(employee)) => (StatusCode::OK, Json(employee_row_to_json(&employee))),
+        Ok(Some(employee)) => mutation_response(
+            StatusCode::OK,
+            "created",
+            "Employee created.",
+            &req.request_id,
+            employee_row_to_json(&employee),
+        ),
         Ok(None) => api_error(StatusCode::NOT_FOUND, "employee not found", &req.request_id),
         Err(error) => {
             tracing::error!("Failed to load employee {}: {}", employee_id, error);
@@ -4054,7 +4142,13 @@ pub async fn create_employee(
     }
 
     match fetch_employee_by_id(&state.db, employee_id).await {
-        Ok(Some(employee)) => (StatusCode::OK, Json(employee_row_to_json(&employee))),
+        Ok(Some(employee)) => mutation_response(
+            StatusCode::OK,
+            "created",
+            "Employee created.",
+            &req.request_id,
+            employee_row_to_json(&employee),
+        ),
         _ => api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "failed to load created employee",
@@ -4122,7 +4216,13 @@ pub async fn patch_employee(
         tracing::error!("Failed to write employee.update audit event: {}", error);
     }
 
-    (StatusCode::OK, Json(employee_row_to_json(&updated)))
+    mutation_response(
+        StatusCode::OK,
+        "updated",
+        "Employee updated.",
+        &req.request_id,
+        employee_row_to_json(&updated),
+    )
 }
 
 pub async fn suspend_employee(
@@ -4182,7 +4282,13 @@ pub async fn delete_employee(
             {
                 tracing::error!("Failed to write employee.delete audit event: {}", error);
             }
-            (StatusCode::OK, Json(json!({ "success": true })))
+            mutation_response(
+                StatusCode::OK,
+                "deleted",
+                "Employee deleted.",
+                &req.request_id,
+                json!({ "success": true }),
+            )
         }
         Ok(_) => api_error(StatusCode::NOT_FOUND, "employee not found", &req.request_id),
         Err(error) => {
@@ -4334,7 +4440,13 @@ pub async fn invite_employee(
     }
 
     match fetch_employee_by_id(&state.db, employee_id).await {
-        Ok(Some(employee)) => (StatusCode::OK, Json(employee_row_to_json(&employee))),
+        Ok(Some(employee)) => mutation_response(
+            StatusCode::OK,
+            "created",
+            "Employee invite issued.",
+            &req.request_id,
+            employee_row_to_json(&employee),
+        ),
         _ => api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "failed to load invited employee",
@@ -7176,7 +7288,17 @@ async fn mutate_employee_active_status(
             }
 
             match fetch_employee_by_id(&state.db, employee_id).await {
-                Ok(Some(updated)) => (StatusCode::OK, Json(employee_row_to_json(&updated))),
+                Ok(Some(updated)) => mutation_response(
+                    StatusCode::OK,
+                    "updated",
+                    if is_active {
+                        "Employee reactivated."
+                    } else {
+                        "Employee suspended."
+                    },
+                    &req.request_id,
+                    employee_row_to_json(&updated),
+                ),
                 _ => api_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "failed to load updated employee",
@@ -7335,7 +7457,17 @@ async fn mutate_employee_invite(
     }
 
     match fetch_employee_by_id(&state.db, employee_id).await {
-        Ok(Some(updated)) => (StatusCode::OK, Json(employee_row_to_json(&updated))),
+        Ok(Some(updated)) => mutation_response(
+            StatusCode::OK,
+            "updated",
+            if revoke {
+                "Employee invite revoked."
+            } else {
+                "Employee invite reissued."
+            },
+            &req.request_id,
+            employee_row_to_json(&updated),
+        ),
         _ => api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "failed to load updated employee",
@@ -7623,13 +7755,95 @@ fn api_error(
     message: &str,
     request_id: &str,
 ) -> (StatusCode, Json<Value>) {
+    let error_type = normalize_admin_error_type(message);
+    let error_code = request_scoped_error_code(&error_type, request_id);
     (
         status,
         Json(json!({
             "ok": false,
+            "result_state": "failed",
+            "message": message,
+            "detail": message,
             "error": message,
+            "error_type": error_type,
+            "error_code": error_code,
+            "http_status": status.as_u16(),
             "request_id": request_id
         })),
+    )
+}
+
+fn mutation_response(
+    status: StatusCode,
+    result_state: &str,
+    message: &str,
+    request_id: &str,
+    payload: Value,
+) -> (StatusCode, Json<Value>) {
+    let mut object = match payload {
+        Value::Object(map) => map,
+        Value::Null => Map::new(),
+        value => {
+            let mut map = Map::new();
+            map.insert("data".to_string(), value);
+            map
+        }
+    };
+
+    if !object.contains_key("ok") {
+        object.insert("ok".to_string(), json!(true));
+    }
+    if !object.contains_key("result_state") {
+        object.insert("result_state".to_string(), json!(result_state));
+    }
+    if !object.contains_key("message") {
+        object.insert("message".to_string(), json!(message));
+    }
+    if !object.contains_key("request_id") {
+        object.insert("request_id".to_string(), json!(request_id));
+    }
+
+    (status, Json(Value::Object(object)))
+}
+
+fn normalize_admin_error_type(message: &str) -> String {
+    let mut token = String::new();
+    let mut previous_was_separator = false;
+
+    for ch in message.chars() {
+        if ch.is_ascii_alphanumeric() {
+            token.push(ch.to_ascii_lowercase());
+            previous_was_separator = false;
+        } else if !previous_was_separator && !token.is_empty() {
+            token.push('_');
+            previous_was_separator = true;
+        }
+    }
+
+    let normalized = token.trim_matches('_').to_string();
+    if normalized.is_empty() {
+        "request_failed".to_string()
+    } else {
+        normalized
+    }
+}
+
+fn request_scoped_error_code(error_type: &str, request_id: &str) -> String {
+    let request_fragment: String = request_id
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .take(12)
+        .collect();
+    let request_fragment = if request_fragment.is_empty() {
+        "UNKNOWN".to_string()
+    } else {
+        request_fragment.to_ascii_uppercase()
+    };
+
+    format!(
+        "ADMIN_{}_{}",
+        error_type.to_ascii_uppercase(),
+        request_fragment
     )
 }
 
@@ -8197,6 +8411,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn admin_errors_include_request_scoped_codes() {
+        let (server, _pool) = setup().await;
+        let token = make_token(4);
+        let response = server
+            .post("/api/admin/approvals/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "admin-error-01")
+            .json(&json!({
+                "action_type": "LEDGER_ADJUST",
+                "reason": "   "
+            }))
+            .await;
+        response.assert_status(StatusCode::BAD_REQUEST);
+
+        let body: Value = response.json();
+        assert_eq!(body["ok"], false);
+        assert_eq!(body["result_state"], "failed");
+        assert_eq!(body["message"], "reason is required");
+        assert_eq!(body["detail"], "reason is required");
+        assert_eq!(body["error_type"], "reason_is_required");
+        assert_eq!(body["error_code"], "ADMIN_REASON_IS_REQUIRED_ADMINERROR01");
+        assert_eq!(body["request_id"], "admin-error-01");
+        assert_eq!(body["http_status"], 400);
+    }
+
+    #[tokio::test]
     async fn maker_checker_blocks_self_approval() {
         let (server, _pool) = setup().await;
         let maker_token = make_token(1);
@@ -8537,6 +8777,7 @@ mod tests {
         let user_patch = server
             .patch("/api/admin/users/5/")
             .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "admin-approval-01")
             .json(&json!({
                 "is_active": false,
                 "reason": "Fraud review"
@@ -8544,12 +8785,16 @@ mod tests {
             .await;
         user_patch.assert_status_ok();
         let user_patch_body: Value = user_patch.json();
+        assert_eq!(user_patch_body["ok"], true);
+        assert_eq!(user_patch_body["result_state"], "approval_required");
+        assert_eq!(user_patch_body["request_id"], "admin-approval-01");
         assert_eq!(user_patch_body["approval_required"], true);
         assert_eq!(user_patch_body["approval_status"], "PENDING");
 
         let workspace_patch = server
             .patch("/api/admin/workspaces/10/")
             .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "admin-approval-02")
             .json(&json!({
                 "is_deleted": true,
                 "reason": "Workspace shutdown"
@@ -8557,6 +8802,8 @@ mod tests {
             .await;
         workspace_patch.assert_status_ok();
         let workspace_patch_body: Value = workspace_patch.json();
+        assert_eq!(workspace_patch_body["result_state"], "approval_required");
+        assert_eq!(workspace_patch_body["request_id"], "admin-approval-02");
         assert_eq!(workspace_patch_body["approval_required"], true);
 
         let flags = server
@@ -8576,6 +8823,7 @@ mod tests {
         let flag_patch = server
             .patch(&format!("/api/admin/feature-flags/{}/", critical_flag_id))
             .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "admin-approval-03")
             .json(&json!({
                 "is_enabled": false,
                 "rollout_percent": 0,
@@ -8584,7 +8832,48 @@ mod tests {
             .await;
         flag_patch.assert_status_ok();
         let flag_patch_body: Value = flag_patch.json();
+        assert_eq!(flag_patch_body["result_state"], "approval_required");
+        assert_eq!(flag_patch_body["request_id"], "admin-approval-03");
         assert_eq!(flag_patch_body["approval_required"], true);
+    }
+
+    #[tokio::test]
+    async fn admin_mutation_responses_include_result_state_and_request_id() {
+        let (server, _pool) = setup().await;
+        let token = make_token(4);
+
+        let created_employee = server
+            .post("/api/admin/employees/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "admin-mutation-01")
+            .json(&json!({
+                "email": "envelope@example.com",
+                "display_name": "Envelope Operator",
+                "primary_admin_role": "support",
+                "admin_panel_access": true,
+                "is_active_employee": true
+            }))
+            .await;
+        created_employee.assert_status_ok();
+        let created_body: Value = created_employee.json();
+        assert_eq!(created_body["ok"], true);
+        assert_eq!(created_body["result_state"], "created");
+        assert_eq!(created_body["message"], "Employee created.");
+        assert_eq!(created_body["request_id"], "admin-mutation-01");
+        let employee_id = created_body["id"].as_i64().unwrap();
+
+        let suspended = server
+            .post(&format!("/api/admin/employees/{}/suspend/", employee_id))
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "admin-mutation-02")
+            .json(&json!({}))
+            .await;
+        suspended.assert_status_ok();
+        let suspended_body: Value = suspended.json();
+        assert_eq!(suspended_body["ok"], true);
+        assert_eq!(suspended_body["result_state"], "updated");
+        assert_eq!(suspended_body["message"], "Employee suspended.");
+        assert_eq!(suspended_body["request_id"], "admin-mutation-02");
     }
 
     #[tokio::test]

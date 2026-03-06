@@ -1,6 +1,6 @@
 # Admin Phase Memory
 
-- [ ] Option 2 left on the table after this backend hardening slice: standardize deterministic admin mutation error envelopes and request-id-backed error codes across the remaining privileged `/api/admin/*` routes once the current phase is closed.
+- [x] Option 2 left on the table after this backend hardening slice: standardize deterministic admin mutation error envelopes and request-id-backed error codes across the remaining privileged `/api/admin/*` routes once the current phase is closed.
 - [x] Option 2 left on the table after this canonical admin consolidation slice: replace remaining `window.prompt` and `window.alert` approval and reason capture in `UsersSection`, `FeatureFlagsSection`, and `WorkspacesSection` with audited first-class dialogs.
 - [x] Option 2 left on the table after this admin action-safety slice: remove or backend-wire the remaining static operator panels in `AdminApp` such as AI monitoring and settings so the canonical admin console does not present non-authoritative operational state.
 - [x] Option 2 left on the table after this canonical-surface cleanup slice: publish real backend contracts for admin runtime settings and AI-ops telemetry before reintroducing those panels to the canonical admin nav.
@@ -8,3 +8,4 @@
 - [x] Option 2 left on the table after this admin-shell cleanup slice: replace the dead `Export log` control in `LogsSection` with a real audit export path or remove it until backend export contracts exist.
 - [x] Option 2 left on the table after this audit-log contract slice: remove the remaining garbled icon/text mojibake in the canonical admin UI and replace it with ASCII-safe copy or proper icon components so operators do not see corrupted chrome.
 - [x] Option 2 left on the table after this admin copy-hygiene slice: replace the remaining emoji-first controls in high-risk operator surfaces like `UsersSection` and `WorkspacesSection` with a consistent icon system or ASCII-safe labels.
+- [ ] Option 2 left on the table after this admin mutation-envelope slice: bring unauthenticated admin invite validation and redeem flows onto the same structured response contract and request-id trace model as the privileged admin routes.
