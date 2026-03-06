@@ -4,7 +4,7 @@
 //! All endpoints read directly from the SQLite database.
 
 use axum::{
-    routing::{get, post},
+    routing::{delete, get, post},
     Router,
 };
 use sqlx::SqlitePool;
@@ -57,11 +57,17 @@ async fn main() {
 
     // Verify onboarding tables exist (fail-fast if migrations not run)
     if let Err(e) = routes::onboarding::verify_schema(&db_pool.pool).await {
-        tracing::error!("❌ Onboarding schema verification failed: {}", e);
-        tracing::error!("💡 Run: cd rust-api && sqlx migrate run");
+        tracing::error!("Onboarding schema verification failed: {}", e);
+        tracing::error!("Run: cd rust-api && sqlx migrate run");
         panic!("Onboarding schema missing: {}", e);
     }
-    tracing::info!("✅ Onboarding schema verified");
+    tracing::info!("Onboarding schema verified");
+
+    if let Err(e) = routes::admin::ensure_schema(&db_pool.pool).await {
+        tracing::error!("Admin schema verification failed: {}", e);
+        panic!("Admin schema bootstrap failed: {}", e);
+    }
+    tracing::info!("Admin schema verified");
 
 
     if let Some(cmd) = std::env::args().nth(1) {
@@ -110,6 +116,108 @@ async fn main() {
         .route("/api/auth/config", get(routes::auth::config))
         .route("/api/auth/google/login", get(routes::auth::google_login))
         .route("/api/auth/google/callback", get(routes::auth::google_callback))
+        // Admin control-plane APIs
+        .route("/api/admin/contract", get(routes::admin::contract))
+        .route("/api/admin/authz/me", get(routes::admin::authz_me))
+        .route("/api/admin/overview-metrics/", get(routes::admin::overview_metrics))
+        .route(
+            "/api/admin/operations-overview/",
+            get(routes::admin::operations_overview),
+        )
+        .route("/api/admin/users/", get(routes::admin::list_users))
+        .route(
+            "/api/admin/users/:id/",
+            axum::routing::patch(routes::admin::patch_user),
+        )
+        .route(
+            "/api/admin/users/:id/reset-password/",
+            post(routes::admin::reset_user_password),
+        )
+        .route("/api/admin/workspaces/", get(routes::admin::list_workspaces))
+        .route(
+            "/api/admin/workspaces/:id/",
+            axum::routing::patch(routes::admin::patch_workspace),
+        )
+        .route(
+            "/api/admin/workspaces/:id/overview/",
+            get(routes::admin::workspace_overview),
+        )
+        .route("/api/admin/bank-accounts/", get(routes::admin::list_bank_accounts_admin))
+        .route(
+            "/api/admin/support-tickets/",
+            get(routes::admin::list_support_tickets).post(routes::admin::create_support_ticket),
+        )
+        .route(
+            "/api/admin/support-tickets/:id/",
+            axum::routing::patch(routes::admin::patch_support_ticket),
+        )
+        .route(
+            "/api/admin/support-tickets/:id/add_note/",
+            post(routes::admin::add_support_ticket_note),
+        )
+        .route("/api/admin/feature-flags/", get(routes::admin::list_feature_flags))
+        .route(
+            "/api/admin/feature-flags/:id/",
+            axum::routing::patch(routes::admin::patch_feature_flag),
+        )
+        .route(
+            "/api/admin/reconciliation-metrics/",
+            get(routes::admin::reconciliation_metrics),
+        )
+        .route("/api/admin/ledger-health/", get(routes::admin::ledger_health))
+        .route("/api/admin/invoices-audit/", get(routes::admin::invoices_audit))
+        .route("/api/admin/expenses-audit/", get(routes::admin::expenses_audit))
+        .route(
+            "/api/admin/employees/",
+            get(routes::admin::list_employees).post(routes::admin::create_employee),
+        )
+        .route("/api/admin/employees/:id/", get(routes::admin::get_employee))
+        .route(
+            "/api/admin/employees/:id/",
+            axum::routing::patch(routes::admin::patch_employee),
+        )
+        .route(
+            "/api/admin/employees/:id/suspend/",
+            post(routes::admin::suspend_employee),
+        )
+        .route(
+            "/api/admin/employees/:id/reactivate/",
+            post(routes::admin::reactivate_employee),
+        )
+        .route(
+            "/api/admin/employees/:id/delete/",
+            post(routes::admin::delete_employee),
+        )
+        .route(
+            "/api/admin/employees/invite/",
+            post(routes::admin::invite_employee),
+        )
+        .route(
+            "/api/admin/employees/:id/resend-invite/",
+            post(routes::admin::resend_employee_invite),
+        )
+        .route(
+            "/api/admin/employees/:id/revoke-invite/",
+            post(routes::admin::revoke_employee_invite),
+        )
+        .route("/api/admin/invite/:token/", get(routes::admin::get_invite))
+        .route("/api/admin/invite/:token/", post(routes::admin::redeem_invite))
+        .route(
+            "/api/admin/approvals/",
+            get(routes::admin::list_approvals).post(routes::admin::create_approval),
+        )
+        .route("/api/admin/approvals/:id/approve/", post(routes::admin::approve_approval))
+        .route("/api/admin/approvals/:id/reject/", post(routes::admin::reject_approval))
+        .route(
+            "/api/admin/approvals/:id/break-glass/",
+            post(routes::admin::break_glass_approval),
+        )
+        .route("/api/admin/impersonations/", post(routes::admin::start_impersonation))
+        .route(
+            "/api/admin/impersonations/:id/stop/",
+            post(routes::admin::stop_impersonation),
+        )
+        .route("/api/admin/audit-log/", get(routes::admin::list_audit_events))
         // Banking routes (native matching engine)
         .route("/api/banking/health", get(routes::matching::health))
         .route("/api/banking/find-matches", post(routes::matching::find_matches))
@@ -236,6 +344,7 @@ async fn main() {
         .route("/api/tax/periods/:period_key/reset/", post(routes::tax::reset_period))
         .route("/api/tax/periods/:period_key/payments/", post(routes::tax::create_payment))
         .route("/api/tax/periods/:period_key/payments/:payment_id/", axum::routing::patch(routes::tax::update_payment))
+        .route("/api/tax/periods/:period_key/payments/:payment_id/", delete(routes::tax::delete_payment))
         .route("/api/tax/periods/:period_key/payments/:payment_id/delete/", post(routes::tax::delete_payment))
         // Add shared state for all routes
         .with_state(app_state)
@@ -400,3 +509,4 @@ fn map_agent_name(name: &str) -> Option<companion_autonomy::agents::AgentName> {
         _ => None,
     }
 }
+
