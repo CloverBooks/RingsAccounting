@@ -36,6 +36,54 @@ vi.mock("./api", () => {
     addSupportTicketNote: vi.fn().mockResolvedValue({}),
     createSupportTicket: vi.fn().mockResolvedValue({}),
     fetchFeatureFlags: vi.fn().mockResolvedValue([]),
+    fetchWorkspace360: vi.fn().mockResolvedValue({
+      workspace: {
+        id: 1,
+        name: "Workspace One",
+        created_at: "2025-01-01T00:00:00Z",
+      },
+      owner: {
+        id: 1,
+        email: "owner@cloverbooks.com",
+        full_name: "Owner",
+      },
+      plan: "Pro",
+      banking: {
+        account_count: 0,
+        accounts: [],
+        unreconciled_count: 0,
+      },
+      ledger_health: {
+        unbalanced_entries: 0,
+        orphan_accounts: 0,
+        total_accounts: 0,
+        total_entries: 0,
+      },
+      invoices: {
+        total: 0,
+        draft: 0,
+        sent: 0,
+        paid: 0,
+      },
+      expenses: {
+        total: 0,
+        uncategorized: 0,
+        total_amount: 0,
+      },
+      tax: {
+        has_tax_guardian: false,
+        last_period: null,
+        open_anomalies: {
+          high: 0,
+          medium: 0,
+          low: 0,
+        },
+      },
+      ai: {
+        last_monitor_run: null,
+        open_ai_flags: 0,
+      },
+    }),
     fetchReconciliationMetrics: vi.fn().mockResolvedValue({
       total_unreconciled: 0,
       aging: { "0_30_days": 0, "30_60_days": 0, "60_90_days": 0, over_90_days: 0 },
@@ -149,6 +197,7 @@ describe("AdminRoutes route inventory", () => {
     ["/control-tower", /Operations control center/i],
     ["/approvals", /Approval Queue/i],
     ["/banking", /Banking & feeds/i],
+    ["/workspaces", /^Workspaces$/i],
     ["/reconciliation", /Reconciliation tracking/i],
     ["/ledger", /Ledger health/i],
     ["/invoices", /Invoices \(global audit\)/i],
