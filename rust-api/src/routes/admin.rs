@@ -15,6 +15,7 @@ use sqlx::{FromRow, QueryBuilder, Row, Sqlite, SqlitePool};
 use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
 
+use crate::companion_autonomy::policy::{BudgetConfig, PolicyConfig};
 use crate::routes::auth::{extract_claims_from_header, Claims};
 use crate::AppState;
 
@@ -641,6 +642,8 @@ pub async fn contract(
                 "authz_me": "/api/admin/authz/me",
                 "overview_metrics": "/api/admin/overview-metrics/",
                 "operations_overview": "/api/admin/operations-overview/",
+                "runtime_settings": "/api/admin/runtime-settings/",
+                "ai_ops": "/api/admin/ai-ops/",
                 "users": "/api/admin/users/",
                 "user_patch": "/api/admin/users/:id/",
                 "user_reset_password": "/api/admin/users/:id/reset-password/",
@@ -2077,6 +2080,143 @@ pub async fn operations_overview(
             "buckets": buckets,
             "systems": systems,
             "activity": activity
+        })),
+    )
+}
+
+pub async fn runtime_settings(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let req = request_context(&headers);
+    if let Err(response) = require_admin_level(&state, &headers, 1, &req.request_id).await {
+        return response;
+    }
+
+    let budget = BudgetConfig::from_env();
+    let policy = PolicyConfig::from_env();
+    let allowed_domains = admin_env_list("ENGINE_ALLOWLIST_DOMAINS");
+    let allowed_models = admin_env_list("ENGINE_LLM_ALLOWED_MODELS");
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "generated_at": Utc::now().to_rfc3339(),
+            "environment": {
+                "name": admin_env_first(&["APP_ENV", "ENVIRONMENT", "RUST_ENV"]).unwrap_or_else(|| "local".to_string()),
+                "cors_allowed_origins": admin_env_list("CORS_ALLOWED_ORIGINS"),
+                "admin_password_reset_base_url": admin_env_first(&["ADMIN_PASSWORD_RESET_BASE_URL"]),
+                "google_oauth_enabled": admin_env_configured("GOOGLE_CLIENT_ID") && admin_env_configured("GOOGLE_CLIENT_SECRET"),
+                "google_redirect_uri": admin_env_first(&["GOOGLE_REDIRECT_URI"]),
+                "jwt_secret_configured": admin_env_configured("JWT_SECRET")
+            },
+            "autonomy": {
+                "llm_mode": admin_env_first(&["LLM_MODE"]).unwrap_or_else(|| "live".to_string()),
+                "tool_mode": admin_env_first(&["TOOL_MODE"]).unwrap_or_else(|| "live".to_string()),
+                "approval_amount_threshold": policy.approval_amount_threshold,
+                "velocity_threshold": policy.velocity_threshold,
+                "snapshot_stale_minutes": policy.snapshot_stale_minutes,
+                "budgets": {
+                    "tokens_per_day": budget.tokens_per_day,
+                    "tool_calls_per_day": budget.tool_calls_per_day,
+                    "runs_per_day": budget.runs_per_day
+                },
+                "allowlists": {
+                    "domains": allowed_domains,
+                    "models": allowed_models
+                }
+            },
+            "build": {
+                "service": "rust-api",
+                "rust_env": admin_env_first(&["RUST_ENV", "APP_ENV", "ENVIRONMENT"]),
+                "git_sha": admin_env_first(&["GIT_SHA", "COMMIT_SHA", "VERCEL_GIT_COMMIT_SHA", "RAILWAY_GIT_COMMIT_SHA"])
+            }
+        })),
+    )
+}
+
+pub async fn ai_ops(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let req = request_context(&headers);
+    if let Err(response) = require_admin_level(&state, &headers, 1, &req.request_id).await {
+        return response;
+    }
+
+    let budget = BudgetConfig::from_env();
+    let policy = PolicyConfig::from_env();
+    let allowed_domains = admin_env_list("ENGINE_ALLOWLIST_DOMAINS");
+    let allowed_models = admin_env_list("ENGINE_LLM_ALLOWED_MODELS");
+    let (api_error_rate_1h_pct, api_p95_response_ms_1h) = api_health_stats(&state.db).await;
+    let open_ai_flags = count_open_ai_flags(&state.db).await;
+    let breaker_events_last_day = autonomy_breaker_events_last_day_total(&state.db).await;
+    let tool_calls_last_day = autonomy_tool_calls_last_day_total(&state.db).await;
+    let agent_runs_last_day = autonomy_agent_runs_last_day_total(&state.db).await;
+    let policy_tenant_count = autonomy_policy_tenant_count(&state.db).await;
+    let modes = autonomy_policy_mode_counts(&state.db).await;
+    let last_tick_at = latest_autonomy_action_global(&state.db, "engine_tick").await;
+    let last_materialized_at =
+        latest_autonomy_action_global(&state.db, "engine_materialize").await;
+
+    let systems = vec![
+        json!({
+            "id": "admin_api",
+            "name": "Admin API",
+            "status": if api_error_rate_1h_pct > 3.0 { "degraded" } else { "healthy" },
+            "detail": format!("p95 {} ms · {:.2}% errors in the last hour", api_p95_response_ms_1h, api_error_rate_1h_pct)
+        }),
+        json!({
+            "id": "companion_autonomy",
+            "name": "Companion autonomy",
+            "status": if breaker_events_last_day > 0 || open_ai_flags > 20 { "degraded" } else { "healthy" },
+            "detail": format!(
+                "{} open AI issues · {} breaker events · {} agent runs in the last day",
+                open_ai_flags, breaker_events_last_day, agent_runs_last_day
+            )
+        }),
+        json!({
+            "id": "tool_gateway",
+            "name": "Tool Gateway",
+            "status": if allowed_models.is_empty() && allowed_domains.is_empty() { "degraded" } else { "healthy" },
+            "detail": format!("{} allowlisted models · {} allowlisted domains", allowed_models.len(), allowed_domains.len())
+        }),
+    ];
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "generated_at": Utc::now().to_rfc3339(),
+            "health": {
+                "open_ai_flags": open_ai_flags,
+                "breaker_events_last_day": breaker_events_last_day,
+                "tool_calls_last_day": tool_calls_last_day,
+                "agent_runs_last_day": agent_runs_last_day,
+                "policy_tenant_count": policy_tenant_count,
+                "last_tick_at": last_tick_at,
+                "last_materialized_at": last_materialized_at,
+                "api_error_rate_1h_pct": api_error_rate_1h_pct,
+                "api_p95_response_ms_1h": api_p95_response_ms_1h
+            },
+            "policy": {
+                "llm_mode": admin_env_first(&["LLM_MODE"]).unwrap_or_else(|| "live".to_string()),
+                "tool_mode": admin_env_first(&["TOOL_MODE"]).unwrap_or_else(|| "live".to_string()),
+                "approval_amount_threshold": policy.approval_amount_threshold,
+                "velocity_threshold": policy.velocity_threshold,
+                "snapshot_stale_minutes": policy.snapshot_stale_minutes,
+                "budgets": {
+                    "tokens_per_day": budget.tokens_per_day,
+                    "tool_calls_per_day": budget.tool_calls_per_day,
+                    "runs_per_day": budget.runs_per_day
+                },
+                "allowlists": {
+                    "domains": allowed_domains,
+                    "models": allowed_models
+                }
+            },
+            "modes": modes,
+            "systems": systems,
+            "recent_activity": fetch_recent_ai_ops_activity(&state.db, 10).await
         })),
     )
 }
@@ -4343,6 +4483,38 @@ async fn detect_business_plan_column(pool: &SqlitePool) -> Option<String> {
     None
 }
 
+fn admin_env_first(keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        std::env::var(key).ok().and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
+    })
+}
+
+fn admin_env_configured(key: &str) -> bool {
+    admin_env_first(&[key]).is_some()
+}
+
+fn admin_env_list(key: &str) -> Vec<String> {
+    std::env::var(key)
+        .unwrap_or_default()
+        .split(',')
+        .filter_map(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
+        .collect()
+}
+
 async fn count_active_users_window(pool: &SqlitePool, total_days: i64, offset_days: i64) -> i64 {
     if !table_exists(pool, "auth_user").await {
         return 0;
@@ -4445,6 +4617,126 @@ async fn count_open_ai_flags(pool: &SqlitePool) -> i64 {
         }
     }
     0
+}
+
+async fn autonomy_policy_tenant_count(pool: &SqlitePool) -> i64 {
+    if !table_exists(pool, "companion_autonomy_policy").await {
+        return 0;
+    }
+    sqlx::query_scalar::<_, i64>("SELECT COUNT(DISTINCT tenant_id) FROM companion_autonomy_policy")
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0)
+}
+
+async fn autonomy_policy_mode_counts(pool: &SqlitePool) -> Vec<Value> {
+    if !table_exists(pool, "companion_autonomy_policy").await {
+        return Vec::new();
+    }
+    let rows = sqlx::query_as::<_, (Option<String>, i64)>(
+        "SELECT mode, COUNT(*) as tenant_count
+         FROM companion_autonomy_policy
+         GROUP BY mode
+         ORDER BY tenant_count DESC, mode ASC",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    rows.into_iter()
+        .map(|(mode, tenant_count)| {
+            json!({
+                "mode": mode.unwrap_or_else(|| "unknown".to_string()),
+                "tenant_count": tenant_count
+            })
+        })
+        .collect()
+}
+
+async fn autonomy_breaker_events_last_day_total(pool: &SqlitePool) -> i64 {
+    if !table_exists(pool, "companion_autonomy_circuit_breaker_events").await {
+        return 0;
+    }
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM companion_autonomy_circuit_breaker_events
+         WHERE created_at >= datetime('now', '-1 day')",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0)
+}
+
+async fn autonomy_tool_calls_last_day_total(pool: &SqlitePool) -> i64 {
+    if !table_exists(pool, "companion_autonomy_tool_calls").await {
+        return 0;
+    }
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM companion_autonomy_tool_calls
+         WHERE created_at >= datetime('now', '-1 day')",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0)
+}
+
+async fn autonomy_agent_runs_last_day_total(pool: &SqlitePool) -> i64 {
+    if !table_exists(pool, "companion_autonomy_agent_runs").await {
+        return 0;
+    }
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM companion_autonomy_agent_runs
+         WHERE created_at >= datetime('now', '-1 day')",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0)
+}
+
+async fn latest_autonomy_action_global(pool: &SqlitePool, action: &str) -> Option<String> {
+    if !table_exists(pool, "companion_autonomy_audit_log").await {
+        return None;
+    }
+    sqlx::query_scalar::<_, String>(
+        "SELECT created_at
+         FROM companion_autonomy_audit_log
+         WHERE action = ?
+         ORDER BY created_at DESC
+         LIMIT 1",
+    )
+    .bind(action)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+}
+
+async fn fetch_recent_ai_ops_activity(pool: &SqlitePool, limit: i64) -> Vec<Value> {
+    if !table_exists(pool, "companion_autonomy_audit_log").await {
+        return Vec::new();
+    }
+
+    let rows = sqlx::query_as::<_, (String, i64, String, String, String, String)>(
+        "SELECT created_at, tenant_id, actor_label, action, target_type, target_id
+         FROM companion_autonomy_audit_log
+         ORDER BY created_at DESC
+         LIMIT ?",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    rows.into_iter()
+        .map(|(time, tenant_id, actor_label, action, target_type, target_id)| {
+            json!({
+                "time": time,
+                "tenant_id": tenant_id,
+                "actor": actor_label,
+                "action": action,
+                "target": format!("{}:{}", target_type, target_id)
+            })
+        })
+        .collect()
 }
 
 async fn api_health_stats(pool: &SqlitePool) -> (f64, i64) {
@@ -7610,6 +7902,8 @@ mod tests {
             .route("/api/admin/authz/me", get(authz_me))
             .route("/api/admin/overview-metrics/", get(overview_metrics))
             .route("/api/admin/operations-overview/", get(operations_overview))
+            .route("/api/admin/runtime-settings/", get(runtime_settings))
+            .route("/api/admin/ai-ops/", get(ai_ops))
             .route("/api/admin/users/", get(list_users))
             .route("/api/admin/users/:id/", patch(patch_user))
             .route("/api/admin/users/:id/reset-password/", post(reset_user_password))
@@ -7877,6 +8171,8 @@ mod tests {
 
         assert_eq!(body["contract_version"], "2026-03-04");
         assert_eq!(body["endpoints"]["overview_metrics"], "/api/admin/overview-metrics/");
+        assert_eq!(body["endpoints"]["runtime_settings"], "/api/admin/runtime-settings/");
+        assert_eq!(body["endpoints"]["ai_ops"], "/api/admin/ai-ops/");
         assert_eq!(body["endpoints"]["workspaces"], "/api/admin/workspaces/");
         assert_eq!(body["endpoints"]["employees"], "/api/admin/employees/");
         assert_eq!(body["endpoints"]["support_tickets"], "/api/admin/support-tickets/");
@@ -7905,6 +8201,25 @@ mod tests {
         let ops_body: Value = ops.json();
         assert_eq!(ops_body["env"], "prod");
         assert!(ops_body["queues"].is_array());
+
+        let runtime_settings = server
+            .get("/api/admin/runtime-settings/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .await;
+        runtime_settings.assert_status_ok();
+        let runtime_settings_body: Value = runtime_settings.json();
+        assert!(runtime_settings_body["environment"]["cors_allowed_origins"].is_array());
+        assert!(runtime_settings_body["autonomy"]["budgets"]["tokens_per_day"].is_number());
+
+        let ai_ops = server
+            .get("/api/admin/ai-ops/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .await;
+        ai_ops.assert_status_ok();
+        let ai_ops_body: Value = ai_ops.json();
+        assert!(ai_ops_body["health"]["open_ai_flags"].is_number());
+        assert!(ai_ops_body["policy"]["allowlists"]["models"].is_array());
+        assert!(ai_ops_body["systems"].is_array());
 
         let users = server
             .get("/api/admin/users/")
