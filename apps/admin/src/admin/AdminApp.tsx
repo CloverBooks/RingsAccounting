@@ -146,13 +146,13 @@ const ReconciliationSection: React.FC = () => {
         <div>
           <h2 className="text-lg font-semibold text-slate-900">Reconciliation tracking</h2>
           <p className="text-sm text-slate-600 max-w-xl">
-            High-friction areas in matching and period completion. This view exists solely for internal staff –
+            High-friction areas in matching and period completion. This view exists solely for internal staff -
             end users never see this lens.
           </p>
         </div>
       </header>
       {loading ? (
-        <Card><p className="text-sm text-slate-600">Loading reconciliation metrics…</p></Card>
+        <Card><p className="text-sm text-slate-600">Loading reconciliation metrics...</p></Card>
       ) : error ? (
         <Card><p className="text-sm text-rose-700">Error: {error}</p></Card>
       ) : data ? (
@@ -218,7 +218,7 @@ const LedgerSection: React.FC = () => {
         </div>
       </header>
       {loading ? (
-        <Card><p className="text-sm text-slate-600">Loading ledger health…</p></Card>
+        <Card><p className="text-sm text-slate-600">Loading ledger health...</p></Card>
       ) : error ? (
         <Card><p className="text-sm text-rose-700">Error: {error}</p></Card>
       ) : data ? (
@@ -244,13 +244,13 @@ const LedgerSection: React.FC = () => {
             </div>
           </div>
           {data.unbalanced_entries.length > 0 && (
-            <Card title="Unbalanced entries" subtitle="Journal entries where debits ≠ credits.">
+            <Card title="Unbalanced entries" subtitle="Journal entries where debits != credits.">
               <SimpleTable
                 headers={["Workspace", "Date", "Description", "Difference"]}
                 rows={data.unbalanced_entries.slice(0, 10).map((e) => [
                   <span key="w" className="text-sm text-slate-800">{e.workspace}</span>,
-                  <span key="d" className="text-xs text-slate-600">{e.date || "—"}</span>,
-                  <span key="desc" className="text-xs text-slate-700 max-w-[200px] truncate">{e.description || "—"}</span>,
+                  <span key="d" className="text-xs text-slate-600">{e.date || "-"}</span>,
+                  <span key="desc" className="text-xs text-slate-700 max-w-[200px] truncate">{e.description || "-"}</span>,
                   <span key="diff" className="text-sm font-semibold text-rose-700">${e.difference.toFixed(2)}</span>,
                 ])}
               />
@@ -285,7 +285,7 @@ const InvoicesSection: React.FC = () => {
         </div>
       </header>
       {loading ? (
-        <Card><p className="text-sm text-slate-600">Loading invoices audit…</p></Card>
+        <Card><p className="text-sm text-slate-600">Loading invoices audit...</p></Card>
       ) : error ? (
         <Card><p className="text-sm text-rose-700">Error: {error}</p></Card>
       ) : data ? (
@@ -356,7 +356,7 @@ const ExpensesSection: React.FC = () => {
         </div>
       </header>
       {loading ? (
-        <Card><p className="text-sm text-slate-600">Loading expenses audit…</p></Card>
+        <Card><p className="text-sm text-slate-600">Loading expenses audit...</p></Card>
       ) : error ? (
         <Card><p className="text-sm text-rose-700">Error: {error}</p></Card>
       ) : data ? (
@@ -547,7 +547,7 @@ const Sidebar: React.FC<{
         <LogoutButton />
         <div className="text-[11px] text-slate-600">
           <p>Everything you do here leaves a trail.</p>
-          <p className="mt-0.5">Built for internal ops · Clover Books</p>
+          <p className="mt-0.5">Built for internal ops  /  Clover Books</p>
         </div>
       </div>
     </aside>
@@ -662,5 +662,6 @@ export const AdminApp: React.FC = () => {
     </AppShell>
   );
 };
+
 
 

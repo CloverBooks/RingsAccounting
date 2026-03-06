@@ -34,7 +34,7 @@ export const RuntimeSettingsSection: React.FC = () => {
       ) : data ? (
         <>
           <div className="grid gap-4 lg:grid-cols-2">
-            <Card title="Environment" subtitle={`Service ${data.build.service} · ${data.environment.name}`}>
+            <Card title="Environment" subtitle={`Service ${data.build.service}  /  ${data.environment.name}`}>
               <dl className="grid grid-cols-1 sm:grid-cols-2 gap-y-3 text-sm text-slate-800">
                 <div>
                   <dt className="text-xs text-slate-500">Git SHA</dt>
@@ -65,7 +65,7 @@ export const RuntimeSettingsSection: React.FC = () => {
               </div>
             </Card>
 
-            <Card title="Autonomy runtime" subtitle={`LLM ${data.autonomy.llm_mode} · tools ${data.autonomy.tool_mode}`}>
+            <Card title="Autonomy runtime" subtitle={`LLM ${data.autonomy.llm_mode}  /  tools ${data.autonomy.tool_mode}`}>
               <dl className="grid grid-cols-2 gap-y-3 text-sm text-slate-800">
                 <div>
                   <dt className="text-xs text-slate-500">Approval threshold</dt>
@@ -126,3 +126,4 @@ export const RuntimeSettingsSection: React.FC = () => {
     </div>
   );
 };
+

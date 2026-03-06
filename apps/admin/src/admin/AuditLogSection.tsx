@@ -121,7 +121,7 @@ const LogDetailDrawer: React.FC<LogDetailDrawerProps> = ({ entry, onClose }) => 
       <div className="h-full w-full max-w-xl bg-white shadow-2xl border-l border-slate-200 flex flex-col">
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-slate-900 text-slate-50 text-xs">⏱</div>
+            <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-slate-900 text-slate-50 text-xs">LOG</div>
             <div>
               <h2 className="text-sm font-semibold text-slate-900">Audit Event Details</h2>
               <p className="text-xs text-slate-500">{formatTimestamp(entry.timestamp)}</p>
@@ -142,17 +142,17 @@ const LogDetailDrawer: React.FC<LogDetailDrawerProps> = ({ entry, onClose }) => 
               <p className="text-sm text-slate-900">{entry.action} on {entry.object_type}</p>
               <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
                 <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1">
-                  🏷️ {entry.category || "general"}
+                  Tag {entry.category || "general"}
                 </span>
                 <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 border text-xs font-medium ${riskBadgeClass(risk)}`}>
-                  ⚠️ {riskLabel(risk)} risk
+                  Risk {riskLabel(risk)}
                 </span>
                 <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1">
-                  ✅ {entry.level || "INFO"}
+                  Level {entry.level || "INFO"}
                 </span>
                 {entry.request_id && (
                   <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1">
-                    🔎 <span className="font-mono text-[11px]">{entry.request_id}</span>
+                    Trace <span className="font-mono text-[11px]">{entry.request_id}</span>
                   </span>
                 )}
               </div>
@@ -200,7 +200,7 @@ const LogDetailDrawer: React.FC<LogDetailDrawerProps> = ({ entry, onClose }) => 
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-slate-500">ID</span>
-                  <span className="text-[11px] text-slate-800">{entry.object_id || "—"}</span>
+                  <span className="text-[11px] text-slate-800">{entry.object_id || "-"}</span>
                 </div>
               </div>
             </div>
@@ -324,7 +324,7 @@ export const AuditLogSection: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-slate-900 text-slate-50 shadow-sm">⏱</div>
+          <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-slate-900 text-slate-50 shadow-sm">LOG</div>
           <div>
             <h1 className="text-base font-semibold text-slate-900">Audit & Logs</h1>
             <p className="text-xs text-slate-500">Immutable trail of every sensitive action across all workspaces.</p>
@@ -358,7 +358,7 @@ export const AuditLogSection: React.FC = () => {
         <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
           <div className="flex items-center justify-between text-[11px] text-slate-500">
             <span>Total events</span>
-            <span>📊</span>
+            <span>Count</span>
           </div>
           <div className="mt-2 flex items-end justify-between">
             <span className="text-xl font-semibold text-slate-900">{summary.total_events}</span>
@@ -371,7 +371,7 @@ export const AuditLogSection: React.FC = () => {
         <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
           <div className="flex items-center justify-between text-[11px] text-slate-500">
             <span>Security events</span>
-            <span>🛡️</span>
+            <span>Auth</span>
           </div>
           <div className="mt-2 flex items-end justify-between">
             <span className="text-xl font-semibold text-slate-900">{summary.security_events}</span>
@@ -382,7 +382,7 @@ export const AuditLogSection: React.FC = () => {
         <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
           <div className="flex items-center justify-between text-[11px] text-slate-500">
             <span>Impersonations today</span>
-            <span>👤</span>
+            <span>User</span>
           </div>
           <div className="mt-2 flex items-end justify-between">
             <span className="text-xl font-semibold text-slate-900">{summary.impersonations_today}</span>
@@ -393,7 +393,7 @@ export const AuditLogSection: React.FC = () => {
         <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
           <div className="flex items-center justify-between text-[11px] text-slate-500">
             <span>High risk (24h)</span>
-            <span className="text-rose-500">⚠️</span>
+            <span className="text-rose-500">Risk</span>
           </div>
           <div className="mt-2 flex items-end justify-between">
             <span className="text-xl font-semibold text-rose-600">{summary.high_risk_events_24h}</span>
@@ -407,7 +407,7 @@ export const AuditLogSection: React.FC = () => {
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-wrap items-center gap-2">
             <div className="inline-flex items-center gap-1 rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-medium text-white">
-              🎛️ Filters
+              Filters
             </div>
             <div className="flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">
               <select
@@ -453,11 +453,11 @@ export const AuditLogSection: React.FC = () => {
 
           <div className="flex items-center gap-2">
             <div className="relative">
-              <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">🔍</span>
+              <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">S</span>
               <input
                 type="text"
-                className="h-8 w-56 rounded-full border border-slate-200 bg-slate-50 pl-7 pr-3 text-xs text-slate-900 placeholder:text-slate-400 focus:border-slate-400 focus:bg-white focus:outline-none"
-                placeholder="Search by actor, IP, action…"
+                className="h-8 w-56 rounded-full border border-slate-200 bg-slate-50 pl-6 pr-3 text-xs text-slate-900 placeholder:text-slate-400 focus:border-slate-400 focus:bg-white focus:outline-none"
+                placeholder="Search by actor, IP, action..."
                 value={filters.search}
                 onChange={(e) => handleFilterChange({ search: e.target.value })}
                 onKeyDown={(e) => e.key === "Enter" && loadLogs({ page: 1 })}
@@ -467,7 +467,7 @@ export const AuditLogSection: React.FC = () => {
               className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] text-slate-700 hover:bg-slate-100"
               onClick={() => handleFilterChange({ search: "", risk: "all", category: "", actor: "" })}
             >
-              🔄 Reset
+              Reset
             </button>
           </div>
         </div>
@@ -492,7 +492,7 @@ export const AuditLogSection: React.FC = () => {
       {/* Logs Table */}
       <div className="flex-1 overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2 text-[11px] text-slate-500">
-          <span>Showing {entries.length} events {filters.search && "• filtered"}</span>
+          <span>Showing {entries.length} events {filters.search && "- filtered"}</span>
           <div className="flex items-center gap-2">
             <span>Page {page}</span>
             <div className="inline-flex overflow-hidden rounded-full border border-slate-200 bg-slate-50">
@@ -519,7 +519,7 @@ export const AuditLogSection: React.FC = () => {
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/50">
               <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600 shadow-sm">
                 <span className="h-2 w-2 animate-ping rounded-full bg-slate-400" />
-                Loading audit events…
+                Loading audit events...
               </div>
             </div>
           )}
@@ -534,7 +534,7 @@ export const AuditLogSection: React.FC = () => {
 
           {!error && entries.length === 0 && !loading && (
             <div className="flex h-48 flex-col items-center justify-center gap-2 px-4 text-center text-xs text-slate-500">
-              <span className="text-2xl">📋</span>
+              <span className="text-2xl">LOG</span>
               <p>No audit events match your filters yet.</p>
               <p className="max-w-xs">Try widening the date range or clearing filters to see more activity.</p>
             </div>
@@ -578,9 +578,9 @@ export const AuditLogSection: React.FC = () => {
                       <div className="truncate text-[11px] font-semibold text-slate-800">{log.action}</div>
                     </td>
                     <td className="max-w-[160px] px-4 py-2">
-                      <div className="truncate text-[11px] text-slate-700">{log.object_type} • {log.object_id || "—"}</div>
+                      <div className="truncate text-[11px] text-slate-700">{log.object_type} / {log.object_id || "-"}</div>
                     </td>
-                    <td className="px-4 py-2 text-[11px] text-slate-600">{log.category || "—"}</td>
+                    <td className="px-4 py-2 text-[11px] text-slate-600">{log.category || "-"}</td>
                     <td className="px-4 py-2">
                       <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium border ${riskBadgeClass(risk)}`}>
                         <span className="h-1.5 w-1.5 rounded-full bg-current" />
@@ -588,7 +588,7 @@ export const AuditLogSection: React.FC = () => {
                       </span>
                     </td>
                     <td className="px-4 py-2 text-right font-mono text-[10px] text-slate-500">
-                      {log.remote_ip || "—"}
+                      {log.remote_ip || "-"}
                     </td>
                   </tr>
                 );
@@ -605,3 +605,4 @@ export const AuditLogSection: React.FC = () => {
 };
 
 export default AuditLogSection;
+

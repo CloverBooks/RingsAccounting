@@ -78,7 +78,7 @@ export const AiOpsSection: React.FC = () => {
               </div>
             </Card>
 
-            <Card title="Runtime policy" subtitle={`LLM ${data.policy.llm_mode} · tools ${data.policy.tool_mode}`}>
+            <Card title="Runtime policy" subtitle={`LLM ${data.policy.llm_mode}  /  tools ${data.policy.tool_mode}`}>
               <dl className="grid grid-cols-2 gap-y-3 text-sm text-slate-800">
                 <div>
                   <dt className="text-xs text-slate-500">Approval threshold</dt>
@@ -139,3 +139,4 @@ export const AiOpsSection: React.FC = () => {
     </div>
   );
 };
+
