@@ -203,8 +203,8 @@ describe("AdminRoutes route inventory", () => {
     ["/invoices", /Invoices \(global audit\)/i],
     ["/expenses", /Expenses & receipts/i],
     ["/autonomy", /Autonomy Engine/i],
-    ["/ai-monitoring", /AI monitoring & metrics/i],
-    ["/settings", /Admin settings/i],
+    ["/ai-monitoring", /Operations control center/i],
+    ["/settings", /Operations control center/i],
     ["/audit", /Audit & logs/i],
   ])("renders %s", async (path, heading) => {
     renderRoute(path);
