@@ -166,14 +166,8 @@ jobs:
       - name: Lint frontend
         run: npm run lint
 
-      - name: Typecheck frontend
-        run: npm run typecheck
-
-      - name: Test frontend
-        run: npm run test:run
-
-      - name: Build frontend
-        run: npm run build
+      - name: Clean frontend verify
+        run: npm run verify:clean
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

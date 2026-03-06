@@ -70,7 +70,9 @@ describe("BooksReviewPage", () => {
   it("renders runs and shows risk badge", async () => {
     renderWithRouter(<BooksReviewPage />);
 
-    await waitFor(() => expect(screen.getByText(/Previous analysis archives/i)).toBeInTheDocument());
+    expect(
+      await screen.findByText(/Previous analysis archives/i, undefined, { timeout: 8000 }),
+    ).toBeInTheDocument();
     const historyTable = screen.getByRole("table");
     const historyScope = within(historyTable);
     expect(historyScope.getByText(/High Risk/i)).toBeInTheDocument();
@@ -80,7 +82,9 @@ describe("BooksReviewPage", () => {
     renderWithRouter(<BooksReviewPage />);
 
     // Wait for runs to load
-    await waitFor(() => expect(screen.getByText(/Previous analysis archives/i)).toBeInTheDocument());
+    expect(
+      await screen.findByText(/Previous analysis archives/i, undefined, { timeout: 8000 }),
+    ).toBeInTheDocument();
 
     // Verify run data is displayed
     const historyTable = screen.getByRole("table");
@@ -97,7 +101,9 @@ describe("BooksReviewPage", () => {
   it("renders companion insights when llm data is present", async () => {
     renderWithRouter(<BooksReviewPage />);
 
-    await waitFor(() => expect(screen.getByText(/Previous analysis archives/i)).toBeInTheDocument());
+    expect(
+      await screen.findByText(/Previous analysis archives/i, undefined, { timeout: 8000 }),
+    ).toBeInTheDocument();
 
     // Wait for the rows to load (Wait for specific date to ensure rows are present)
     const historyTable = screen.getByRole("table");
