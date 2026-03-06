@@ -29,8 +29,9 @@ const MAX_PROFILE_SIZE: usize = 65536;
 
 /// Allowed keys in profile_json (stable schema)
 const ALLOWED_PROFILE_KEYS: &[&str] = &[
+    // Legacy keys kept for backward compatibility
     "business_name",
-    "intent", 
+    "intent",
     "industry",
     "entity_type",
     "fiscal_year_end",
@@ -48,8 +49,80 @@ const ALLOWED_PROFILE_KEYS: &[&str] = &[
     "has_accountant",
     "accounting_frequency",
     "tax_concerns",
+    // OnboardingProfileV2 keys
+    "legal_business_name",
+    "operating_name",
+    "team_size",
+    "country",
+    "primary_timezone",
+    "base_currency",
+    "tax_registration_status",
+    "primary_tax_jurisdiction",
+    "tax_ids_by_jurisdiction",
+    "fiscal_year_end_month",
+    "fiscal_year_end_day",
+    "filing_cadence",
+    "monthly_transaction_band",
+    "bank_account_count",
+    "current_system_tool",
+    "accounting_review_frequency",
+    "default_invoice_terms",
+    "default_bill_terms",
+    "default_tax_behavior",
+    "high_risk_approval_threshold",
+    "companion_intent_goals",
+    "top_accounting_challenges",
+    "risk_appetite",
+    "preferred_explanation_style",
+    "notification_preference",
+    "contact_roles",
+    "industry_specific_flags",
+    "reporting_preferences",
     "_inferred",
 ];
+
+/// Required keys for go-live accounting readiness (V2 schema).
+/// Some keys are satisfied by legacy aliases; see `field_is_present`.
+const REQUIRED_PROFILE_FIELDS: &[&str] = &[
+    // Company identity
+    "legal_business_name",
+    "operating_name",
+    "entity_type",
+    "industry",
+    "business_age",
+    "team_size",
+    "country",
+    "primary_timezone",
+    "base_currency",
+    // Tax & compliance
+    "tax_registration_status",
+    "primary_tax_jurisdiction",
+    "tax_ids_by_jurisdiction",
+    "fiscal_year_end_month",
+    "fiscal_year_end_day",
+    "accounting_method",
+    "filing_cadence",
+    // Accounting operations
+    "monthly_transaction_band",
+    "bank_account_count",
+    "current_system_tool",
+    "data_source",
+    "has_accountant",
+    "accounting_review_frequency",
+    // AR/AP defaults
+    "default_invoice_terms",
+    "default_bill_terms",
+    "default_tax_behavior",
+    "high_risk_approval_threshold",
+    // Companion context
+    "companion_intent_goals",
+    "top_accounting_challenges",
+    "risk_appetite",
+    "preferred_explanation_style",
+    "notification_preference",
+];
+
+const REQUIRED_CONSENT_KEYS: &[&str] = &["ai_data_processing", "ai_recommendations"];
 
 // =============================================================================
 // Types
@@ -149,6 +222,17 @@ pub struct ContextBuilderOutput {
     pub unknowns: Vec<String>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct OnboardingReadiness {
+    pub status: String,
+    pub score: i32,
+    pub missing_required_fields: Vec<String>,
+    pub required_fields_complete: bool,
+    pub missing_consents: Vec<String>,
+    pub consents_complete: bool,
+    pub ai_handshake_complete: bool,
+}
+
 // =============================================================================
 // Helpers
 // =============================================================================
@@ -211,6 +295,125 @@ fn validate_profile_keys(profile: &Value) -> Result<(), Vec<String>> {
     }
 }
 
+fn value_is_present(value: Option<&Value>) -> bool {
+    match value {
+        Some(Value::Null) | None => false,
+        Some(Value::String(s)) => !s.trim().is_empty(),
+        Some(Value::Array(a)) => !a.is_empty(),
+        Some(Value::Object(o)) => !o.is_empty(),
+        Some(Value::Number(n)) => n.as_f64().map(|v| v > 0.0).unwrap_or(false),
+        Some(Value::Bool(_)) => true,
+    }
+}
+
+fn field_is_present(profile: &Value, canonical_key: &str) -> bool {
+    match canonical_key {
+        // Legacy aliases
+        "legal_business_name" => {
+            value_is_present(profile.get("legal_business_name"))
+                || value_is_present(profile.get("business_name"))
+        }
+        "team_size" => {
+            value_is_present(profile.get("team_size"))
+                || value_is_present(profile.get("employee_count"))
+        }
+        "tax_registration_status" => {
+            value_is_present(profile.get("tax_registration_status"))
+                || value_is_present(profile.get("tax_registration"))
+        }
+        "fiscal_year_end_month" | "fiscal_year_end_day" => {
+            (value_is_present(profile.get("fiscal_year_end_month"))
+                && value_is_present(profile.get("fiscal_year_end_day")))
+                || value_is_present(profile.get("fiscal_year_end"))
+        }
+        "monthly_transaction_band" => {
+            value_is_present(profile.get("monthly_transaction_band"))
+                || value_is_present(profile.get("monthly_transactions"))
+        }
+        "bank_account_count" => {
+            value_is_present(profile.get("bank_account_count"))
+                || value_is_present(profile.get("bank_accounts_count"))
+        }
+        "current_system_tool" => {
+            value_is_present(profile.get("current_system_tool"))
+                || value_is_present(profile.get("current_tools"))
+        }
+        "accounting_review_frequency" => {
+            value_is_present(profile.get("accounting_review_frequency"))
+                || value_is_present(profile.get("accounting_frequency"))
+        }
+        "top_accounting_challenges" => {
+            value_is_present(profile.get("top_accounting_challenges"))
+                || value_is_present(profile.get("biggest_challenges"))
+                || value_is_present(profile.get("tax_concerns"))
+        }
+        _ => value_is_present(profile.get(canonical_key)),
+    }
+}
+
+fn has_any_required_field(profile: &Value) -> bool {
+    REQUIRED_PROFILE_FIELDS
+        .iter()
+        .any(|key| field_is_present(profile, key))
+}
+
+fn missing_required_fields(profile: &Value) -> Vec<String> {
+    REQUIRED_PROFILE_FIELDS
+        .iter()
+        .filter(|key| !field_is_present(profile, key))
+        .map(|key| (*key).to_string())
+        .collect()
+}
+
+fn compute_readiness(
+    profile: &Value,
+    onboarding_status: &str,
+    granted_consents: &[String],
+    ai_handshake_complete: bool,
+) -> OnboardingReadiness {
+    let missing_fields = missing_required_fields(profile);
+    let required_fields_complete = missing_fields.is_empty();
+
+    let missing_consents: Vec<String> = REQUIRED_CONSENT_KEYS
+        .iter()
+        .filter(|k| !granted_consents.iter().any(|c| c == **k))
+        .map(|k| (*k).to_string())
+        .collect();
+    let consents_complete = missing_consents.is_empty();
+
+    let required_total = REQUIRED_PROFILE_FIELDS.len() as f64;
+    let required_completed = (REQUIRED_PROFILE_FIELDS.len() - missing_fields.len()) as f64;
+    let required_weighted_score = if required_total > 0.0 {
+        (required_completed / required_total) * 80.0
+    } else {
+        80.0
+    };
+    let consent_score = if consents_complete { 10.0 } else { 0.0 };
+    let handshake_score = if ai_handshake_complete { 10.0 } else { 0.0 };
+    let mut score = (required_weighted_score + consent_score + handshake_score).round() as i32;
+
+    let status = if !has_any_required_field(profile) {
+        "not_started"
+    } else if !required_fields_complete {
+        "in_progress"
+    } else if onboarding_status == "completed" && consents_complete && ai_handshake_complete {
+        score = 100;
+        "completed"
+    } else {
+        "ready_for_companion"
+    };
+
+    OnboardingReadiness {
+        status: status.to_string(),
+        score,
+        missing_required_fields: missing_fields,
+        required_fields_complete,
+        missing_consents,
+        consents_complete,
+        ai_handshake_complete,
+    }
+}
+
 /// Compute a stable hash for rule deduplication
 fn compute_rule_hash(rule_type: &str, rule_json: &Value) -> String {
     let mut hasher = Sha256::new();
@@ -218,6 +421,39 @@ fn compute_rule_hash(rule_type: &str, rule_json: &Value) -> String {
     hasher.update(b":");
     hasher.update(serde_json::to_string(rule_json).unwrap_or_default().as_bytes());
     format!("{:x}", hasher.finalize())
+}
+
+async fn fetch_granted_consents(
+    db: &sqlx::SqlitePool,
+    business_id: i64,
+    user_id: i64,
+) -> Vec<String> {
+    sqlx::query_scalar::<_, String>(
+        "SELECT consent_key
+         FROM consents
+         WHERE business_id = ? AND user_id = ? AND status = 'granted'"
+    )
+    .bind(business_id)
+    .bind(user_id)
+    .fetch_all(db)
+    .await
+    .unwrap_or_default()
+}
+
+async fn fetch_ai_handshake_complete(db: &sqlx::SqlitePool, business_id: i64) -> bool {
+    let exists = sqlx::query_scalar::<_, i64>(
+        "SELECT 1
+         FROM ai_rules
+         WHERE business_id = ? AND source = 'user_confirmed' AND is_active = 1
+         LIMIT 1"
+    )
+    .bind(business_id)
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten();
+
+    exists.is_some()
 }
 
 /// Build AI context from profile for companion injection
@@ -364,6 +600,13 @@ pub fn build_context(profile_json: &Value) -> ContextBuilderOutput {
         structured.insert("_inferred".to_string(), json!(inf));
     }
 
+    // Ensure unknowns reflects full required onboarding profile coverage.
+    for required in missing_required_fields(profile_json) {
+        if !unknowns.contains(&required) {
+            unknowns.push(required);
+        }
+    }
+
     ContextBuilderOutput {
         narrative_context_string,
         structured_context_json: Value::Object(structured),
@@ -381,7 +624,7 @@ pub async fn get_profile(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl axum::response::IntoResponse {
-    let (business_id, _user_id) = match require_auth(&headers) {
+    let (business_id, user_id) = match require_auth(&headers) {
         Ok(ids) => ids,
         Err(resp) => return resp,
     };
@@ -398,6 +641,9 @@ pub async fn get_profile(
         Ok(Some((id, profile_json, version, status, step, fast_path, created, updated))) => {
             let profile: Value = serde_json::from_str(&profile_json).unwrap_or(json!({}));
             let context = build_context(&profile);
+            let granted_consents = fetch_granted_consents(&state.db, business_id, user_id).await;
+            let ai_handshake_complete = fetch_ai_handshake_complete(&state.db, business_id).await;
+            let readiness = compute_readiness(&profile, &status, &granted_consents, ai_handshake_complete);
 
             (
                 StatusCode::OK,
@@ -414,12 +660,23 @@ pub async fn get_profile(
                         "created_at": created,
                         "updated_at": updated
                     },
-                    "context": context
+                    "context": context,
+                    "readiness": readiness
                 })),
             )
         }
         Ok(None) => {
             // No profile exists yet - return empty with unknowns
+            let empty_profile = json!({});
+            let granted_consents = fetch_granted_consents(&state.db, business_id, user_id).await;
+            let ai_handshake_complete = fetch_ai_handshake_complete(&state.db, business_id).await;
+            let readiness = compute_readiness(
+                &empty_profile,
+                "not_started",
+                &granted_consents,
+                ai_handshake_complete,
+            );
+            let readiness_unknowns = readiness.missing_required_fields.clone();
             (
                 StatusCode::OK,
                 Json(json!({
@@ -428,8 +685,9 @@ pub async fn get_profile(
                     "context": {
                         "narrative_context_string": "No business profile information provided yet.",
                         "structured_context_json": {},
-                        "unknowns": ["business_name", "industry", "intent"]
-                    }
+                        "unknowns": readiness_unknowns
+                    },
+                    "readiness": readiness
                 })),
             )
         }
@@ -450,7 +708,7 @@ pub async fn update_profile(
     headers: HeaderMap,
     Json(payload): Json<ProfileUpdatePayload>,
 ) -> impl axum::response::IntoResponse {
-    let (business_id, _user_id) = match require_auth(&headers) {
+    let (business_id, user_id) = match require_auth(&headers) {
         Ok(ids) => ids,
         Err(resp) => return resp,
     };
@@ -550,12 +808,30 @@ pub async fn update_profile(
     match result {
         Ok(_) => {
             let context = build_context(&merged_profile);
+            let persisted_status = sqlx::query_scalar::<_, String>(
+                "SELECT onboarding_status FROM business_profiles WHERE business_id = ?"
+            )
+            .bind(business_id)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| payload.onboarding_status.clone().unwrap_or_else(|| "in_progress".to_string()));
+            let granted_consents = fetch_granted_consents(&state.db, business_id, user_id).await;
+            let ai_handshake_complete = fetch_ai_handshake_complete(&state.db, business_id).await;
+            let readiness = compute_readiness(
+                &merged_profile,
+                &persisted_status,
+                &granted_consents,
+                ai_handshake_complete,
+            );
             (
                 StatusCode::OK,
                 Json(json!({
                     "ok": true,
                     "profile": merged_profile,
                     "context": context,
+                    "readiness": readiness,
                     "updated_at": now
                 })),
             )
@@ -966,5 +1242,93 @@ mod tests {
         let hash1 = compute_rule_hash("vendor_map", &rule);
         let hash2 = compute_rule_hash("keyword_map", &rule);
         assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_missing_required_fields_supports_legacy_aliases() {
+        let profile = json!({
+            "business_name": "Legacy Name",
+            "employee_count": "2-5",
+            "tax_registration": "registered",
+            "fiscal_year_end": "December",
+            "monthly_transactions": "50-200",
+            "bank_accounts_count": "2",
+            "current_tools": "QuickBooks",
+            "accounting_frequency": "monthly",
+            "biggest_challenges": ["cash flow"]
+        });
+
+        let missing = missing_required_fields(&profile);
+        assert!(!missing.contains(&"legal_business_name".to_string()));
+        assert!(!missing.contains(&"team_size".to_string()));
+        assert!(!missing.contains(&"tax_registration_status".to_string()));
+        assert!(!missing.contains(&"fiscal_year_end_month".to_string()));
+        assert!(!missing.contains(&"monthly_transaction_band".to_string()));
+        assert!(!missing.contains(&"bank_account_count".to_string()));
+        assert!(!missing.contains(&"current_system_tool".to_string()));
+        assert!(!missing.contains(&"accounting_review_frequency".to_string()));
+        assert!(!missing.contains(&"top_accounting_challenges".to_string()));
+    }
+
+    #[test]
+    fn test_compute_readiness_completed() {
+        let profile = json!({
+            "legal_business_name": "Acme Corp",
+            "operating_name": "Acme",
+            "entity_type": "LLC",
+            "industry": "Retail",
+            "business_age": "1-3",
+            "team_size": "2-5",
+            "country": "CA",
+            "primary_timezone": "America/Toronto",
+            "base_currency": "CAD",
+            "tax_registration_status": "registered",
+            "primary_tax_jurisdiction": "CA-ON",
+            "tax_ids_by_jurisdiction": [{"jurisdiction": "CA-ON", "tax_id": "123"}],
+            "fiscal_year_end_month": 12,
+            "fiscal_year_end_day": 31,
+            "accounting_method": "accrual",
+            "filing_cadence": "monthly",
+            "monthly_transaction_band": "50-200",
+            "bank_account_count": "2-3",
+            "current_system_tool": "QuickBooks",
+            "data_source": "bank_connect",
+            "has_accountant": true,
+            "accounting_review_frequency": "monthly",
+            "default_invoice_terms": "Net 30",
+            "default_bill_terms": "Net 30",
+            "default_tax_behavior": "exclusive",
+            "high_risk_approval_threshold": 1000,
+            "companion_intent_goals": "Close books faster",
+            "top_accounting_challenges": ["AR follow-up"],
+            "risk_appetite": "balanced",
+            "preferred_explanation_style": "concise",
+            "notification_preference": "email"
+        });
+
+        let readiness = compute_readiness(
+            &profile,
+            "completed",
+            &vec!["ai_data_processing".into(), "ai_recommendations".into()],
+            true,
+        );
+
+        assert_eq!(readiness.status, "completed");
+        assert_eq!(readiness.score, 100);
+        assert!(readiness.missing_required_fields.is_empty());
+        assert!(readiness.consents_complete);
+        assert!(readiness.ai_handshake_complete);
+    }
+
+    #[test]
+    fn test_compute_readiness_in_progress_when_required_fields_missing() {
+        let profile = json!({
+            "legal_business_name": "Acme Corp",
+            "industry": "Retail"
+        });
+        let readiness = compute_readiness(&profile, "in_progress", &vec![], false);
+        assert_eq!(readiness.status, "in_progress");
+        assert!(!readiness.required_fields_complete);
+        assert!(!readiness.missing_required_fields.is_empty());
     }
 }

@@ -206,8 +206,8 @@ export const UsersSection: React.FC<{ roleLevel?: number }> = ({ roleLevel = 1 }
             <div className="flex flex-wrap items-center gap-2 mt-2">
               <Select
                 value={statusFilter}
-                onValueChange={(v: "all" | "active" | "suspended") => {
-                  setStatusFilter(v);
+                onValueChange={(v: string) => {
+                  setStatusFilter(v as "all" | "active" | "suspended");
                   setPage(1);
                 }}
               >
@@ -222,8 +222,8 @@ export const UsersSection: React.FC<{ roleLevel?: number }> = ({ roleLevel = 1 }
               </Select>
               <Select
                 value={authFilter}
-                onValueChange={(v: "all" | "with-google" | "without-google") => {
-                  setAuthFilter(v);
+                onValueChange={(v: string) => {
+                  setAuthFilter(v as "all" | "with-google" | "without-google");
                   setPage(1);
                 }}
               >
@@ -774,7 +774,7 @@ const UserDetailsPanel: React.FC<UserDetailsPanelProps> = ({ user, onUpdate, rol
               <TabsContent value="roles" className="mt-3 space-y-3">
                 <div className="space-y-1.5">
                   <div className="text-[11px] font-medium text-slate-700">Admin role</div>
-                  <Select value={adminRole} onValueChange={(v: AdminRole) => setAdminRole(v)} disabled={!canChangePrivileges}>
+                  <Select value={adminRole} onValueChange={(v: string) => setAdminRole(v as AdminRole)} disabled={!canChangePrivileges}>
                     <SelectTrigger className="h-8 w-full rounded-xl border-slate-200 bg-slate-50 px-3 text-xs">
                       <SelectValue />
                     </SelectTrigger>

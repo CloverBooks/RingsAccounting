@@ -11,28 +11,28 @@ import { initTelemetry } from './telemetry/telemetry';
 
 export async function createApp(): Promise<NestFastifyApplication> {
   await initTelemetry();
-  const app = await NestFactory.create<NestFastifyApplication>(
+  const app = (await NestFactory.create(
     AppModule,
-    new FastifyAdapter({ logger: false }),
+    new FastifyAdapter({ logger: false }) as any,
     { bufferLogs: true },
-  );
+  )) as NestFastifyApplication;
 
   app.useLogger(app.get(Logger));
   app.useGlobalInterceptors(new BigIntSerializationInterceptor());
 
-  await app.register(helmet, { global: true });
-  await app.register(cors, {
+  await app.register(helmet as any, { global: true } as any);
+  await app.register(cors as any, {
     origin: process.env.CORS_ALLOWED_ORIGINS?.split(',') ?? true,
     credentials: true,
-  });
-  await app.register(rateLimit, { max: 100, timeWindow: '1 minute' });
-  await app.register(rawBody, {
+  } as any);
+  await app.register(rateLimit as any, { max: 100, timeWindow: '1 minute' } as any);
+  await app.register(rawBody as any, {
     field: 'rawBody',
     global: false,
     encoding: 'utf8',
     runFirst: true,
     routes: ['/webhooks/stripe', '/webhooks/flutterwave'],
-  });
+  } as any);
 
   await app.init();
   await app.getHttpAdapter().getInstance().ready();

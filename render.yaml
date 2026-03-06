@@ -23,3 +23,31 @@ services:
         value: "none"
       - key: COOKIE_DOMAIN
         value: .<domain>
+
+  - type: web
+    runtime: static
+    name: rings-customer
+    rootDir: apps/customer
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+  - type: web
+    runtime: static
+    name: rings-admin
+    rootDir: apps/admin
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

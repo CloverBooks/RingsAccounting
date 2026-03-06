@@ -1,17 +1,12 @@
 import { Body, Controller, Param, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { OrganizationsService } from './organizations.service';
-import { StripeAdapter } from '../payments/stripe.adapter';
-import { FlutterwaveAdapter } from '../payments/flutterwave.adapter';
+import { disabledResponse } from '../../common/utils/compatibility';
 
 @ApiTags('organizations')
 @Controller('orgs')
 export class OrganizationsController {
-  constructor(
-    private readonly organizationsService: OrganizationsService,
-    private readonly stripeAdapter: StripeAdapter,
-    private readonly flutterwaveAdapter: FlutterwaveAdapter,
-  ) {}
+  constructor(private readonly organizationsService: OrganizationsService) {}
 
   @Post()
   async createOrg(
@@ -23,16 +18,24 @@ export class OrganizationsController {
 
   @Post(':id/stripe/connect/onboard')
   async createStripeOnboarding(@Param('id') id: string) {
-    const account = await this.stripeAdapter.createConnectAccountExpress();
-    await this.organizationsService.attachStripeAccount(id, account.id);
-    const link = await this.stripeAdapter.createAccountOnboardingLink(account.id);
-    return { account_id: account.id, onboarding_url: link.url };
+    return disabledResponse(
+      'Provider onboarding is disabled in the current backend profile.',
+      {
+        organization_id: id,
+        account_id: null,
+        onboarding_url: null,
+      },
+    );
   }
 
   @Post(':id/flutterwave/onboard')
   async createFlutterwaveOnboarding(@Param('id') id: string) {
-    const merchantId = await this.flutterwaveAdapter.createMerchantStub();
-    await this.organizationsService.attachFlutterwaveMerchant(id, merchantId);
-    return { merchant_id: merchantId };
+    return disabledResponse(
+      'Provider onboarding is disabled in the current backend profile.',
+      {
+        organization_id: id,
+        merchant_id: null,
+      },
+    );
   }
 }

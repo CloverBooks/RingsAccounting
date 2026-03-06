@@ -74,19 +74,30 @@ type RequestOptions = {
 
 let accessToken: string | null = null;
 
+const getStorage = (): Storage | null => {
+  if (typeof window === "undefined" || !window.localStorage) return null;
+  const storage = window.localStorage as Storage;
+  if (typeof storage.getItem !== "function") return null;
+  if (typeof storage.setItem !== "function") return null;
+  if (typeof storage.removeItem !== "function") return null;
+  return storage;
+};
+
 // Check localStorage for token on load (for Google OAuth)
-const storedToken = typeof localStorage !== 'undefined' ? localStorage.getItem('auth_token') : null;
+const storedToken = getStorage()?.getItem("auth_token") || null;
 if (storedToken) {
   accessToken = storedToken;
 }
 
 export const setAccessToken = (token: string | null) => {
+  const storage = getStorage();
   accessToken = token;
+  if (!storage) return;
   if (token) {
-    localStorage.setItem('auth_token', token);
+    storage.setItem("auth_token", token);
   } else {
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('user');
+    storage.removeItem("auth_token");
+    storage.removeItem("user");
   }
 };
 
@@ -123,7 +134,13 @@ const apiJson = async <T>(path: string, options: RequestOptions = {}): Promise<T
   return data as T;
 };
 
-export const fetchHealth = () => apiJson<HealthResponse>("/api/healthz");
+export const fetchHealth = async () => {
+  try {
+    return await apiJson<HealthResponse>("/health");
+  } catch {
+    return apiJson<HealthResponse>("/api/healthz");
+  }
+};
 
 export const login = (email: string, password: string) =>
   apiJson<TokenResponse>("/api/auth/login", {
@@ -137,8 +154,9 @@ export const login = (email: string, password: string) =>
 
 export const refresh = async (): Promise<TokenResponse> => {
   // First check localStorage for stored user from Google OAuth
-  const storedUser = localStorage.getItem('user');
-  const storedToken = localStorage.getItem('auth_token');
+  const storage = getStorage();
+  const storedUser = storage?.getItem("user") || null;
+  const storedToken = storage?.getItem("auth_token") || null;
 
   if (storedUser && storedToken) {
     try {

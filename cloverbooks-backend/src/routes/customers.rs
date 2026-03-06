@@ -1,14 +1,19 @@
 use axum::{extract::{Path, State}, Json};
-use chrono::{DateTime, Utc};
 use sqlx::query_as;
-use uuid::Uuid;
 
 use crate::{
     config::get_config,
     error::{AppError, AppResult},
-    models::{CreateCustomerRequest, CreateMandateRequest, Customer, Mandate},
+    models::{CreateCustomerRequest, Customer},
     AppState,
 };
+
+#[derive(serde::Serialize)]
+struct DisabledResponse {
+    ok: bool,
+    status: &'static str,
+    message: String,
+}
 
 pub fn router() -> axum::Router<AppState> {
     axum::Router::new()
@@ -72,50 +77,12 @@ async fn create_customer(
 }
 
 async fn create_mandate(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-    Json(payload): Json<CreateMandateRequest>,
-) -> AppResult<Json<Mandate>> {
-    let customer_id = Uuid::parse_str(&id)
-        .map_err(|_| AppError::Validation("invalid customer id".to_string()))?;
-
-    let customer = query_as::<_, Customer>(
-        r#"SELECT id, name, email, country, fin, transit, account, aba_routing, created_at
-        FROM customers
-        WHERE id = $1"#,
-    )
-    .bind(customer_id)
-    .fetch_one(&state.db)
-    .await?;
-
-    let mandate_type = payload.mandate_type.trim().to_uppercase();
-    match (customer.country.as_str(), mandate_type.as_str()) {
-        ("CA", "PAD") => {}
-        ("US", "ACH") => {}
-        _ => {
-            return Err(AppError::Validation(
-                "mandate type must match customer country".to_string(),
-            ));
-        }
-    }
-
-    let signed_at = DateTime::parse_from_rfc3339(&payload.signed_at)
-        .map_err(|_| AppError::Validation("signed_at must be RFC3339".to_string()))?
-        .with_timezone(&Utc);
-
-    let metadata = payload.metadata.unwrap_or_else(|| serde_json::json!({}));
-
-    let mandate = query_as::<_, Mandate>(
-        r#"INSERT INTO mandates (customer_id, mandate_type, signed_at, metadata)
-        VALUES ($1, $2, $3, $4)
-        RETURNING id, customer_id, mandate_type, signed_at, metadata, created_at"#,
-    )
-    .bind(customer.id)
-    .bind(mandate_type)
-    .bind(signed_at)
-    .bind(metadata)
-    .fetch_one(&state.db)
-    .await?;
-
-    Ok(Json(mandate))
+    State(_state): State<AppState>,
+    Path(_id): Path<String>,
+) -> AppResult<Json<DisabledResponse>> {
+    Ok(Json(DisabledResponse {
+        ok: true,
+        status: "disabled",
+        message: "This capability is disabled in the current backend profile.".to_string(),
+    }))
 }

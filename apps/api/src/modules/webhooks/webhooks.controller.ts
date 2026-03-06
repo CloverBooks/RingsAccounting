@@ -1,4 +1,4 @@
-import { Body, Controller, Headers, HttpCode, Post, Req } from '@nestjs/common';
+import { Body, Controller, HttpCode, Post, Req } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { RouteConfig } from '@nestjs/platform-fastify';
 import { FastifyRequest } from 'fastify';
@@ -18,10 +18,9 @@ export class WebhooksController {
   })
   @Post('stripe')
   @HttpCode(200)
-  async stripeWebhook(@Req() req: FastifyRequest & { rawBody?: Buffer }, @Headers('stripe-signature') signature?: string) {
+  async stripeWebhook(@Req() req: FastifyRequest & { rawBody?: Buffer }) {
     const rawBody = req.rawBody ?? Buffer.from('');
-    await this.webhooksService.handleStripeWebhook(rawBody, signature, req.headers);
-    return { received: true };
+    return this.webhooksService.handleStripeWebhook(rawBody);
   }
 
   @RouteConfig({
@@ -38,7 +37,6 @@ export class WebhooksController {
     @Body() body: any,
   ) {
     const rawBody = req.rawBody ?? Buffer.from('');
-    await this.webhooksService.handleFlutterwaveWebhook(rawBody, req.headers, body);
-    return { received: true };
+    return this.webhooksService.handleFlutterwaveWebhook(rawBody, body);
   }
 }

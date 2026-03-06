@@ -8,18 +8,8 @@ export class NotificationsService {
 
   constructor(@InjectQueue('notifications.send') private readonly queue: Queue) {}
 
-  async sendPadPreNotification(payload: { orgId: string; scheduledFor?: string | null }) {
-    this.logger.log(`Queueing PAD pre-notification for org ${payload.orgId}`);
-    await this.queue.add('pad_pre_notification', payload);
-  }
-
-  async sendReceipt(payload: { orgId: string; paymentIntentId: string }) {
-    this.logger.log(`Queueing receipt for ${payload.paymentIntentId}`);
-    await this.queue.add('send_receipt', payload);
-  }
-
-  async sendRetryLinkRwanda(payload: { orgId: string; intentId: string }) {
-    this.logger.log(`Queueing Rwanda retry link for ${payload.intentId}`);
-    await this.queue.add('send_retry_link_rwanda', payload);
+  async enqueueNotification(event: string, payload: Record<string, unknown>) {
+    this.logger.log(`Queueing notification event=${event}`);
+    await this.queue.add(event, payload);
   }
 }

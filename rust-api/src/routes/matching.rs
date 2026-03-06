@@ -3,8 +3,6 @@
 //! 100% Rust implementation of the 3-tier matching algorithm.
 //! Replaces the legacy bank matching module entirely.
 
-#![allow(dead_code)]
-
 use axum::{
     extract::{Json, Path, State},
     http::StatusCode,
@@ -29,7 +27,6 @@ impl MatchingConfig {
     pub const CONFIDENCE_TIER2: f64 = 0.95;
     pub const CONFIDENCE_TIER3_SINGLE: f64 = 0.80;
     pub const CONFIDENCE_TIER3_AMBIGUOUS: f64 = 0.50;
-    pub const DEFAULT_MAX_CANDIDATES: i64 = 5;
     pub const AMOUNT_TOLERANCE: f64 = 0.01;
 }
 
@@ -158,13 +155,11 @@ pub struct DuplicateInfo {
 
 #[derive(sqlx::FromRow)]
 struct BankTransactionRow {
-    id: i64,
     amount: f64,
     description: String,
     date: String,
     external_id: Option<String>,
     bank_account_id: i64,
-    status: String,
 }
 
 #[derive(sqlx::FromRow)]
@@ -175,30 +170,6 @@ struct BankRuleRow {
     bank_text_pattern: Option<String>,
     description_pattern: Option<String>,
     auto_confirm: bool,
-}
-
-#[derive(sqlx::FromRow)]
-struct InvoiceRow {
-    id: i64,
-    invoice_number: String,
-    grand_total: f64,
-    issue_date: String,
-    customer_name: String,
-}
-
-#[derive(sqlx::FromRow)]
-struct ExpenseRow {
-    id: i64,
-    grand_total: f64,
-    date: String,
-    description: String,
-}
-
-#[derive(sqlx::FromRow)]
-struct JournalEntryRow {
-    id: i64,
-    source_type: String,
-    source_id: i64,
 }
 
 // ============================================================================
@@ -217,7 +188,7 @@ impl BankMatchingEngine {
     ) -> Result<Vec<MatchCandidate>, String> {
         // Get the bank transaction
         let tx = sqlx::query_as::<_, BankTransactionRow>(
-            "SELECT id, amount, description, date, external_id, bank_account_id, status 
+            "SELECT amount, description, date, external_id, bank_account_id
              FROM core_banktransaction WHERE id = ?"
         )
         .bind(tx_id)

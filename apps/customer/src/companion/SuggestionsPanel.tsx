@@ -54,6 +54,8 @@ interface SuggestionsPanelProps {
   loading?: boolean;
   engineMode?: string | null;
   workspaceId?: number;
+  applyBlocked?: boolean;
+  applyBlockedReason?: string;
 }
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
@@ -117,6 +119,8 @@ export default function SuggestionsPanel({
   loading = false,
   engineMode,
   workspaceId,
+  applyBlocked = false,
+  applyBlockedReason,
 }: SuggestionsPanelProps) {
   const [tab, setTab] = useState<"all" | "ready" | "review" | "needs_attention">("all");
   const [q, setQ] = useState("");
@@ -145,7 +149,7 @@ export default function SuggestionsPanel({
     [filtered]
   );
   const batchAllowed = engineMode === "autopilot_limited" || engineMode === "drafts";
-  const canBatchApply = batchAllowed && readyItems.length > 0;
+  const canBatchApply = !applyBlocked && batchAllowed && readyItems.length > 0;
 
   const applyBatch = async () => {
     if (!canBatchApply) return;
@@ -188,6 +192,13 @@ export default function SuggestionsPanel({
           These are safe suggestions. Applying will update your books only after confirmation.
         </div>
       </div>
+
+      {applyBlocked && (
+        <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">
+          <div className="font-semibold">Apply is locked</div>
+          <div className="mt-1">{applyBlockedReason || "Complete onboarding and consent to unlock apply actions."}</div>
+        </div>
+      )}
 
       {canBatchApply ? (
         <div className="rounded-3xl border border-zinc-200 bg-white p-4">
@@ -242,6 +253,8 @@ export default function SuggestionsPanel({
                 onApplied={onApplied}
                 onDismissed={onDismissed}
                 workspaceId={workspaceId}
+                applyBlocked={applyBlocked}
+                applyBlockedReason={applyBlockedReason}
               />
             ))
           )}
@@ -292,11 +305,15 @@ function SuggestionCard({
   onApplied,
   onDismissed,
   workspaceId,
+  applyBlocked = false,
+  applyBlockedReason,
 }: {
   proposal: Proposal;
   onApplied: (id: string) => void;
   onDismissed: (id: string) => void;
   workspaceId?: number;
+  applyBlocked?: boolean;
+  applyBlockedReason?: string;
 }) {
   const meta = surfaceMeta(proposal.surface);
   const chip = riskChip(proposal.risk);
@@ -311,7 +328,7 @@ function SuggestionCard({
   const actionKind = actionKindForProposal(proposal);
   const riskLevel = riskLevelForProposal(proposal);
   const requiresNote = actionKind === "apply" && riskLevel === "high";
-  const isApplyAllowed = actionKind === "apply";
+  const isApplyAllowed = actionKind === "apply" && !applyBlocked;
   const previewEffects =
     proposal.preview_effects && proposal.preview_effects.length > 0
       ? proposal.preview_effects
@@ -416,6 +433,11 @@ function SuggestionCard({
             )}
             Apply this change
           </Button>
+        ) : null}
+        {actionKind === "apply" && applyBlocked ? (
+          <span className="inline-flex items-center rounded-2xl border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] text-amber-800">
+            {applyBlockedReason || "Complete onboarding and consent to unlock apply."}
+          </span>
         ) : null}
         <Button
           variant="outline"
