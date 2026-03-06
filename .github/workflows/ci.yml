@@ -163,8 +163,11 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Build frontend
-        run: npm run build
+      - name: Lint frontend
+        run: npm run lint
+
+      - name: Clean frontend verify
+        run: npm run verify:clean
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

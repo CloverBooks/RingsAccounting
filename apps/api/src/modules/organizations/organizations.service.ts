@@ -18,18 +18,4 @@ export class OrganizationsService {
       },
     });
   }
-
-  async attachStripeAccount(orgId: string, stripeAccountId: string) {
-    return this.prisma.organization.update({
-      where: { id: orgId },
-      data: { stripe_account_id: stripeAccountId },
-    });
-  }
-
-  async attachFlutterwaveMerchant(orgId: string, merchantId: string) {
-    return this.prisma.organization.update({
-      where: { id: orgId },
-      data: { flutterwave_merchant_id: merchantId },
-    });
-  }
 }

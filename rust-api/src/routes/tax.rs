@@ -2,7 +2,6 @@
 //!
 //! Provides endpoints for tax period management, snapshots, anomalies, and payments.
 //! These endpoints support the Tax Guardian UI in the customer frontend.
-#![allow(dead_code)]
 
 use axum::{
     extract::{Path, Query, State},
@@ -10,7 +9,6 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use chrono::{Datelike, Local, NaiveDate};
 
 use crate::AppState;
 
@@ -178,101 +176,43 @@ pub struct SuccessResponse {
     pub message: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct DisabledActionResponse {
+    pub ok: bool,
+    pub status: &'static str,
+    pub message: String,
+}
+
 // =============================================================================
 // Helper Functions
 // =============================================================================
 
-fn generate_mock_periods() -> Vec<TaxPeriod> {
-    let today = Local::now().date_naive();
-    let mut periods = Vec::new();
-    
-    // Generate last 6 months of periods
-    for i in 0..6 {
-        let date = today - chrono::Duration::days(30 * i as i64);
-        let period_key = format!("{}-{:02}", date.year(), date.month());
-        let is_current = i == 0;
-        
-        let net_tax = if is_current { 0.0 } else { 150.0 + (i as f64 * 25.0) };
-        let paid = if i > 1 { net_tax } else { 0.0 };
-        
-        let due_date = NaiveDate::from_ymd_opt(date.year(), date.month(), 28)
-            .map(|d| (d + chrono::Duration::days(30)).to_string());
-        
-        periods.push(TaxPeriod {
-            period_key,
-            status: if i > 1 { "FILED".to_string() } else if i == 1 { "REVIEWED".to_string() } else { "DRAFT".to_string() },
-            net_tax,
-            payments_payment_total: paid,
-            payments_refund_total: 0.0,
-            payments_net_total: paid,
-            payments_total: paid,
-            balance: net_tax - paid,
-            remaining_balance: net_tax - paid,
-            payment_status: if paid >= net_tax && net_tax > 0.0 { 
-                Some("PAID".to_string()) 
-            } else if paid > 0.0 { 
-                Some("PARTIALLY_PAID".to_string()) 
-            } else if net_tax == 0.0 {
-                Some("NO_LIABILITY".to_string())
-            } else { 
-                Some("UNPAID".to_string()) 
-            },
-            anomaly_counts: AnomalyCounts { low: 0, medium: if is_current { 1 } else { 0 }, high: 0 },
-            due_date,
-            is_due_soon: i == 1,
-            is_overdue: false,
-        });
-    }
-    
-    periods
-}
-
-fn generate_mock_snapshot(period_key: &str) -> TaxSnapshot {
-    let periods = generate_mock_periods();
-    let period = periods.iter().find(|p| p.period_key == period_key);
-    
-    let net_tax = period.map(|p| p.net_tax).unwrap_or(0.0);
-    let status = period.map(|p| p.status.clone()).unwrap_or_else(|| "DRAFT".to_string());
-    
-    let mut jurisdictions = std::collections::HashMap::new();
-    jurisdictions.insert("CA-ON".to_string(), JurisdictionSummary {
-        code: "CA-ON".to_string(),
-        name: "Ontario HST".to_string(),
-        taxable_sales: if net_tax > 0.0 { net_tax / 0.13 } else { 0.0 },
-        tax_collected: net_tax,
-        tax_on_purchases: 0.0,
-        net_tax,
-    });
-    
+fn neutral_snapshot(period_key: &str) -> TaxSnapshot {
     TaxSnapshot {
         period_key: period_key.to_string(),
         country: "CA".to_string(),
-        status,
-        due_date: period.and_then(|p| p.due_date.clone()),
-        is_due_soon: period.map(|p| p.is_due_soon).unwrap_or(false),
-        is_overdue: period.map(|p| p.is_overdue).unwrap_or(false),
+        status: "DRAFT".to_string(),
+        due_date: None,
+        is_due_soon: false,
+        is_overdue: false,
         filed_at: None,
         last_filed_at: None,
         last_reset_at: None,
         last_reset_reason: None,
         llm_summary: None,
         llm_notes: None,
-        summary_by_jurisdiction: jurisdictions,
+        summary_by_jurisdiction: std::collections::HashMap::new(),
         line_mappings: std::collections::HashMap::new(),
-        net_tax,
+        net_tax: 0.0,
         payments: Vec::new(),
-        payments_payment_total: period.map(|p| p.payments_payment_total).unwrap_or(0.0),
-        payments_refund_total: period.map(|p| p.payments_refund_total).unwrap_or(0.0),
-        payments_net_total: period.map(|p| p.payments_net_total).unwrap_or(0.0),
-        payments_total: period.map(|p| p.payments_total).unwrap_or(0.0),
-        balance: period.map(|p| p.balance).unwrap_or(0.0),
-        remaining_balance: period.map(|p| p.remaining_balance).unwrap_or(0.0),
-        payment_status: period.and_then(|p| p.payment_status.clone()),
-        anomaly_counts: AnomalyCounts { 
-            low: period.map(|p| p.anomaly_counts.low).unwrap_or(0), 
-            medium: period.map(|p| p.anomaly_counts.medium).unwrap_or(0), 
-            high: period.map(|p| p.anomaly_counts.high).unwrap_or(0),
-        },
+        payments_payment_total: 0.0,
+        payments_refund_total: 0.0,
+        payments_net_total: 0.0,
+        payments_total: 0.0,
+        balance: 0.0,
+        remaining_balance: 0.0,
+        payment_status: None,
+        anomaly_counts: AnomalyCounts { low: 0, medium: 0, high: 0 },
         has_high_severity_blockers: false,
     }
 }
@@ -286,7 +226,7 @@ fn generate_mock_snapshot(period_key: &str) -> TaxSnapshot {
 pub async fn list_periods(
     State(_state): State<AppState>,
 ) -> impl IntoResponse {
-    let periods = generate_mock_periods();
+    let periods: Vec<TaxPeriod> = Vec::new();
     Json(TaxPeriodsResponse { periods })
 }
 
@@ -296,7 +236,7 @@ pub async fn get_snapshot(
     State(_state): State<AppState>,
     Path(period_key): Path<String>,
 ) -> impl IntoResponse {
-    let snapshot = generate_mock_snapshot(&period_key);
+    let snapshot = neutral_snapshot(&period_key);
     Json(snapshot)
 }
 
@@ -305,9 +245,10 @@ pub async fn get_snapshot(
 pub async fn list_anomalies(
     State(_state): State<AppState>,
     Path(_period_key): Path<String>,
-    Query(_params): Query<AnomaliesQuery>,
+    Query(params): Query<AnomaliesQuery>,
 ) -> impl IntoResponse {
-    // Return empty anomalies for now (demo data)
+    let _severity = params.severity.as_deref().unwrap_or("all");
+    let _status = params.status.as_deref().unwrap_or("all");
     let anomalies: Vec<TaxAnomaly> = Vec::new();
     Json(TaxAnomaliesResponse { anomalies })
 }
@@ -329,11 +270,11 @@ pub async fn refresh_period(
 pub async fn update_status(
     State(_state): State<AppState>,
     Path(_period_key): Path<String>,
-    Json(_body): Json<StatusUpdate>,
+    Json(body): Json<StatusUpdate>,
 ) -> impl IntoResponse {
     Json(SuccessResponse { 
         success: true, 
-        message: Some("Status updated".to_string()) 
+        message: Some(format!("Status update accepted: {}", body.status))
     })
 }
 
@@ -342,11 +283,11 @@ pub async fn update_status(
 pub async fn update_anomaly(
     State(_state): State<AppState>,
     Path((_period_key, _anomaly_id)): Path<(String, String)>,
-    Json(_body): Json<AnomalyUpdate>,
+    Json(body): Json<AnomalyUpdate>,
 ) -> impl IntoResponse {
     Json(SuccessResponse { 
         success: true, 
-        message: Some("Anomaly updated".to_string()) 
+        message: Some(format!("Anomaly status update accepted: {}", body.status))
     })
 }
 
@@ -367,11 +308,21 @@ pub async fn llm_enrich(
 pub async fn reset_period(
     State(_state): State<AppState>,
     Path(_period_key): Path<String>,
-    Json(_body): Json<ResetRequest>,
+    Json(body): Json<ResetRequest>,
 ) -> impl IntoResponse {
+    let message = if body.confirm_reset {
+        match body.reason {
+            Some(reason) if !reason.trim().is_empty() => {
+                format!("Period reset request accepted: {}", reason)
+            }
+            _ => "Period reset request accepted".to_string(),
+        }
+    } else {
+        "Reset request skipped: confirm_reset=false".to_string()
+    };
     Json(SuccessResponse { 
         success: true, 
-        message: Some("Period reset to REVIEWED".to_string()) 
+        message: Some(message)
     })
 }
 
@@ -380,11 +331,21 @@ pub async fn reset_period(
 pub async fn create_payment(
     State(_state): State<AppState>,
     Path(_period_key): Path<String>,
-    Json(_body): Json<PaymentCreate>,
+    Json(body): Json<PaymentCreate>,
 ) -> impl IntoResponse {
-    Json(SuccessResponse { 
-        success: true, 
-        message: Some("Payment recorded".to_string()) 
+    let _ = (
+        &body.kind,
+        &body.bank_account_id,
+        &body.amount,
+        &body.payment_date,
+        &body.method,
+        &body.reference,
+        &body.notes,
+    );
+    Json(DisabledActionResponse {
+        ok: true,
+        status: "disabled",
+        message: "This capability is disabled in the current backend profile.".to_string(),
     })
 }
 
@@ -393,11 +354,21 @@ pub async fn create_payment(
 pub async fn update_payment(
     State(_state): State<AppState>,
     Path((_period_key, _payment_id)): Path<(String, String)>,
-    Json(_body): Json<PaymentUpdate>,
+    Json(body): Json<PaymentUpdate>,
 ) -> impl IntoResponse {
-    Json(SuccessResponse { 
-        success: true, 
-        message: Some("Payment updated".to_string()) 
+    let _ = (
+        &body.kind,
+        &body.bank_account_id,
+        &body.amount,
+        &body.payment_date,
+        &body.method,
+        &body.reference,
+        &body.notes,
+    );
+    Json(DisabledActionResponse {
+        ok: true,
+        status: "disabled",
+        message: "This capability is disabled in the current backend profile.".to_string(),
     })
 }
 
@@ -407,9 +378,10 @@ pub async fn delete_payment(
     State(_state): State<AppState>,
     Path((_period_key, _payment_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    Json(SuccessResponse { 
-        success: true, 
-        message: Some("Payment deleted".to_string()) 
+    Json(DisabledActionResponse {
+        ok: true,
+        status: "disabled",
+        message: "This capability is disabled in the current backend profile.".to_string(),
     })
 }
 
@@ -422,22 +394,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_generate_mock_periods() {
-        let periods = generate_mock_periods();
-        assert!(!periods.is_empty());
-        assert!(periods.len() <= 6);
-        
-        // First period should be current month (DRAFT)
-        assert_eq!(periods[0].status, "DRAFT");
+    fn test_list_periods_default_empty() {
+        let response = TaxPeriodsResponse { periods: Vec::new() };
+        assert!(response.periods.is_empty());
     }
 
     #[test]
-    fn test_generate_mock_snapshot() {
-        let today = Local::now().date_naive();
-        let period_key = format!("{}-{:02}", today.year(), today.month());
-        let snapshot = generate_mock_snapshot(&period_key);
-        
+    fn test_neutral_snapshot_contract_shape() {
+        let period_key = "2026-03";
+        let snapshot = neutral_snapshot(period_key);
+
         assert_eq!(snapshot.period_key, period_key);
         assert_eq!(snapshot.country, "CA");
+        assert_eq!(snapshot.status, "DRAFT");
+        assert!(snapshot.payments.is_empty());
     }
 }

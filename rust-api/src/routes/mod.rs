@@ -1,4 +1,5 @@
 pub mod agentic;
+pub mod admin;
 pub mod auth;
 pub mod companion;
 pub mod companion_autonomy;

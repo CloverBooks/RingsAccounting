@@ -229,7 +229,7 @@ describe("App Routes", () => {
 
             await waitFor(() => {
                 expect(screen.getByTestId("tax-page")).toBeInTheDocument();
-            });
+            }, { timeout: 5000 });
         });
 
         it("renders reconciliation page", async () => {

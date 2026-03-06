@@ -1,9 +1,6 @@
 //! Reconciliation API endpoints
 //!
 //! Provides bank account reconciliation functionality.
-//! Currently returns stub data to prevent frontend errors.
-
-#![allow(dead_code)]
 
 use axum::{
     extract::{Path, Query, State},
@@ -11,54 +8,13 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use chrono::Datelike;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::AppState;
 
 // ============================================================================
 // Reconciliation Types
 // ============================================================================
-
-#[derive(Debug, Serialize)]
-pub struct ReconciliationAccount {
-    pub id: i64,
-    pub name: String,
-    pub bank_name: String,
-    pub last_reconciled_date: Option<String>,
-    pub unreconciled_count: i64,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ReconciliationPeriod {
-    pub period: String,
-    pub start_date: String,
-    pub end_date: String,
-    pub transaction_count: i64,
-    pub is_reconciled: bool,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ReconciliationSession {
-    pub id: i64,
-    pub bank_account_id: i64,
-    pub status: String,
-    pub statement_balance: Option<f64>,
-    pub calculated_balance: f64,
-    pub difference: f64,
-    pub transactions: Vec<ReconciliationTransaction>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ReconciliationTransaction {
-    pub id: i64,
-    pub date: String,
-    pub description: String,
-    pub amount: f64,
-    pub is_matched: bool,
-    pub is_excluded: bool,
-    pub match_type: Option<String>,
-}
 
 #[derive(Debug, Deserialize)]
 pub struct SessionQuery {
@@ -112,51 +68,42 @@ pub async fn list_accounts(
 /// GET /api/reconciliation/accounts/:id/periods/
 /// Get available reconciliation periods for an account
 pub async fn list_periods(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path(account_id): Path<i64>,
 ) -> impl IntoResponse {
     tracing::info!("Listing reconciliation periods for account {}", account_id);
-    
-    // Generate mock periods for the last 6 months
-    let today = chrono::Local::now().date_naive();
-    let mut periods = Vec::new();
-    
-    for i in 0..6 {
-        let period_date = today - chrono::Duration::days(30 * i as i64);
-        let year = period_date.format("%Y").to_string();
-        let month = period_date.format("%m").to_string();
-        
-        // Calculate start and end of month
-        let start_of_month = chrono::NaiveDate::from_ymd_opt(
-            period_date.year(),
-            period_date.month(),
-            1
-        ).unwrap_or(period_date);
-        
-        let end_of_month = {
-            let next_month = if period_date.month() == 12 {
-                chrono::NaiveDate::from_ymd_opt(period_date.year() + 1, 1, 1)
-            } else {
-                chrono::NaiveDate::from_ymd_opt(period_date.year(), period_date.month() + 1, 1)
-            };
-            next_month.map(|d| d - chrono::Duration::days(1)).unwrap_or(period_date)
-        };
-        
-        let month_names = ["", "January", "February", "March", "April", "May", "June",
-                          "July", "August", "September", "October", "November", "December"];
-        let month_idx = period_date.month() as usize;
-        let label = format!("{} {}", month_names.get(month_idx).unwrap_or(&""), year);
-        
-        periods.push(serde_json::json!({
-            "id": format!("{}-{}", year, month),
-            "label": label,
-            "start_date": start_of_month.format("%Y-%m-%d").to_string(),
-            "end_date": end_of_month.format("%Y-%m-%d").to_string(),
-            "is_current": i == 0,
-            "is_locked": i > 2  // Older periods are locked
-        }));
-    }
-    
+
+    let period_rows = sqlx::query_as::<_, (String, Option<String>, Option<String>, i64)>(
+        "SELECT
+            substr(date, 1, 7) AS period_key,
+            MIN(date) AS start_date,
+            MAX(date) AS end_date,
+            COUNT(*) AS transaction_count
+         FROM core_banktransaction
+         WHERE bank_account_id = ? AND date IS NOT NULL
+         GROUP BY substr(date, 1, 7)
+         ORDER BY period_key DESC",
+    )
+    .bind(account_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let current_period = chrono::Local::now().format("%Y-%m").to_string();
+    let periods: Vec<serde_json::Value> = period_rows
+        .into_iter()
+        .map(|(period_key, start_date, end_date, _transaction_count)| {
+            serde_json::json!({
+                "id": period_key,
+                "label": period_key,
+                "start_date": start_date.unwrap_or_default(),
+                "end_date": end_date.unwrap_or_default(),
+                "is_current": period_key == current_period,
+                "is_locked": false
+            })
+        })
+        .collect();
+
     (StatusCode::OK, Json(serde_json::json!({
         "periods": periods,
         "bank_account_id": account_id
@@ -169,21 +116,27 @@ pub async fn get_session(
     State(_state): State<AppState>,
     Query(params): Query<SessionQuery>,
 ) -> impl IntoResponse {
-    tracing::info!("Getting reconciliation session: {:?}", params);
-    
-    // Return stub session
+    let SessionQuery {
+        bank_account_id,
+        start_date,
+        end_date,
+    } = params;
+    tracing::info!(
+        "Getting reconciliation session: bank_account_id={:?}, start_date={:?}, end_date={:?}",
+        bank_account_id,
+        start_date,
+        end_date
+    );
+
     (StatusCode::OK, Json(serde_json::json!({
-        "session": {
-            "id": 0,
-            "bank_account_id": params.bank_account_id.unwrap_or(0),
-            "status": "open",
-            "statement_balance": null,
-            "calculated_balance": 0.0,
-            "difference": 0.0,
-            "transactions": []
+        "session": null,
+        "bank_account_id": bank_account_id,
+        "filters": {
+            "start_date": start_date,
+            "end_date": end_date
         },
         "transactions": [],
-        "message": "No transactions to reconcile"
+        "message": "No active reconciliation session"
     })))
 }
 

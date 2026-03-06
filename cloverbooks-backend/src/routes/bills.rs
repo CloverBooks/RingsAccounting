@@ -1,6 +1,9 @@
 use std::str::FromStr;
 
-use axum::{extract::{Path, State}, Json};
+use axum::{
+    extract::{Path, State},
+    Json,
+};
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use sqlx::{query, query_as};
@@ -8,10 +11,18 @@ use uuid::Uuid;
 
 use crate::{
     error::{AppError, AppResult},
-    models::{Bill, CreateBillRequest, PaymentResponse, Vendor},
-    payments::adapter::{BankAccount, PaymentStatus, VendorPaymentRequest},
+    models::{Bill, CreateBillRequest},
     AppState,
 };
+
+#[derive(serde::Serialize)]
+struct DisabledResponse {
+    ok: bool,
+    status: &'static str,
+    message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bill_id: Option<String>,
+}
 
 pub fn router() -> axum::Router<AppState> {
     axum::Router::new()
@@ -68,92 +79,25 @@ async fn list_pending_bills(State(state): State<AppState>) -> AppResult<Json<Vec
 async fn pay_bill(
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> AppResult<Json<PaymentResponse>> {
+) -> AppResult<Json<DisabledResponse>> {
     let bill_id = Uuid::parse_str(&id)
         .map_err(|_| AppError::Validation("invalid bill id".to_string()))?;
 
-    let mut tx = state.db.begin().await?;
+    let exists = query("SELECT 1 FROM bills WHERE id = $1")
+        .bind(bill_id)
+        .fetch_optional(&state.db)
+        .await?
+        .is_some();
 
-    let bill = query_as::<_, Bill>(
-        r#"SELECT id, vendor_id, amount, currency, due_date, status, created_at
-        FROM bills
-        WHERE id = $1
-        FOR UPDATE"#,
-    )
-    .bind(bill_id)
-    .fetch_one(&mut *tx)
-    .await?;
-
-    if bill.status != "pending" {
-        return Err(AppError::Validation("bill is not pending".to_string()));
+    if !exists {
+        return Err(AppError::NotFound("bill not found".to_string()));
     }
 
-    let vendor = query_as::<_, Vendor>(
-        r#"SELECT id, name, email, country, fin, transit, account, aba_routing, created_at
-        FROM vendors
-        WHERE id = $1"#,
-    )
-    .bind(bill.vendor_id)
-    .fetch_one(&mut *tx)
-    .await?;
-
-    let account = match vendor.country.as_str() {
-        "CA" => BankAccount::Canada {
-            fin: vendor.fin.clone().unwrap_or_default(),
-            transit: vendor.transit.clone().unwrap_or_default(),
-            account: vendor.account.clone(),
-        },
-        "US" => BankAccount::UnitedStates {
-            aba_routing: vendor.aba_routing.clone().unwrap_or_default(),
-            account: vendor.account.clone(),
-        },
-        _ => {
-            return Err(AppError::Validation("vendor country must be CA or US".to_string()));
-        }
-    };
-
-    let request = VendorPaymentRequest {
-        vendor_id: vendor.id,
-        amount: bill.amount,
-        currency: bill.currency.clone(),
-        account,
-    };
-
-    let result = state
-        .payment_processor
-        .pay_vendor(request)
-        .await
-        .map_err(|err| AppError::Internal(err.to_string()))?;
-
-    let payment_status = result.status.as_str();
-    let bill_status = match result.status {
-        PaymentStatus::Succeeded => "paid",
-        PaymentStatus::Failed => "failed",
-    };
-
-    let payment = query_as::<_, crate::models::Payment>(
-        r#"INSERT INTO payments (bill_id, status, gateway_transaction_id, raw_response)
-        VALUES ($1, $2, $3, $4)
-        RETURNING id, bill_id, invoice_id, status, gateway_transaction_id, raw_response, created_at, updated_at"#,
-    )
-    .bind(bill.id)
-    .bind(payment_status)
-    .bind(result.gateway_transaction_id)
-    .bind(result.raw_response)
-    .fetch_one(&mut *tx)
-    .await?;
-
-    query("UPDATE bills SET status = $1 WHERE id = $2")
-        .bind(bill_status)
-        .bind(bill.id)
-        .execute(&mut *tx)
-        .await?;
-
-    tx.commit().await?;
-
-    Ok(Json(PaymentResponse {
-        payment_id: payment.id,
-        status: payment.status,
+    Ok(Json(DisabledResponse {
+        ok: true,
+        status: "disabled",
+        message: "This capability is disabled in the current backend profile.".to_string(),
+        bill_id: Some(bill_id.to_string()),
     }))
 }
 

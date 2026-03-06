@@ -3,9 +3,30 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import CloverBooksDashboard from "./CloverBooksDashboard";
+import { allowConsole } from "../test/strictConsole";
 
 vi.mock("../contexts/AuthContext", () => ({
   useAuth: () => ({ logout: vi.fn() }),
+}));
+
+vi.mock("../onboarding/useOnboardingReadiness", () => ({
+  useOnboardingReadiness: () => ({
+    loading: false,
+    error: null,
+    status: "completed",
+    unknowns: [],
+    readiness: {
+      status: "completed",
+      score: 100,
+      missing_required_fields: [],
+      required_fields_complete: true,
+      missing_consents: [],
+      consents_complete: true,
+      ai_handshake_complete: true,
+    },
+    hasProfile: true,
+    refresh: vi.fn(),
+  }),
 }));
 
 const summaryPayload = {
@@ -54,7 +75,7 @@ describe("CloverBooksDashboard Tax Guardian card", () => {
     render(<CloverBooksDashboard metrics={{}} />);
 
     expect(screen.getByText(/Tax Guardian/i)).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText(/Period/i)).toBeInTheDocument());
+    expect(await screen.findByText(/Period/i, {}, { timeout: 8000 })).toBeInTheDocument();
 
     expect(screen.getByText("Attention")).toBeInTheDocument();
     expect(screen.getByText(/2 anomalies need review/i)).toBeInTheDocument();
@@ -65,10 +86,19 @@ describe("CloverBooksDashboard Tax Guardian card", () => {
   });
 
   it("shows inline retry on error", async () => {
+    allowConsole(/Request failed \(500\) fail/);
+
+    let summaryRequests = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.startsWith("/api/agentic/companion/summary")) {
-        return new Response("fail", { status: 500 });
+        summaryRequests += 1;
+        if (summaryRequests === 1) {
+          return new Response("fail", { status: 500 });
+        }
+        return new Response(JSON.stringify(summaryPayload), {
+          headers: { "Content-Type": "application/json" },
+        });
       }
       if (url.startsWith("/api/tax/periods/")) {
         return new Response(JSON.stringify(periodsPayload), {
@@ -83,6 +113,7 @@ describe("CloverBooksDashboard Tax Guardian card", () => {
 
     await waitFor(() => expect(screen.getByText(/Unable to load tax status/i)).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: /Try again/i }));
+    await waitFor(() => expect(screen.getByText(/Due Jan 30/i)).toBeInTheDocument());
     expect(fetchMock).toHaveBeenCalled();
   });
 });

@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use sqlx::SqlitePool;
 
 use crate::companion_autonomy::models::AgentOutput;

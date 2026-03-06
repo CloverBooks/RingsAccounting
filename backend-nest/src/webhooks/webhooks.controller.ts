@@ -1,115 +1,43 @@
-import { BadRequestException, Controller, HttpCode, Post, Req } from '@nestjs/common';
-import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
+import { Controller, HttpCode, Post, Req } from '@nestjs/common';
 import { FastifyRequest } from 'fastify';
-import { PaymentProvider, Prisma } from '@prisma/client';
-import { WEBHOOK_JOB, WEBHOOK_QUEUE } from '../jobs/queues';
-import { FlutterwaveWebhookService } from './flutterwave-webhook.service';
-import { ProcessedEventsService } from './processed-events.service';
-import { StripeWebhookService } from './stripe-webhook.service';
-import { WebhookEventsService } from './webhook-events.service';
+import { disabledResponse } from '../common/compatibility-response';
 
 @Controller('webhooks')
 export class WebhooksController {
-  constructor(
-    private readonly stripeWebhookService: StripeWebhookService,
-    private readonly flutterwaveWebhookService: FlutterwaveWebhookService,
-    private readonly processedEventsService: ProcessedEventsService,
-    private readonly webhookEventsService: WebhookEventsService,
-    @InjectQueue(WEBHOOK_QUEUE)
-    private readonly webhookQueue: Queue,
-  ) {}
+  private readonly message =
+    'Webhook ingestion is disabled in the current backend profile.';
 
   @Post('stripe')
   @HttpCode(200)
-  async handleStripe(@Req() request: FastifyRequest) {
+  handleStripe(@Req() request: FastifyRequest) {
     const rawBody = request.rawBody;
-    if (!rawBody) {
-      throw new BadRequestException('Missing raw body');
-    }
+    const rawBuffer = rawBody
+      ? Buffer.isBuffer(rawBody)
+        ? rawBody
+        : Buffer.from(rawBody)
+      : Buffer.from('');
 
-    const rawBuffer = Buffer.isBuffer(rawBody)
-      ? rawBody
-      : Buffer.from(rawBody);
-
-    const signature = request.headers['stripe-signature'] as string | undefined;
-    const event = this.stripeWebhookService.constructEvent(rawBuffer, signature);
-
-    await this.webhookEventsService.record(
-      PaymentProvider.STRIPE,
-      event.id,
-      rawBuffer,
-      request.headers as Prisma.InputJsonValue,
-    );
-
-    await this.processedEventsService.ensureReceived(
-      PaymentProvider.STRIPE,
-      event.id,
-    );
-
-    await this.webhookQueue.add(WEBHOOK_JOB, {
-      provider: PaymentProvider.STRIPE,
-      eventId: event.id,
+    return disabledResponse(this.message, {
+      provider: 'stripe',
+      received: true,
+      size_bytes: rawBuffer.length,
     });
-
-    return { received: true };
   }
 
   @Post('flutterwave')
   @HttpCode(200)
-  async handleFlutterwave(@Req() request: FastifyRequest) {
+  handleFlutterwave(@Req() request: FastifyRequest) {
     const rawBody = request.rawBody;
-    if (!rawBody) {
-      throw new BadRequestException('Missing raw body');
-    }
+    const rawBuffer = rawBody
+      ? Buffer.isBuffer(rawBody)
+        ? rawBody
+        : Buffer.from(rawBody)
+      : Buffer.from('');
 
-    const rawBuffer = Buffer.isBuffer(rawBody)
-      ? rawBody
-      : Buffer.from(rawBody);
-
-    const isValid = this.flutterwaveWebhookService.verify(
-      rawBuffer,
-      request.headers as Record<string, string | undefined>,
-    );
-
-    if (!isValid) {
-      throw new BadRequestException('Invalid Flutterwave signature');
-    }
-
-    let payload: Record<string, unknown>;
-    try {
-      payload = JSON.parse(rawBuffer.toString('utf8')) as Record<string, unknown>;
-    } catch (error) {
-      throw new BadRequestException('Invalid payload');
-    }
-
-    const eventId =
-      (payload.id as string | undefined) ||
-      (payload.eventId as string | undefined) ||
-      (payload.data as { id?: string; eventId?: string } | undefined)?.id ||
-      (payload.data as { id?: string; eventId?: string } | undefined)?.eventId;
-
-    if (!eventId) {
-      throw new BadRequestException('Missing Flutterwave event id');
-    }
-
-    await this.webhookEventsService.record(
-      PaymentProvider.FLUTTERWAVE,
-      eventId,
-      rawBuffer,
-      request.headers as Prisma.InputJsonValue,
-    );
-
-    await this.processedEventsService.ensureReceived(
-      PaymentProvider.FLUTTERWAVE,
-      eventId,
-    );
-
-    await this.webhookQueue.add(WEBHOOK_JOB, {
-      provider: PaymentProvider.FLUTTERWAVE,
-      eventId,
+    return disabledResponse(this.message, {
+      provider: 'flutterwave',
+      received: true,
+      size_bytes: rawBuffer.length,
     });
-
-    return { received: true };
   }
 }

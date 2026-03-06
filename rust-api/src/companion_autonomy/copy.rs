@@ -67,14 +67,6 @@ pub fn customer_safe_copy(text: &str) -> String {
     }
 }
 
-#[allow(dead_code)]
-pub fn ensure_customer_safe(text: &str) -> Result<String, String> {
-    if let Some(term) = contains_banned(text) {
-        return Err(format!("banned term detected: {}", term));
-    }
-    Ok(replace_terms(text))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -87,10 +79,4 @@ mod tests {
         assert!(!output.to_lowercase().contains("shadow ledger"));
     }
 
-    #[test]
-    fn ensure_customer_safe_blocks_terms() {
-        let input = "Shadow ledger note";
-        let result = ensure_customer_safe(input);
-        assert!(result.is_err());
-    }
 }

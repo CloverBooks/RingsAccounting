@@ -166,9 +166,9 @@ pub async fn cockpit_status(
             "last_tick_at": last_tick_at,
             "last_materialized_at": last_materialized_at,
             "engine_version": "v1",
-            "mock_mode": {
-                "llm": std::env::var("LLM_MODE").unwrap_or_else(|_| "live".to_string()),
-                "tools": std::env::var("TOOL_MODE").unwrap_or_else(|_| "live".to_string())
+            "runtime_mode": {
+                "llm": "live",
+                "tools": "live"
             }
         })),
     )
@@ -958,14 +958,14 @@ pub async fn batch_apply_actions(
 
 fn resolve_tenant_id(
     headers: &HeaderMap,
-    fallback: Option<i64>,
+    query_tenant_id: Option<i64>,
 ) -> Result<i64, (StatusCode, Json<serde_json::Value>)> {
     if let Ok(claims) = extract_claims_from_header(headers) {
         if let Some(business_id) = claims.business_id {
             return Ok(business_id);
         }
     }
-    if let Some(id) = fallback {
+    if let Some(id) = query_tenant_id {
         return Ok(id);
     }
     Err((StatusCode::BAD_REQUEST, Json(json!({ "ok": false, "error": "tenant_id required" }))))
@@ -973,14 +973,14 @@ fn resolve_tenant_id(
 
 fn resolve_business_id(
     headers: &HeaderMap,
-    fallback: Option<i64>,
+    query_business_id: Option<i64>,
 ) -> Result<i64, (StatusCode, Json<serde_json::Value>)> {
     if let Ok(claims) = extract_claims_from_header(headers) {
         if let Some(business_id) = claims.business_id {
             return Ok(business_id);
         }
     }
-    if let Some(id) = fallback {
+    if let Some(id) = query_business_id {
         return Ok(id);
     }
     Err((StatusCode::BAD_REQUEST, Json(json!({ "ok": false, "error": "business_id required" }))))
@@ -1005,13 +1005,6 @@ fn resolve_tenant_context_from_payload(
 fn require_claims(headers: &HeaderMap) -> Result<Claims, (StatusCode, Json<serde_json::Value>)> {
     extract_claims_from_header(headers)
         .map_err(|_| (StatusCode::UNAUTHORIZED, Json(json!({ "ok": false, "error": "unauthorized" }))))
-}
-
-#[allow(dead_code)]
-fn require_business_id(headers: &HeaderMap) -> Result<i64, (StatusCode, Json<serde_json::Value>)> {
-    require_claims(headers)?
-        .business_id
-        .ok_or_else(|| (StatusCode::UNAUTHORIZED, Json(json!({ "ok": false, "error": "unauthorized" }))))
 }
 
 fn require_user_id(headers: &HeaderMap) -> Result<i64, (StatusCode, Json<serde_json::Value>)> {

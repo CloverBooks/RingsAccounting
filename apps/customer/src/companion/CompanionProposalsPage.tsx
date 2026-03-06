@@ -5,6 +5,7 @@ import { useAISettings } from "./useAISettings";
 import { useCompanionProposals } from "./useCompanionProposals";
 import type { ShadowEvent } from "./apiV2";
 import { usePermissions } from "../hooks/usePermissions";
+import { useOnboardingReadiness } from "../onboarding/useOnboardingReadiness";
 
 type Cluster = {
   key: string;
@@ -55,11 +56,14 @@ const CompanionProposalsPage: React.FC = () => {
   const { events, loading, error, refresh, apply, reject, counts } = useCompanionProposals({
     workspaceId: workspace?.businessId,
   });
+  const { readiness, unknowns } = useOnboardingReadiness();
   const [selected, setSelected] = useState<ShadowEvent | null>(null);
   const [busyCluster, setBusyCluster] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  const onboardingBlocked = !readiness.required_fields_complete || !readiness.consents_complete;
   const applyDisabled =
+    onboardingBlocked ||
     !settings?.global_ai_enabled ||
     !settings?.settings?.ai_enabled ||
     !!settings?.settings?.kill_switch ||
@@ -184,15 +188,30 @@ const CompanionProposalsPage: React.FC = () => {
           </div>
         </div>
 
+        {onboardingBlocked && (
+          <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            <div className="font-medium">Advanced Companion modes are locked until onboarding and consent are complete.</div>
+            <div className="text-amber-800 mt-1">
+              Missing setup: {unknowns.slice(0, 5).join(", ")}
+              {unknowns.length > 5 ? ` (+${unknowns.length - 5} more)` : ""}
+            </div>
+            <a href="/onboarding" className="inline-flex items-center mt-2 text-amber-900 font-semibold hover:underline">
+              Finish onboarding
+            </a>
+          </div>
+        )}
+
         {applyDisabled && !settingsLoading && (
           <div className="mt-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3 text-sm flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="font-medium">Apply is disabled in shadow-only mode.</div>
+              <div className="font-medium">{onboardingBlocked ? "Apply is disabled until setup is complete." : "Apply is disabled in shadow-only mode."}</div>
               <div className="text-amber-800">
-                You can review and reject proposals. To promote into the canonical ledger, switch to suggest-only.
+                {onboardingBlocked
+                  ? "Complete required onboarding fields and AI consent to unlock apply."
+                  : "You can review and reject proposals. To promote into the canonical ledger, switch to suggest-only."}
               </div>
             </div>
-            {can("workspace.manage_ai", "edit") && (
+            {can("workspace.manage_ai", "edit") && !onboardingBlocked && (
               <button
                 className="shrink-0 rounded-md bg-amber-900 text-white px-3 py-2 text-sm hover:bg-amber-950"
                 onClick={onSwitchToSuggestOnly}

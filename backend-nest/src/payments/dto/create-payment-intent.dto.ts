@@ -1,6 +1,6 @@
 export class CreatePaymentIntentDto {
   amount!: string;
   currency!: string;
-  provider!: 'STRIPE' | 'FLUTTERWAVE';
+  provider?: string;
   providerReference?: string;
 }

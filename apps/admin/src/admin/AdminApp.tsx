@@ -2,12 +2,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AppShell } from "@shared-ui";
 import {
-  fetchOverviewMetrics,
   fetchReconciliationMetrics,
   fetchLedgerHealth,
   fetchInvoicesAudit,
   fetchExpensesAudit,
-  type OverviewMetrics,
   type ReconciliationMetrics,
   type LedgerHealth,
   type InvoicesAudit,
@@ -22,6 +20,7 @@ import { ApprovalsSection } from "./ApprovalsSection";
 import { OverviewSection } from "./OverviewSection";
 import { EmployeesSection } from "./EmployeesSection";
 import { AutonomySection } from "./AutonomySection";
+import { FeatureFlagsSection } from "./FeatureFlagsSection";
 import { Card, SimpleTable, StatusPill, cn } from "./AdminUI";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -49,21 +48,6 @@ interface NavItem {
   id: NavSectionId;
   label: string;
   description?: string;
-}
-
-interface Kpi {
-  id: string;
-  label: string;
-  value: string;
-  delta?: string;
-  tone?: "good" | "bad" | "neutral" | "warning";
-}
-
-interface FeatureFlagRow {
-  key: string;
-  description: string;
-  enabled: boolean;
-  guarded?: boolean;
 }
 
 const navGroups: { label: string; items: NavItem[] }[] = [
@@ -97,25 +81,6 @@ const navGroups: { label: string; items: NavItem[] }[] = [
       { id: "feature-flags", label: "Feature flags", description: "Rollouts & experiments" },
       { id: "settings", label: "Settings", description: "Security & config" },
     ],
-  },
-];
-
-const mockFlags: FeatureFlagRow[] = [
-  {
-    key: "new_reconciliation_v2",
-    description: "Enable reconciliation v2 engine for selected tenants.",
-    enabled: true,
-    guarded: true,
-  },
-  {
-    key: "ai_companion_shadow",
-    description: "Embed read-only AI companion on dashboard.",
-    enabled: false,
-  },
-  {
-    key: "pdf_report_shell_v1",
-    description: "Use universal PDF/print shell for all reports.",
-    enabled: true,
   },
 ];
 
@@ -158,49 +123,6 @@ const LogoutButton: React.FC = () => {
     </button>
   );
 };
-
-const RoleBadge: React.FC<{ role: Role }> = ({ role }) => {
-  const map: Record<Role, string> = {
-    support: "bg-sky-50 text-sky-700 border-sky-200",
-    finance: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    engineer: "bg-indigo-50 text-indigo-700 border-indigo-200",
-    superadmin: "bg-rose-50 text-rose-700 border-rose-200",
-  };
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide",
-        map[role]
-      )}
-    >
-      {role}
-    </span>
-  );
-};
-
-const KpiCard: React.FC<{ kpi: Kpi }> = ({ kpi }) => {
-  const toneMap: Record<NonNullable<Kpi["tone"]>, string> = {
-    good: "text-emerald-700",
-    bad: "text-rose-700",
-    neutral: "text-slate-700",
-    warning: "text-amber-700",
-  };
-
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 sm:px-5 sm:py-4 flex flex-col gap-2 shadow-sm min-h-[120px]">
-      <div className="flex flex-col gap-1">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 leading-tight">{kpi.label}</p>
-        {kpi.delta && (
-          <span className={cn("text-[11px] font-medium leading-tight", kpi.tone && toneMap[kpi.tone])}>{kpi.delta}</span>
-        )}
-      </div>
-      <p className={cn("text-xl sm:text-2xl font-semibold mt-auto", kpi.tone && toneMap[kpi.tone])}>{kpi.value}</p>
-    </div>
-  );
-};
-
-
-
 
 const ReconciliationSection: React.FC = () => {
   const [data, setData] = useState<ReconciliationMetrics | null>(null);
@@ -520,65 +442,6 @@ const AiMonitoringSection: React.FC = () => (
     </div>
   </div>
 );
-
-const FeatureFlagsSection: React.FC<{ role: Role }> = ({ role }) => {
-  const canToggleGuarded = role === "superadmin";
-
-  return (
-    <div className="space-y-4">
-      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-900">Feature flags</h2>
-          <p className="text-sm text-slate-600 max-w-xl">
-            Safe rollouts for new modules, engines, and experiments – all toggled from one calm surface.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 text-xs text-emerald-700">
-          <span className="h-2 w-2 rounded-full bg-emerald-500" />
-          <span>Live in production</span>
-        </div>
-      </header>
-      <Card title="Flags">
-        <SimpleTable
-          headers={["Key", "Description", "Guard", "State"]}
-          rows={mockFlags.map((flag) => [
-            <span key="k" className="text-xs text-slate-800 font-mono">
-              {flag.key}
-            </span>,
-            <span key="d" className="text-xs text-slate-700">
-              {flag.description}
-            </span>,
-            <span key="g" className="text-xs text-slate-600">
-              {flag.guarded ? "superadmin" : "default"}
-            </span>,
-            <label
-              key="t"
-              className={cn(
-                "inline-flex items-center gap-2 text-xs",
-                flag.guarded && !canToggleGuarded && "opacity-50 cursor-not-allowed"
-              )}
-            >
-              <div
-                className={cn(
-                  "flex h-4 w-7 items-center rounded-full border border-slate-300 bg-slate-100 px-[2px] transition",
-                  flag.enabled && "border-emerald-400 bg-emerald-50"
-                )}
-              >
-                <div
-                  className={cn(
-                    "h-3 w-3 rounded-full bg-slate-400 shadow transition-transform",
-                    flag.enabled && "translate-x-3 bg-emerald-500"
-                  )}
-                />
-              </div>
-              <span className="text-slate-800">{flag.enabled ? "Enabled" : "Disabled"}</span>
-            </label>,
-          ])}
-        />
-      </Card>
-    </div>
-  );
-};
 
 const SettingsSection: React.FC = () => (
   <div className="space-y-4">
