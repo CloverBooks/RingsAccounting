@@ -15,7 +15,9 @@ use crate::AppState;
 use crate::companion_autonomy::store as autonomy_store;
 use crate::companion_autonomy::models::{ActionRecommendation, AiSettingsRow, BusinessPolicyRow, WorkItem};
 use crate::routes::auth::extract_claims_from_header;
-use crate::routes::control_plane_errors::{control_plane_error_from_headers};
+use crate::routes::control_plane_errors::{
+    control_plane_error_from_headers, control_plane_success_from_headers,
+};
 
 const COMPANION_DOMAIN: &str = "COMPANION";
 
@@ -332,12 +334,13 @@ pub async fn dismiss_issue(
     .await;
     
     match result {
-        Ok(r) if r.rows_affected() > 0 => {
-            (StatusCode::OK, Json(serde_json::json!({
-                "ok": true,
-                "message": "Issue dismissed"
-            })))
-        }
+        Ok(r) if r.rows_affected() > 0 => control_plane_success_from_headers(
+            StatusCode::OK,
+            "updated",
+            &headers,
+            "Issue dismissed",
+            json!({}),
+        ),
         _ => companion_error_from_headers(StatusCode::NOT_FOUND, &headers, "issue not found"),
     }
 }
@@ -371,12 +374,13 @@ pub async fn snooze_issue(
     .await;
     
     match result {
-        Ok(r) if r.rows_affected() > 0 => {
-            (StatusCode::OK, Json(serde_json::json!({
-                "ok": true,
-                "message": "Issue snoozed"
-            })))
-        }
+        Ok(r) if r.rows_affected() > 0 => control_plane_success_from_headers(
+            StatusCode::OK,
+            "updated",
+            &headers,
+            "Issue snoozed",
+            json!({}),
+        ),
         _ => companion_error_from_headers(StatusCode::NOT_FOUND, &headers, "issue not found"),
     }
 }
@@ -410,12 +414,13 @@ pub async fn resolve_issue(
     .await;
     
     match result {
-        Ok(r) if r.rows_affected() > 0 => {
-            (StatusCode::OK, Json(serde_json::json!({
-                "ok": true,
-                "message": "Issue resolved"
-            })))
-        }
+        Ok(r) if r.rows_affected() > 0 => control_plane_success_from_headers(
+            StatusCode::OK,
+            "updated",
+            &headers,
+            "Issue resolved",
+            json!({}),
+        ),
         _ => companion_error_from_headers(StatusCode::NOT_FOUND, &headers, "issue not found"),
     }
 }
@@ -530,12 +535,13 @@ pub async fn approve_audit(
     .await;
     
     match result {
-        Ok(r) if r.rows_affected() > 0 => {
-            (StatusCode::OK, Json(serde_json::json!({
-                "ok": true,
-                "message": "Audit approved"
-            })))
-        }
+        Ok(r) if r.rows_affected() > 0 => control_plane_success_from_headers(
+            StatusCode::OK,
+            "updated",
+            &headers,
+            "Audit approved",
+            json!({}),
+        ),
         _ => companion_error_from_headers(StatusCode::NOT_FOUND, &headers, "audit not found"),
     }
 }
@@ -569,12 +575,13 @@ pub async fn reject_audit(
     .await;
     
     match result {
-        Ok(r) if r.rows_affected() > 0 => {
-            (StatusCode::OK, Json(serde_json::json!({
-                "ok": true,
-                "message": "Audit rejected"
-            })))
-        }
+        Ok(r) if r.rows_affected() > 0 => control_plane_success_from_headers(
+            StatusCode::OK,
+            "updated",
+            &headers,
+            "Audit rejected",
+            json!({}),
+        ),
         _ => companion_error_from_headers(StatusCode::NOT_FOUND, &headers, "audit not found"),
     }
 }
@@ -947,7 +954,13 @@ pub async fn patch_ai_settings_v2(
         Err(_) => return companion_error_from_headers(StatusCode::INTERNAL_SERVER_ERROR, &headers, "failed to update settings"),
     };
 
-    (StatusCode::OK, Json(ai_settings_payload(global_enabled, &updated)))
+    control_plane_success_from_headers(
+        StatusCode::OK,
+        "updated",
+        &headers,
+        "AI settings updated",
+        ai_settings_payload(global_enabled, &updated),
+    )
 }
 
 /// GET /api/companion/v2/policy/
@@ -1016,7 +1029,13 @@ pub async fn patch_business_policy_v2(
         Err(_) => return companion_error_from_headers(StatusCode::INTERNAL_SERVER_ERROR, &headers, "failed to update policy"),
     };
 
-    (StatusCode::OK, Json(business_policy_payload(&updated)))
+    control_plane_success_from_headers(
+        StatusCode::OK,
+        "updated",
+        &headers,
+        "Business policy updated",
+        business_policy_payload(&updated),
+    )
 }
 
 // ========================================================================
@@ -1137,7 +1156,16 @@ pub async fn apply_proposal(
     )
     .await;
 
-    (StatusCode::OK, Json(json!({ "shadow_event": event, "result": { "applied": applied } })))
+    control_plane_success_from_headers(
+        StatusCode::OK,
+        "completed",
+        &headers,
+        "Proposal apply processed",
+        json!({
+            "shadow_event": event,
+            "result": { "applied": applied }
+        }),
+    )
 }
 
 /// POST /api/companion/v2/proposals/:id/reject/
@@ -1202,7 +1230,13 @@ pub async fn reject_proposal(
     )
     .await;
 
-    (StatusCode::OK, Json(event))
+    control_plane_success_from_headers(
+        StatusCode::OK,
+        "updated",
+        &headers,
+        "Proposal rejected",
+        event,
+    )
 }
 
 /// GET /api/companion/v2/shadow-events/
@@ -1421,12 +1455,15 @@ pub async fn apply_shadow_event(
     )
     .await;
 
-    (
+    control_plane_success_from_headers(
         StatusCode::OK,
-        Json(serde_json::json!({
+        "completed",
+        &headers,
+        "Shadow event apply processed",
+        json!({
             "ok": true,
             "applied": applied
-        })),
+        }),
     )
 }
 
@@ -1474,12 +1511,12 @@ pub async fn reject_shadow_event(
     .await;
 
     if dismissed {
-        return (
+        return control_plane_success_from_headers(
             StatusCode::OK,
-            Json(serde_json::json!({
-                "ok": true,
-                "message": "Suggestion rejected"
-            })),
+            "updated",
+            &headers,
+            "Suggestion rejected",
+            json!({}),
         );
     }
 
@@ -1586,8 +1623,10 @@ mod tests {
     use super::*;
     use crate::companion_autonomy::models::{RecommendationSeed, WorkItemSeed};
     use crate::companion_autonomy::schema;
-    use axum::{routing::get, Router};
+    use axum::{routing::{get, post}, Router};
     use axum_test::TestServer;
+    use chrono::{Duration, Utc};
+    use jsonwebtoken::{EncodingKey, Header};
     use sqlx::SqlitePool;
 
     async fn route_setup() -> TestServer {
@@ -1601,6 +1640,48 @@ mod tests {
             ));
 
         TestServer::new(app).unwrap()
+    }
+
+    async fn issue_mutation_setup() -> (TestServer, SqlitePool) {
+        std::env::set_var("JWT_SECRET", "test-secret");
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::query(
+            "CREATE TABLE core_companionissue (
+                id INTEGER PRIMARY KEY,
+                business_id INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                updated_at TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let state = AppState { db: pool.clone() };
+        let app = Router::new()
+            .route("/api/companion/issues/:id/dismiss", post(dismiss_issue))
+            .with_state(state)
+            .layer(axum::middleware::from_fn(
+                crate::routes::request_ids::control_plane_request_id_middleware,
+            ));
+
+        (TestServer::new(app).unwrap(), pool)
+    }
+
+    fn make_token(business_id: i64) -> String {
+        let exp = (Utc::now() + Duration::hours(1)).timestamp() as usize;
+        let claims = crate::routes::auth::Claims {
+            sub: "1".to_string(),
+            email: "user@example.com".to_string(),
+            business_id: Some(business_id),
+            exp,
+        };
+        jsonwebtoken::encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(b"test-secret"),
+        )
+        .unwrap()
     }
 
     // =========================================================================
@@ -1840,6 +1921,36 @@ mod tests {
         );
         assert_eq!(body["request_id"], "companion-error-01");
         assert_eq!(body["http_status"], 401);
+    }
+
+    #[tokio::test]
+    async fn companion_mutations_include_success_request_metadata() {
+        let (server, pool) = issue_mutation_setup().await;
+        sqlx::query(
+            "INSERT INTO core_companionissue (id, business_id, status, updated_at)
+             VALUES (1, 42, 'open', datetime('now'))",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let token = make_token(42);
+        let response = server
+            .post("/api/companion/issues/1/dismiss")
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "companion-success-01")
+            .await;
+
+        response.assert_status_ok();
+        assert_eq!(
+            response.header("x-request-id").to_str().unwrap(),
+            "companion-success-01"
+        );
+        let body: Value = response.json();
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["result_state"], "updated");
+        assert_eq!(body["message"], "Issue dismissed");
+        assert_eq!(body["request_id"], "companion-success-01");
     }
 
     async fn seed_work_item(

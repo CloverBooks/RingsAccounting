@@ -2,7 +2,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 use crate::routes::request_ids::resolve_request_id;
 
@@ -38,6 +38,50 @@ pub fn control_plane_error_from_headers(
 ) -> (StatusCode, Json<Value>) {
     let request_id = resolve_request_id(headers);
     control_plane_error(status, domain, message, &request_id)
+}
+
+pub fn control_plane_success(
+    status: StatusCode,
+    result_state: &str,
+    message: &str,
+    request_id: &str,
+    payload: Value,
+) -> (StatusCode, Json<Value>) {
+    let mut object = match payload {
+        Value::Object(map) => map,
+        Value::Null => Map::new(),
+        value => {
+            let mut map = Map::new();
+            map.insert("data".to_string(), value);
+            map
+        }
+    };
+
+    if !object.contains_key("ok") {
+        object.insert("ok".to_string(), json!(true));
+    }
+    if !object.contains_key("result_state") {
+        object.insert("result_state".to_string(), json!(result_state));
+    }
+    if !object.contains_key("message") {
+        object.insert("message".to_string(), json!(message));
+    }
+    if !object.contains_key("request_id") {
+        object.insert("request_id".to_string(), json!(request_id));
+    }
+
+    (status, Json(Value::Object(object)))
+}
+
+pub fn control_plane_success_from_headers(
+    status: StatusCode,
+    result_state: &str,
+    headers: &HeaderMap,
+    message: &str,
+    payload: Value,
+) -> (StatusCode, Json<Value>) {
+    let request_id = resolve_request_id(headers);
+    control_plane_success(status, result_state, message, &request_id, payload)
 }
 
 fn normalize_error_type(message: &str) -> String {
@@ -106,5 +150,26 @@ mod tests {
         assert_eq!(body["error_code"], "COMPANION_WORKSPACE_ID_REQUIRED_TRACE01");
         assert_eq!(body["request_id"], "trace-01");
         assert_eq!(body["http_status"], 400);
+    }
+
+    #[test]
+    fn control_plane_success_merges_trace_fields_without_wrapping_payload() {
+        let (_, body) = control_plane_success(
+            StatusCode::OK,
+            "updated",
+            "Settings updated",
+            "trace-02",
+            json!({
+                "ok": true,
+                "ai_mode": "drafts"
+            }),
+        );
+        let body = body.0;
+
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["ai_mode"], "drafts");
+        assert_eq!(body["result_state"], "updated");
+        assert_eq!(body["message"], "Settings updated");
+        assert_eq!(body["request_id"], "trace-02");
     }
 }

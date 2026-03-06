@@ -9,7 +9,9 @@ use serde_json::Value;
 
 use crate::companion_autonomy::{models::ApprovalRequest, policy::BudgetConfig, store};
 use crate::routes::auth::{extract_claims_from_header, Claims};
-use crate::routes::control_plane_errors::control_plane_error_from_headers;
+use crate::routes::control_plane_errors::{
+    control_plane_error_from_headers, control_plane_success_from_headers,
+};
 use crate::AppState;
 
 const AUTONOMY_DOMAIN: &str = "AUTONOMY";
@@ -274,9 +276,12 @@ pub async fn engine_tick(
         vec![tenant]
     };
     match crate::companion_autonomy::scheduler::tick(&state.db, tenants, claims.sub.parse::<i64>().ok()).await {
-        Ok(_) => (
+        Ok(_) => control_plane_success_from_headers(
             StatusCode::OK,
-            Json(serde_json::json!({ "ok": true })),
+            "completed",
+            &headers,
+            "Engine tick completed",
+            serde_json::json!({}),
         ),
         Err(err) => autonomy_error_from_headers(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -323,9 +328,12 @@ pub async fn engine_materialize(
         .max_age_minutes
         .unwrap_or_else(|| crate::companion_autonomy::policy::PolicyConfig::from_env().snapshot_stale_minutes);
     match crate::companion_autonomy::scheduler::materialize(&state.db, tenants, stale, claims.sub.parse::<i64>().ok()).await {
-        Ok(_) => (
+        Ok(_) => control_plane_success_from_headers(
             StatusCode::OK,
-            Json(serde_json::json!({ "ok": true })),
+            "completed",
+            &headers,
+            "Engine materialize completed",
+            serde_json::json!({}),
         ),
         Err(err) => autonomy_error_from_headers(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -368,9 +376,12 @@ pub async fn update_policy(
     )
     .await;
     match result {
-        Ok(_) => (
+        Ok(_) => control_plane_success_from_headers(
             StatusCode::OK,
-            Json(serde_json::json!({ "ok": true })),
+            "updated",
+            &headers,
+            "Autonomy policy updated",
+            serde_json::json!({}),
         ),
         Err(err) => autonomy_error_from_headers(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -522,12 +533,15 @@ pub async fn dismiss_work_item(
     )
     .await;
 
-    (
+    control_plane_success_from_headers(
         StatusCode::OK,
-        Json(serde_json::json!({
+        "updated",
+        &headers,
+        "Work item dismissal processed",
+        serde_json::json!({
             "ok": true,
             "dismissed": dismissed
-        })),
+        }),
     )
 }
 
@@ -550,12 +564,15 @@ pub async fn snooze_work_item(
         .await
         .unwrap_or(false);
 
-    (
+    control_plane_success_from_headers(
         StatusCode::OK,
-        Json(serde_json::json!({
+        "updated",
+        &headers,
+        "Work item snooze processed",
+        serde_json::json!({
             "ok": true,
             "snoozed": snoozed
-        })),
+        }),
     )
 }
 
@@ -592,12 +609,15 @@ pub async fn request_approval(
 
     if let Ok(request) = request {
         let _ = store::update_work_item_status(&state.db, work_item_id, tenant_id, "waiting_approval").await;
-        return (
+        return control_plane_success_from_headers(
             StatusCode::OK,
-            Json(serde_json::json!({
+            "created",
+            &headers,
+            "Approval request created",
+            serde_json::json!({
                 "ok": true,
                 "approval": request
-            })),
+            }),
         );
     }
 
@@ -700,12 +720,15 @@ pub async fn approve_request(
     )
     .await;
 
-    (
+    control_plane_success_from_headers(
         StatusCode::OK,
-        Json(serde_json::json!({
+        "updated",
+        &headers,
+        "Approval request approved",
+        serde_json::json!({
             "ok": true,
             "approved": updated
-        })),
+        }),
     )
 }
 
@@ -801,12 +824,15 @@ pub async fn reject_request(
     )
     .await;
 
-    (
+    control_plane_success_from_headers(
         StatusCode::OK,
-        Json(serde_json::json!({
+        "updated",
+        &headers,
+        "Approval request rejected",
+        serde_json::json!({
             "ok": true,
             "rejected": updated
-        })),
+        }),
     )
 }
 
@@ -870,12 +896,15 @@ pub async fn apply_action(
     )
     .await;
 
-    (
+    control_plane_success_from_headers(
         StatusCode::OK,
-        Json(serde_json::json!({
+        "completed",
+        &headers,
+        "Action apply processed",
+        serde_json::json!({
             "ok": true,
             "applied": applied
-        })),
+        }),
     )
 }
 
@@ -947,12 +976,15 @@ pub async fn batch_apply_actions(
     )
     .await;
 
-    (
+    control_plane_success_from_headers(
         StatusCode::OK,
-        Json(serde_json::json!({
+        "completed",
+        &headers,
+        "Batch action apply processed",
+        serde_json::json!({
             "ok": true,
             "results": results
-        })),
+        }),
     )
 }
 
@@ -1220,7 +1252,7 @@ pub async fn can_apply_action(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{http::HeaderMap, routing::get, Router};
+    use axum::{http::HeaderMap, routing::{get, post}, Router};
     use axum_test::TestServer;
     use chrono::{Duration, Utc};
     use jsonwebtoken::{EncodingKey, Header};
@@ -1236,6 +1268,7 @@ mod tests {
             .route("/api/companion/cockpit/queues", get(cockpit_queues))
             .route("/api/companion/cockpit/status", get(cockpit_status))
             .route("/api/companion/autonomy/status", get(autonomy_status))
+            .route("/api/companion/autonomy/work/:id/dismiss", post(dismiss_work_item))
             .with_state(state)
             .layer(axum::middleware::from_fn(
                 crate::routes::request_ids::control_plane_request_id_middleware,
@@ -1260,7 +1293,7 @@ mod tests {
         .unwrap()
     }
 
-    async fn seed_work_item(pool: &SqlitePool, tenant_id: i64, title: &str) {
+    async fn seed_work_item(pool: &SqlitePool, tenant_id: i64, title: &str) -> i64 {
         let inputs_json = serde_json::json!({ "transaction_id": tenant_id }).to_string();
         let state_json = serde_json::json!({}).to_string();
         let links_json = serde_json::json!({ "target_url": "/banking" }).to_string();
@@ -1298,6 +1331,8 @@ mod tests {
         .execute(pool)
         .await
         .unwrap();
+
+        work_item_id
     }
 
     async fn seed_policy(pool: &SqlitePool, tenant_id: i64, mode: &str) {
@@ -1426,6 +1461,35 @@ mod tests {
             .await;
         response.assert_status_ok();
         assert!(!response.header("x-request-id").to_str().unwrap().trim().is_empty());
+    }
+
+    #[tokio::test]
+    async fn autonomy_mutations_include_success_request_metadata() {
+        let (server, pool) = setup().await;
+        let work_item_id = seed_work_item(&pool, 1, "Dismiss me").await;
+
+        let token = make_token(1);
+        let response = server
+            .post(&format!("/api/companion/autonomy/work/{}/dismiss", work_item_id))
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "autonomy-success-01")
+            .json(&serde_json::json!({
+                "note": "no longer relevant",
+                "reason_code": "resolved_elsewhere"
+            }))
+            .await;
+
+        response.assert_status_ok();
+        assert_eq!(
+            response.header("x-request-id").to_str().unwrap(),
+            "autonomy-success-01"
+        );
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["dismissed"], true);
+        assert_eq!(body["result_state"], "updated");
+        assert_eq!(body["message"], "Work item dismissal processed");
+        assert_eq!(body["request_id"], "autonomy-success-01");
     }
 
     #[test]
