@@ -4482,6 +4482,21 @@ pub async fn get_invite(
             if employee.invite_status.as_deref() != Some("pending")
                 || is_expired_timestamp(employee.invite_expires_at.as_deref())
             {
+                record_invite_failure(
+                    &state.db,
+                    &req,
+                    "employee.invite.validate",
+                    "invalid",
+                    &token,
+                    Some(employee.id),
+                    Some(employee.email.as_str()),
+                    "invite_invalid_or_expired",
+                    json!({
+                        "invite_status": employee.invite_status,
+                        "expires_at": employee.invite_expires_at
+                    }),
+                )
+                .await;
                 return mutation_response(
                     StatusCode::OK,
                     "invalid",
@@ -4507,19 +4522,47 @@ pub async fn get_invite(
                 }),
             )
         }
-        Ok(None) => mutation_response(
-            StatusCode::OK,
-            "invalid",
-            "This invite link is invalid or has expired.",
-            &req.request_id,
-            json!({
-                "ok": false,
-                "valid": false,
-                "error": "This invite link is invalid or has expired."
-            }),
-        ),
+        Ok(None) => {
+            record_invite_failure(
+                &state.db,
+                &req,
+                "employee.invite.validate",
+                "invalid",
+                &token,
+                None,
+                None,
+                "invite_not_found",
+                json!({}),
+            )
+            .await;
+            mutation_response(
+                StatusCode::OK,
+                "invalid",
+                "This invite link is invalid or has expired.",
+                &req.request_id,
+                json!({
+                    "ok": false,
+                    "valid": false,
+                    "error": "This invite link is invalid or has expired."
+                }),
+            )
+        }
         Err(error) => {
             tracing::error!("Failed to validate invite token: {}", error);
+            record_invite_failure(
+                &state.db,
+                &req,
+                "employee.invite.validate",
+                "error",
+                &token,
+                None,
+                None,
+                "invite_validation_error",
+                json!({
+                    "error": error.to_string()
+                }),
+            )
+            .await;
             mutation_response(
                 StatusCode::OK,
                 "invalid",
@@ -4544,9 +4587,39 @@ pub async fn redeem_invite(
     let req = request_context(&headers);
     let employee = match fetch_employee_by_invite_token(&state.db, &token).await {
         Ok(Some(value)) => value,
-        Ok(None) => return api_error(StatusCode::BAD_REQUEST, "Invite is invalid or expired.", &req.request_id),
+        Ok(None) => {
+            record_invite_failure(
+                &state.db,
+                &req,
+                "employee.invite.redeem",
+                "failed_validation",
+                &token,
+                None,
+                body.email.as_deref().map(str::trim),
+                "invite_not_found",
+                json!({
+                    "username": body.username.as_deref().map(str::trim)
+                }),
+            )
+            .await;
+            return api_error(StatusCode::BAD_REQUEST, "Invite is invalid or expired.", &req.request_id);
+        }
         Err(error) => {
             tracing::error!("Failed to fetch invite by token: {}", error);
+            record_invite_failure(
+                &state.db,
+                &req,
+                "employee.invite.redeem",
+                "error",
+                &token,
+                None,
+                body.email.as_deref().map(str::trim),
+                "invite_lookup_error",
+                json!({
+                    "error": error.to_string()
+                }),
+            )
+            .await;
             return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Could not validate invite.",
@@ -4557,6 +4630,21 @@ pub async fn redeem_invite(
     if employee.invite_status.as_deref() != Some("pending")
         || is_expired_timestamp(employee.invite_expires_at.as_deref())
     {
+        record_invite_failure(
+            &state.db,
+            &req,
+            "employee.invite.redeem",
+            "failed_validation",
+            &token,
+            Some(employee.id),
+            Some(employee.email.as_str()),
+            "invite_invalid_or_expired",
+            json!({
+                "invite_status": employee.invite_status,
+                "expires_at": employee.invite_expires_at
+            }),
+        )
+        .await;
         return api_error(StatusCode::BAD_REQUEST, "Invite is invalid or expired.", &req.request_id);
     }
 
@@ -4585,11 +4673,40 @@ pub async fn redeem_invite(
         .filter(|value| !value.is_empty())
         .unwrap_or(employee.email.as_str());
     if !email.eq_ignore_ascii_case(employee.email.as_str()) {
+        record_invite_failure(
+            &state.db,
+            &req,
+            "employee.invite.redeem",
+            "failed_validation",
+            &token,
+            Some(employee.id),
+            Some(email),
+            "invite_email_mismatch",
+            json!({
+                "expected_email": employee.email,
+                "provided_email": email
+            }),
+        )
+        .await;
         return api_error(StatusCode::BAD_REQUEST, "Invite email does not match.", &req.request_id);
     }
     let password = match body.password.as_deref() {
         Some(value) if value.len() >= 8 => value,
-        _ => return api_error(StatusCode::BAD_REQUEST, "Password must be at least 8 characters.", &req.request_id),
+        _ => {
+            record_invite_failure(
+                &state.db,
+                &req,
+                "employee.invite.redeem",
+                "failed_validation",
+                &token,
+                Some(employee.id),
+                Some(email),
+                "password_too_short",
+                json!({}),
+            )
+            .await;
+            return api_error(StatusCode::BAD_REQUEST, "Password must be at least 8 characters.", &req.request_id);
+        }
     };
 
     let user_id = match ensure_invite_user(
@@ -4606,6 +4723,20 @@ pub async fn redeem_invite(
         Ok(value) => value,
         Err(error) => {
             tracing::error!("Failed to create invite user: {}", error);
+            record_invite_failure(
+                &state.db,
+                &req,
+                "employee.invite.redeem",
+                "error",
+                &token,
+                Some(employee.id),
+                Some(email),
+                "invite_account_provisioning_failed",
+                json!({
+                    "error": error.to_string()
+                }),
+            )
+            .await;
             return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed to create account.",
@@ -8203,6 +8334,119 @@ where
     Ok(())
 }
 
+async fn insert_actorless_audit_event<'e, E>(
+    executor: E,
+    request_id: &str,
+    action: &str,
+    outcome: &str,
+    actor_email: Option<&str>,
+    actor_role: Option<&str>,
+    target_type: &str,
+    target_id: &str,
+    reason: Option<&str>,
+    ip_address: Option<&str>,
+    user_agent: Option<&str>,
+    details: &Value,
+) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
+    sqlx::query(
+        "INSERT INTO admin_audit_events (
+            request_id,
+            action,
+            outcome,
+            actor_user_id,
+            actor_email,
+            actor_role,
+            target_type,
+            target_id,
+            reason,
+            ip_address,
+            user_agent,
+            details_json,
+            created_at
+         ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+    )
+    .bind(request_id)
+    .bind(action)
+    .bind(outcome)
+    .bind(actor_email)
+    .bind(actor_role)
+    .bind(target_type)
+    .bind(target_id)
+    .bind(reason)
+    .bind(ip_address)
+    .bind(user_agent)
+    .bind(details.to_string())
+    .execute(executor)
+    .await?;
+
+    Ok(())
+}
+
+fn invite_token_ref(token: &str) -> String {
+    let fragment: String = token
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .take(8)
+        .collect();
+    if fragment.is_empty() {
+        "unknown".to_string()
+    } else {
+        fragment.to_ascii_lowercase()
+    }
+}
+
+async fn record_invite_failure(
+    pool: &SqlitePool,
+    req: &RequestContext,
+    action: &str,
+    outcome: &str,
+    token: &str,
+    employee_id: Option<i64>,
+    actor_email: Option<&str>,
+    reason: &str,
+    details: Value,
+) {
+    let target_type = if employee_id.is_some() {
+        "employee"
+    } else {
+        "invite_token"
+    };
+    let target_id = employee_id
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| invite_token_ref(token));
+
+    let mut merged_details = match details {
+        Value::Object(map) => map,
+        _ => Map::new(),
+    };
+    merged_details.insert("invite_token_ref".to_string(), json!(invite_token_ref(token)));
+    if let Some(value) = employee_id {
+        merged_details.insert("employee_id".to_string(), json!(value));
+    }
+
+    if let Err(error) = insert_actorless_audit_event(
+        pool,
+        &req.request_id,
+        action,
+        outcome,
+        actor_email,
+        Some("invitee"),
+        target_type,
+        &target_id,
+        Some(reason),
+        req.ip_address.as_deref(),
+        req.user_agent.as_deref(),
+        &Value::Object(merged_details),
+    )
+    .await
+    {
+        tracing::error!("Failed to write {} forensic audit event: {}", action, error);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -9161,5 +9405,47 @@ mod tests {
         assert_eq!(redeem_body["error_type"], "invite_is_invalid_or_expired");
         assert_eq!(redeem_body["error_code"], "ADMIN_INVITE_IS_INVALID_OR_EXPIRED_INVITEINVALI");
         assert_eq!(redeem_body["request_id"], "invite-invalid-02");
+    }
+
+    #[tokio::test]
+    async fn invalid_invite_failures_are_audited() {
+        let (server, _pool) = setup().await;
+
+        server
+            .get("/api/admin/invite/missing-token/")
+            .add_header("x-request-id", "invite-audit-01")
+            .await
+            .assert_status_ok();
+
+        server
+            .post("/api/admin/invite/missing-token/")
+            .add_header("x-request-id", "invite-audit-02")
+            .json(&json!({
+                "username": "audit-user",
+                "email": "audit@example.com",
+                "password": "secure-pass-777"
+            }))
+            .await
+            .assert_status(StatusCode::BAD_REQUEST);
+
+        let token = make_token(4);
+        let audit = server
+            .get("/api/admin/audit-log/?action=employee.invite")
+            .add_header("authorization", format!("Bearer {}", token))
+            .await;
+        audit.assert_status_ok();
+        let body: Value = audit.json();
+        let results = body["results"].as_array().unwrap();
+
+        assert!(results.iter().any(|entry| {
+            entry["action"] == "employee.invite.validate"
+                && entry["request_id"] == "invite-audit-01"
+                && entry["object_type"] == "invite_token"
+        }));
+        assert!(results.iter().any(|entry| {
+            entry["action"] == "employee.invite.redeem"
+                && entry["request_id"] == "invite-audit-02"
+                && entry["extra"]["invite_token_ref"].is_string()
+        }));
     }
 }

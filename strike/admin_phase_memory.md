@@ -9,4 +9,5 @@
 - [x] Option 2 left on the table after this audit-log contract slice: remove the remaining garbled icon/text mojibake in the canonical admin UI and replace it with ASCII-safe copy or proper icon components so operators do not see corrupted chrome.
 - [x] Option 2 left on the table after this admin copy-hygiene slice: replace the remaining emoji-first controls in high-risk operator surfaces like `UsersSection` and `WorkspacesSection` with a consistent icon system or ASCII-safe labels.
 - [x] Option 2 left on the table after this admin mutation-envelope slice: bring unauthenticated admin invite validation and redeem flows onto the same structured response contract and request-id trace model as the privileged admin routes.
-- [ ] Option 2 left on the table after this invite-contract slice: add forensic audit coverage for failed invite validation and redeem attempts so admin onboarding incidents are reconstructable beyond request-level traces.
+- [x] Option 2 left on the table after this invite-contract slice: add forensic audit coverage for failed invite validation and redeem attempts so admin onboarding incidents are reconstructable beyond request-level traces.
+- [ ] Option 2 left on the table after this invite-forensics slice: emit `x-request-id` headers across the `/api/admin/*` surface and surface those trace IDs in operator-facing admin client failures.
