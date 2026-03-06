@@ -102,7 +102,13 @@ const apiJson = async <T>(path: string, options: RequestOptions = {}): Promise<T
   return data as T;
 };
 
-export const fetchHealth = () => apiJson<HealthResponse>("/api/health");
+export const fetchHealth = async () => {
+  try {
+    return await apiJson<HealthResponse>("/health");
+  } catch {
+    return apiJson<HealthResponse>("/api/healthz");
+  }
+};
 
 export const login = (email: string, password: string) =>
   apiJson<TokenResponse>("/api/auth/login", { method: "POST", body: { email, password }, auth: false }).then((data) => {

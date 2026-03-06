@@ -37,6 +37,7 @@ import SuggestionsPanel from "./SuggestionsPanel";
 import { PanelType, toCustomerCopy } from "./companionCopy";
 import { buildApiUrl, getAccessToken } from "@/api/client";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useOnboardingReadiness } from "@/onboarding/useOnboardingReadiness";
 import {
   applyEngineBatch,
   fetchCockpitQueues,
@@ -198,7 +199,7 @@ function surfaceKeyToFilterParam(surface: SurfaceKey) {
 const SURFACE_URLS: Record<SurfaceKey, string> = {
   banking: "/banking",
   invoices: "/invoices",
-  receipts: "/receipts",
+  receipts: "/expenses",
   books: "/books-review",
 };
 
@@ -553,6 +554,7 @@ function usePanelRouting() {
 // ---------------------------
 export default function AICompanionControlTower() {
   const { workspace } = usePermissions();
+  const { readiness, unknowns } = useOnboardingReadiness();
   const { panel, surfaceFilter, surfaceLabel, agentFilter, open, close } = usePanelRouting();
 
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -565,6 +567,12 @@ export default function AICompanionControlTower() {
   const [refreshing, setRefreshing] = useState(false);
 
   const [safeMode, setSafeMode] = useState(true);
+  const advancedModeBlocked = !readiness.required_fields_complete || !readiness.consents_complete;
+  const blockedReason = advancedModeBlocked
+    ? `Complete onboarding and consent first. Missing: ${unknowns.slice(0, 5).join(", ")}${
+        unknowns.length > 5 ? ` (+${unknowns.length - 5} more)` : ""
+      }`
+    : null;
 
   useEffect(() => {
     let alive = true;
@@ -675,6 +683,18 @@ export default function AICompanionControlTower() {
         </div>
       ) : null}
 
+      {advancedModeBlocked ? (
+        <div className="mx-auto max-w-7xl px-4 pt-4">
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <div className="font-semibold">Advanced Companion modes are locked</div>
+            <div className="mt-1">{blockedReason}</div>
+            <a href="/onboarding" className="mt-2 inline-flex font-semibold hover:underline">
+              Finish onboarding
+            </a>
+          </div>
+        </div>
+      ) : null}
+
       <div className="mx-auto max-w-7xl px-4 pb-12 pt-8">
         {loading || !summary ? (
           <SkeletonBoard />
@@ -726,6 +746,8 @@ export default function AICompanionControlTower() {
             loading={loading}
             engineMode={engineStatus?.mode}
             workspaceId={workspace?.businessId}
+            applyBlocked={advancedModeBlocked}
+            applyBlockedReason={blockedReason || undefined}
           />
         )}
         {panel === "issues" && <IssuesPanel issues={issues} surface={surfaceFilter} loading={loading} />}
@@ -736,6 +758,8 @@ export default function AICompanionControlTower() {
             status={engineStatus}
             onRefresh={refresh}
             onOpenSuggestions={(agent) => open("suggestions", undefined, agent)}
+            applyBlocked={advancedModeBlocked}
+            applyBlockedReason={blockedReason || undefined}
           />
         )}
       </PanelShell>
@@ -1112,10 +1136,10 @@ function SurfacesGrid({
             <CardDescription>Each domain shows coverage, insights, and what needs review.</CardDescription>
           </div>
           <div className="flex gap-2">
-            <Button onClick={onOpenIssues} variant="outline" className="rounded-full border-zinc-200 bg-white" size="sm">
+            <Button onClick={() => onOpenIssues()} variant="outline" className="rounded-full border-zinc-200 bg-white" size="sm">
               Issues
             </Button>
-            <Button onClick={onOpenSuggestions} variant="outline" className="rounded-full border-zinc-200 bg-white" size="sm">
+            <Button onClick={() => onOpenSuggestions()} variant="outline" className="rounded-full border-zinc-200 bg-white" size="sm">
               Suggestions
             </Button>
           </div>
@@ -1429,11 +1453,15 @@ function EngineQueuePanel({
   status,
   onRefresh,
   onOpenSuggestions,
+  applyBlocked = false,
+  applyBlockedReason,
 }: {
   queues: EngineQueuesResult | null;
   status: EngineStatusPayload | null;
   onRefresh: () => void;
   onOpenSuggestions: (agent: string) => void;
+  applyBlocked?: boolean;
+  applyBlockedReason?: string;
 }) {
   const ready = queues?.data?.ready_queue ?? [];
   const attention = queues?.data?.needs_attention_queue ?? [];
@@ -1470,7 +1498,7 @@ function EngineQueuePanel({
   };
 
   const handleApplyBatch = async () => {
-    if (selected.length === 0) return;
+    if (selected.length === 0 || applyBlocked) return;
     setApplying(true);
     const ok = await applyEngineBatch(selected);
     setApplying(false);
@@ -1525,10 +1553,13 @@ function EngineQueuePanel({
         <Button
           className="mt-3 w-full rounded-2xl bg-zinc-950 text-white hover:bg-zinc-900"
           onClick={handleApplyBatch}
-          disabled={selected.length === 0 || applying}
+          disabled={selected.length === 0 || applying || applyBlocked}
         >
           {applying ? "Applying..." : "Apply selected low-risk actions"}
         </Button>
+        {applyBlocked && applyBlockedReason ? (
+          <div className="mt-2 text-xs text-amber-700">{applyBlockedReason}</div>
+        ) : null}
       </div>
 
       <div>

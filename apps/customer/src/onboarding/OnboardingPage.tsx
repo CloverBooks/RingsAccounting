@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { OnboardingProvider, useOnboarding, FAST_PATH_STEPS, GUIDED_PATH_STEPS } from "./OnboardingContext";
 import { Sparkles, ArrowRight, Check, Building2, Target, Briefcase, Calendar, Database, Bot } from "lucide-react";
+import { getMissingRequiredFields, OnboardingProfileV2 } from "./readiness";
 import "./onboarding.css";
 
 // =============================================================================
@@ -343,7 +344,7 @@ const TeamSizeStep: React.FC = () => {
             await updateProfile({ employee_count: selected });
             logEvent("Onboarding_Step_Completed", { step: "team_size", value: selected });
         }
-        setStep(fastPath ? "done" : "business_age");
+        setStep(fastPath ? "professional_profile" : "business_age");
     };
 
     return (
@@ -745,7 +746,7 @@ const DataSourceStep: React.FC = () => {
     const [selected, setSelected] = React.useState<string | null>(null);
 
     const sources = [
-        { value: "bank_connect", label: "Connect my bank", desc: "Read-only access — we can't move money." },
+        { value: "bank_connect", label: "Connect my bank", desc: "Read-only access - we cannot move money." },
         { value: "csv_import", label: "Import CSV/Excel", desc: "Upload historical transactions" },
         { value: "manual", label: "Enter manually", desc: "Start fresh with manual entry" },
     ];
@@ -755,7 +756,7 @@ const DataSourceStep: React.FC = () => {
             await updateProfile({ data_source: selected });
             logEvent("Onboarding_Step_Completed", { step: "data_source", value: selected });
         }
-        setStep("ai_handshake");
+        setStep("professional_profile");
     };
 
     return (
@@ -796,6 +797,241 @@ const DataSourceStep: React.FC = () => {
     );
 };
 
+const ProfessionalProfileStep: React.FC = () => {
+    const { profile, updateProfile, setStep, skipStep, logEvent } = useOnboarding();
+
+    const [legalBusinessName, setLegalBusinessName] = React.useState(profile.legal_business_name || profile.business_name || "");
+    const [operatingName, setOperatingName] = React.useState(profile.operating_name || "");
+    const [country, setCountry] = React.useState(profile.country || "US");
+    const [timezone, setTimezone] = React.useState(profile.primary_timezone || "America/Toronto");
+    const [currency, setCurrency] = React.useState(profile.base_currency || "USD");
+
+    const [taxRegistrationStatus, setTaxRegistrationStatus] = React.useState(profile.tax_registration_status || profile.tax_registration || "");
+    const [primaryTaxJurisdiction, setPrimaryTaxJurisdiction] = React.useState(profile.primary_tax_jurisdiction || "");
+    const [taxIdsRaw, setTaxIdsRaw] = React.useState(
+        Array.isArray(profile.tax_ids_by_jurisdiction)
+            ? profile.tax_ids_by_jurisdiction.map((x) => `${x.jurisdiction}:${x.tax_id}`).join("\n")
+            : "",
+    );
+    const [fiscalYearEndMonth, setFiscalYearEndMonth] = React.useState<number>(
+        profile.fiscal_year_end_month || 12,
+    );
+    const [fiscalYearEndDay, setFiscalYearEndDay] = React.useState<number>(profile.fiscal_year_end_day || 31);
+    const [accountingMethod, setAccountingMethod] = React.useState(profile.accounting_method || "accrual");
+    const [filingCadence, setFilingCadence] = React.useState(profile.filing_cadence || "monthly");
+
+    const [monthlyTransactionBand, setMonthlyTransactionBand] = React.useState(
+        profile.monthly_transaction_band || profile.monthly_transactions || "",
+    );
+    const [bankAccountCount, setBankAccountCount] = React.useState(
+        profile.bank_account_count || profile.bank_accounts_count || "",
+    );
+    const [currentSystemTool, setCurrentSystemTool] = React.useState(
+        profile.current_system_tool || profile.current_tools || "",
+    );
+    const [accountingReviewFrequency, setAccountingReviewFrequency] = React.useState(
+        profile.accounting_review_frequency || profile.accounting_frequency || "",
+    );
+    const [defaultInvoiceTerms, setDefaultInvoiceTerms] = React.useState(profile.default_invoice_terms || "Net 30");
+    const [defaultBillTerms, setDefaultBillTerms] = React.useState(profile.default_bill_terms || "Net 30");
+    const [defaultTaxBehavior, setDefaultTaxBehavior] = React.useState(profile.default_tax_behavior || "exclusive");
+    const [approvalThreshold, setApprovalThreshold] = React.useState<number>(
+        profile.high_risk_approval_threshold || 1000,
+    );
+
+    const [companionIntentGoals, setCompanionIntentGoals] = React.useState(
+        profile.companion_intent_goals || profile.intent || "",
+    );
+    const [topChallengesRaw, setTopChallengesRaw] = React.useState(
+        (profile.top_accounting_challenges || profile.biggest_challenges || []).join(", "),
+    );
+    const [riskAppetite, setRiskAppetite] = React.useState(profile.risk_appetite || "balanced");
+    const [explanationStyle, setExplanationStyle] = React.useState(profile.preferred_explanation_style || "concise");
+    const [notificationPreference, setNotificationPreference] = React.useState(
+        profile.notification_preference || "in_app",
+    );
+
+    const [contactRolesRaw, setContactRolesRaw] = React.useState(
+        Array.isArray(profile.contact_roles) ? profile.contact_roles.map((x) => x.role).join(", ") : "",
+    );
+    const [industryFlagsRaw, setIndustryFlagsRaw] = React.useState(
+        Array.isArray(profile.industry_specific_flags) ? profile.industry_specific_flags.join(", ") : "",
+    );
+    const [reportingPrefsRaw, setReportingPrefsRaw] = React.useState(
+        Array.isArray(profile.reporting_preferences) ? profile.reporting_preferences.join(", ") : "",
+    );
+    const [missingFields, setMissingFields] = React.useState<string[]>([]);
+
+    const parseCsv = (value: string) =>
+        value
+            .split(",")
+            .map((x) => x.trim())
+            .filter(Boolean);
+
+    const parseTaxIds = (value: string) =>
+        value
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .map((line) => {
+                const [jurisdiction, taxId] = line.split(":");
+                return { jurisdiction: (jurisdiction || "").trim(), tax_id: (taxId || "").trim() };
+            })
+            .filter((entry) => entry.jurisdiction && entry.tax_id);
+
+    const handleNext = async () => {
+        const payload: Partial<OnboardingProfileV2> = {
+            legal_business_name: legalBusinessName.trim(),
+            business_name: legalBusinessName.trim(),
+            operating_name: operatingName.trim(),
+            country,
+            primary_timezone: timezone,
+            base_currency: currency,
+            tax_registration_status: taxRegistrationStatus,
+            tax_registration: taxRegistrationStatus,
+            primary_tax_jurisdiction: primaryTaxJurisdiction.trim(),
+            tax_ids_by_jurisdiction: parseTaxIds(taxIdsRaw),
+            fiscal_year_end_month: fiscalYearEndMonth,
+            fiscal_year_end_day: fiscalYearEndDay,
+            accounting_method: accountingMethod,
+            filing_cadence: filingCadence,
+            monthly_transaction_band: monthlyTransactionBand,
+            monthly_transactions: monthlyTransactionBand,
+            bank_account_count: bankAccountCount,
+            bank_accounts_count: bankAccountCount,
+            current_system_tool: currentSystemTool.trim(),
+            current_tools: currentSystemTool.trim(),
+            accounting_review_frequency: accountingReviewFrequency,
+            accounting_frequency: accountingReviewFrequency,
+            default_invoice_terms: defaultInvoiceTerms,
+            default_bill_terms: defaultBillTerms,
+            default_tax_behavior: defaultTaxBehavior,
+            high_risk_approval_threshold: approvalThreshold,
+            companion_intent_goals: companionIntentGoals.trim(),
+            top_accounting_challenges: parseCsv(topChallengesRaw),
+            biggest_challenges: parseCsv(topChallengesRaw),
+            risk_appetite: riskAppetite,
+            preferred_explanation_style: explanationStyle,
+            notification_preference: notificationPreference,
+            contact_roles: parseCsv(contactRolesRaw).map((role) => ({ role })),
+            industry_specific_flags: parseCsv(industryFlagsRaw),
+            reporting_preferences: parseCsv(reportingPrefsRaw),
+        };
+
+        const mergedProfile = { ...profile, ...payload } as OnboardingProfileV2;
+        const missing = getMissingRequiredFields(mergedProfile);
+        if (missing.length > 0) {
+            setMissingFields(missing);
+            return;
+        }
+
+        setMissingFields([]);
+        await updateProfile(payload);
+        logEvent("Onboarding_Step_Completed", {
+            step: "professional_profile",
+            required_fields_complete: true,
+        });
+        setStep("ai_handshake");
+    };
+
+    return (
+        <div className="space-y-6 max-w-3xl mx-auto">
+            <div className="space-y-2">
+                <p className="text-sm font-medium text-slate-500 uppercase tracking-wide">Professional Setup</p>
+                <h2 className="text-2xl font-bold text-slate-900">Accounting profile for Companion</h2>
+                <p className="text-slate-600">
+                    Fill required go-live fields so Companion can use verified business context.
+                </p>
+            </div>
+
+            {missingFields.length > 0 && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                    Missing required fields: {missingFields.slice(0, 6).join(", ")}
+                    {missingFields.length > 6 ? ` (+${missingFields.length - 6} more)` : ""}
+                </div>
+            )}
+
+            <div className="grid gap-4 md:grid-cols-2">
+                <input value={legalBusinessName} onChange={(e) => setLegalBusinessName(e.target.value)} placeholder="Legal business name" className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
+                <input value={operatingName} onChange={(e) => setOperatingName(e.target.value)} placeholder="Operating name" className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
+                <select value={country} onChange={(e) => setCountry(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm">
+                    <option value="US">United States</option>
+                    <option value="CA">Canada</option>
+                </select>
+                <input value={timezone} onChange={(e) => setTimezone(e.target.value)} placeholder="Primary timezone" className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
+                <select value={currency} onChange={(e) => setCurrency(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm">
+                    <option value="USD">USD</option>
+                    <option value="CAD">CAD</option>
+                </select>
+                <select value={taxRegistrationStatus} onChange={(e) => setTaxRegistrationStatus(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm">
+                    <option value="">Tax registration status</option>
+                    <option value="registered">Registered</option>
+                    <option value="not_registered">Not registered</option>
+                    <option value="pending">Pending</option>
+                </select>
+                <input value={primaryTaxJurisdiction} onChange={(e) => setPrimaryTaxJurisdiction(e.target.value)} placeholder="Primary tax jurisdiction (e.g., US-CA, CA-ON)" className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm md:col-span-2" />
+                <textarea value={taxIdsRaw} onChange={(e) => setTaxIdsRaw(e.target.value)} placeholder="Tax IDs by jurisdiction. One per line: US-CA:12345" className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm md:col-span-2 min-h-[84px]" />
+
+                <input type="number" min={1} max={12} value={fiscalYearEndMonth} onChange={(e) => setFiscalYearEndMonth(Number(e.target.value))} placeholder="Fiscal year end month" className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
+                <input type="number" min={1} max={31} value={fiscalYearEndDay} onChange={(e) => setFiscalYearEndDay(Number(e.target.value))} placeholder="Fiscal year end day" className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
+                <select value={accountingMethod} onChange={(e) => setAccountingMethod(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm">
+                    <option value="accrual">Accrual</option>
+                    <option value="cash">Cash</option>
+                </select>
+                <select value={filingCadence} onChange={(e) => setFilingCadence(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm">
+                    <option value="monthly">Monthly</option>
+                    <option value="quarterly">Quarterly</option>
+                    <option value="annual">Annual</option>
+                </select>
+
+                <input value={monthlyTransactionBand} onChange={(e) => setMonthlyTransactionBand(e.target.value)} placeholder="Monthly transaction band (e.g., 50-200)" className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
+                <input value={bankAccountCount} onChange={(e) => setBankAccountCount(e.target.value)} placeholder="Bank account count (e.g., 2-3)" className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
+                <input value={currentSystemTool} onChange={(e) => setCurrentSystemTool(e.target.value)} placeholder="Current accounting system/tool" className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
+                <input value={accountingReviewFrequency} onChange={(e) => setAccountingReviewFrequency(e.target.value)} placeholder="Accounting review frequency" className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
+
+                <input value={defaultInvoiceTerms} onChange={(e) => setDefaultInvoiceTerms(e.target.value)} placeholder="Default invoice terms" className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
+                <input value={defaultBillTerms} onChange={(e) => setDefaultBillTerms(e.target.value)} placeholder="Default bill terms" className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
+                <input value={defaultTaxBehavior} onChange={(e) => setDefaultTaxBehavior(e.target.value)} placeholder="Default tax behavior" className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
+                <input type="number" min={0} step={100} value={approvalThreshold} onChange={(e) => setApprovalThreshold(Number(e.target.value))} placeholder="Approval threshold for high-risk actions" className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
+
+                <textarea value={companionIntentGoals} onChange={(e) => setCompanionIntentGoals(e.target.value)} placeholder="Companion goals and intent" className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm md:col-span-2 min-h-[72px]" />
+                <textarea value={topChallengesRaw} onChange={(e) => setTopChallengesRaw(e.target.value)} placeholder="Top accounting challenges (comma separated)" className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm md:col-span-2 min-h-[72px]" />
+                <select value={riskAppetite} onChange={(e) => setRiskAppetite(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm">
+                    <option value="conservative">Conservative</option>
+                    <option value="balanced">Balanced</option>
+                    <option value="aggressive">Aggressive</option>
+                </select>
+                <select value={explanationStyle} onChange={(e) => setExplanationStyle(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm">
+                    <option value="concise">Concise</option>
+                    <option value="detailed">Detailed</option>
+                    <option value="step_by_step">Step-by-step</option>
+                </select>
+                <select value={notificationPreference} onChange={(e) => setNotificationPreference(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm md:col-span-2">
+                    <option value="in_app">In-app</option>
+                    <option value="email">Email</option>
+                    <option value="in_app_and_email">In-app + Email</option>
+                </select>
+
+                <input value={contactRolesRaw} onChange={(e) => setContactRolesRaw(e.target.value)} placeholder="Optional contact roles (owner, controller, bookkeeper)" className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm md:col-span-2" />
+                <input value={industryFlagsRaw} onChange={(e) => setIndustryFlagsRaw(e.target.value)} placeholder="Optional industry flags (comma separated)" className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm md:col-span-2" />
+                <input value={reportingPrefsRaw} onChange={(e) => setReportingPrefsRaw(e.target.value)} placeholder="Optional reporting preferences (comma separated)" className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm md:col-span-2" />
+            </div>
+
+            <div className="flex justify-between items-center pt-4">
+                <button onClick={skipStep} className="text-sm text-slate-500 hover:text-slate-700">
+                    Save for later
+                </button>
+                <button
+                    onClick={handleNext}
+                    className="rounded-xl bg-slate-900 px-6 py-2.5 text-white font-medium hover:bg-slate-800 transition flex items-center gap-2"
+                >
+                    Continue <ArrowRight className="w-4 h-4" />
+                </button>
+            </div>
+        </div>
+    );
+};
+
 const AIHandshakeStep: React.FC = () => {
     const { setStep, skipStep, logEvent } = useOnboarding();
 
@@ -817,11 +1053,11 @@ const AIHandshakeStep: React.FC = () => {
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center space-y-4">
                 <Bot className="w-12 h-12 mx-auto text-slate-400" />
                 <p className="text-slate-600">
-                    Once you connect a bank or import data, we'll show you 3–5 sample transactions
+                    Once you connect a bank or import data, we'll show you 3-5 sample transactions
                     and ask questions like "Is this usually for gas?"
                 </p>
                 <p className="text-sm text-slate-500">
-                    Your answers help the AI categorize future transactions automatically.
+                    On completion, we will record your AI consent and initial policy defaults.
                 </p>
             </div>
 
@@ -841,10 +1077,14 @@ const AIHandshakeStep: React.FC = () => {
 };
 
 const DoneStep: React.FC = () => {
-    const { profile, completeOnboarding } = useOnboarding();
+    const { profile, completeOnboarding, readiness, contextUnknowns, setStep } = useOnboarding();
     const navigate = useNavigate();
 
     const handleFinish = async () => {
+        if (!readiness.required_fields_complete) {
+            setStep("professional_profile");
+            return;
+        }
         await completeOnboarding();
         navigate("/dashboard");
     };
@@ -860,9 +1100,20 @@ const DoneStep: React.FC = () => {
                 <div className="space-y-3 mb-8">
                     <h2 className="onboarding-title">You're all set!</h2>
                     <p className="onboarding-subtitle">
-                        {profile.business_name ? `Welcome, ${profile.business_name}` : "Welcome to Clover Books"}
+                        {(profile.legal_business_name || profile.business_name)
+                            ? `Welcome, ${profile.legal_business_name || profile.business_name}`
+                            : "Welcome to Clover Books"}
                     </p>
                 </div>
+
+                {!readiness.required_fields_complete && (
+                    <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-left text-sm text-amber-800">
+                        Complete required onboarding fields first. Missing:
+                        {" "}
+                        {contextUnknowns.slice(0, 5).join(", ")}
+                        {contextUnknowns.length > 5 ? ` (+${contextUnknowns.length - 5} more)` : ""}
+                    </div>
+                )}
 
                 <button
                     onClick={handleFinish}
@@ -911,6 +1162,7 @@ const StepRouter: React.FC = () => {
             case "transaction_volume": return <TransactionVolumeStep />;
             case "accounting_habits": return <AccountingHabitsStep />;
             case "data_source": return <DataSourceStep />;
+            case "professional_profile": return <ProfessionalProfileStep />;
             case "ai_handshake": return <AIHandshakeStep />;
             case "done": return <DoneStep />;
             default: return <WelcomeStep />;
@@ -993,3 +1245,4 @@ const OnboardingPage: React.FC = () => {
 };
 
 export default OnboardingPage;
+

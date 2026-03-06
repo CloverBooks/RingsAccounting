@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -74,19 +72,6 @@ pub struct RationaleCard {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct Claim {
-    pub id: i64,
-    pub tenant_id: i64,
-    pub business_id: i64,
-    pub work_item_id: i64,
-    pub statement: String,
-    pub confidence: f64,
-    pub verification_status: String,
-    pub source_quality_score: f64,
-    pub created_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Evidence {
     pub id: i64,
     pub tenant_id: i64,
@@ -97,14 +82,6 @@ pub struct Evidence {
     pub retrieved_at: String,
     pub excerpt_hash: String,
     pub credibility_flags: String,
-    pub created_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct ClaimEvidence {
-    pub id: i64,
-    pub claim_id: i64,
-    pub evidence_id: i64,
     pub created_at: String,
 }
 
@@ -126,63 +103,6 @@ pub struct AgentRun {
     pub error_code: Option<String>,
     pub error_detail: Option<String>,
     pub created_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct Job {
-    pub id: String,
-    pub tenant_id: i64,
-    pub kind: String,
-    pub status: String,
-    pub priority: i64,
-    pub input_json: String,
-    pub output_json: Option<String>,
-    pub error_detail: Option<String>,
-    pub budget_json: String,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct ToolCall {
-    pub id: i64,
-    pub tenant_id: i64,
-    pub business_id: i64,
-    pub agent_run_id: Option<i64>,
-    pub tool_name: String,
-    pub provider: String,
-    pub request_meta: String,
-    pub response_meta: String,
-    pub tokens_used: i64,
-    pub cost_estimate: f64,
-    pub duration_ms: i64,
-    pub allowlisted: bool,
-    pub blocked_reason: Option<String>,
-    pub created_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct CircuitBreakerEvent {
-    pub id: i64,
-    pub tenant_id: i64,
-    pub business_id: i64,
-    pub breaker_type: String,
-    pub threshold: f64,
-    pub observed_value: f64,
-    pub action_taken: String,
-    pub related_work_item_id: Option<i64>,
-    pub created_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct Snapshot {
-    pub id: i64,
-    pub tenant_id: i64,
-    pub business_id: i64,
-    pub generated_at: String,
-    pub payload_json: String,
-    pub stale_after_minutes: i64,
-    pub source_version: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -231,20 +151,6 @@ pub struct BusinessPolicyRow {
     pub sector_archetype: String,
     pub created_at: String,
     pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct AuditLog {
-    pub id: i64,
-    pub tenant_id: i64,
-    pub business_id: i64,
-    pub actor_id: Option<i64>,
-    pub actor_label: String,
-    pub action: String,
-    pub target_type: String,
-    pub target_id: String,
-    pub payload_json: String,
-    pub created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

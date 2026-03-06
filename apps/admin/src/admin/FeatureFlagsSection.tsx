@@ -4,6 +4,16 @@ import { Card, SimpleTable, StatusPill } from "./AdminUI";
 
 type Role = "support" | "finance" | "engineer" | "superadmin";
 
+const isFeatureFlag = (value: unknown): value is FeatureFlag =>
+  Boolean(
+    value &&
+      typeof value === "object" &&
+      "id" in value &&
+      "key" in value &&
+      "is_enabled" in value &&
+      "rollout_percent" in value,
+  );
+
 export const FeatureFlagsSection: React.FC<{ role?: Role }> = ({ role = "superadmin" }) => {
   const [flags, setFlags] = useState<FeatureFlag[]>([]);
   const [loading, setLoading] = useState(false);
@@ -42,7 +52,9 @@ export const FeatureFlagsSection: React.FC<{ role?: Role }> = ({ role = "superad
         setMessage(`Change queued for approval: ${res.approval_request_id}`);
         return;
       }
-      setFlags((list) => list.map((f) => (f.id === flag.id ? res : f)));
+      if (isFeatureFlag(res)) {
+        setFlags((list) => list.map((f) => (f.id === flag.id ? res : f)));
+      }
     } catch (err: any) {
       const msg = err?.message || "Unable to update flag";
       if (String(msg).toLowerCase().includes("reason is required")) {
@@ -59,7 +71,9 @@ export const FeatureFlagsSection: React.FC<{ role?: Role }> = ({ role = "superad
             setMessage(`Change queued for approval: ${res.approval_request_id}`);
             return;
           }
-          setFlags((list) => list.map((f) => (f.id === flag.id ? res : f)));
+          if (isFeatureFlag(res)) {
+            setFlags((list) => list.map((f) => (f.id === flag.id ? res : f)));
+          }
           return;
         } catch (err2: any) {
           setFlags((list) => list.map((f) => (f.id === flag.id ? previous : f)));
@@ -86,7 +100,9 @@ export const FeatureFlagsSection: React.FC<{ role?: Role }> = ({ role = "superad
         setMessage(`Change queued for approval: ${res.approval_request_id}`);
         return;
       }
-      setFlags((list) => list.map((f) => (f.id === flag.id ? res : f)));
+      if (isFeatureFlag(res)) {
+        setFlags((list) => list.map((f) => (f.id === flag.id ? res : f)));
+      }
     } catch (err: any) {
       const msg = err?.message || "Unable to update flag";
       if (String(msg).toLowerCase().includes("reason is required")) {
@@ -103,7 +119,9 @@ export const FeatureFlagsSection: React.FC<{ role?: Role }> = ({ role = "superad
             setMessage(`Change queued for approval: ${res.approval_request_id}`);
             return;
           }
-          setFlags((list) => list.map((f) => (f.id === flag.id ? res : f)));
+          if (isFeatureFlag(res)) {
+            setFlags((list) => list.map((f) => (f.id === flag.id ? res : f)));
+          }
           return;
         } catch (err2: any) {
           setFlags((list) => list.map((f) => (f.id === flag.id ? previous : f)));

@@ -380,34 +380,49 @@ export const Separator = ({ className, orientation = "horizontal", ...props }: R
 );
 
 // Tabs Components
-export const Tabs = ({ value, onValueChange, children, className, ...props }: React.HTMLAttributes<HTMLDivElement> & { value?: string; onValueChange?: (value: string) => void }) => {
+type TabsContextType = {
+    value?: string;
+    onValueChange?: (value: string) => void;
+};
+
+const TabsContext = React.createContext<TabsContextType | null>(null);
+
+const useTabsContext = () => React.useContext(TabsContext);
+
+export const Tabs = ({
+    value,
+    onValueChange,
+    children,
+    className,
+    ...props
+}: React.HTMLAttributes<HTMLDivElement> & { value?: string; onValueChange?: (value: string) => void }) => {
     return (
-        <div className={cn("w-full", className)} {...props}>
-            {React.Children.map(children, child =>
-                React.isValidElement(child)
-                    ? React.cloneElement(child as any, { currentValue: value, onValueChange })
-                    : child
-            )}
-        </div>
+        <TabsContext.Provider value={{ value, onValueChange }}>
+            <div className={cn("w-full", className)} {...props}>
+                {children}
+            </div>
+        </TabsContext.Provider>
     );
 };
 
-export const TabsList = ({ className, children, currentValue, onValueChange, ...props }: React.HTMLAttributes<HTMLDivElement> & { currentValue?: string; onValueChange?: (value: string) => void }) => (
+export const TabsList = ({ className, children, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
     <div className={cn("inline-flex h-10 items-center justify-center rounded-md bg-slate-100 p-1", className)} {...props}>
-        {React.Children.map(children, child =>
-            React.isValidElement(child)
-                ? React.cloneElement(child as any, { currentValue, onValueChange })
-                : child
-        )}
+        {children}
     </div>
 );
 
-export const TabsTrigger = ({ value, className, children, onValueChange, currentValue, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { value: string; onValueChange?: (value: string) => void; currentValue?: string }) => {
-    const isActive = currentValue === value;
+export const TabsTrigger = ({
+    value,
+    className,
+    children,
+    ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & { value: string }) => {
+    const ctx = useTabsContext();
+    const isActive = ctx?.value === value;
     return (
         <button
             type="button"
-            onClick={() => onValueChange?.(value)}
+            onClick={() => ctx?.onValueChange?.(value)}
             className={cn(
                 "inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
                 isActive ? "bg-white text-slate-900 shadow-sm mb-accent-underline" : "text-slate-600 hover:text-slate-900",
@@ -420,8 +435,9 @@ export const TabsTrigger = ({ value, className, children, onValueChange, current
     );
 };
 
-export const TabsContent = ({ value, className, children, currentValue, ...props }: React.HTMLAttributes<HTMLDivElement> & { value: string; currentValue?: string }) => {
-    if (currentValue !== value) return null;
+export const TabsContent = ({ value, className, children, ...props }: React.HTMLAttributes<HTMLDivElement> & { value: string }) => {
+    const ctx = useTabsContext();
+    if (ctx?.value !== value) return null;
     return (
         <div className={cn("mt-2", className)} {...props}>
             {children}

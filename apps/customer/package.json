@@ -6,7 +6,12 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest"
+    "preview:prod": "vite preview --host 0.0.0.0 --port 4173",
+    "typecheck": "tsc --noEmit --project tsconfig.typecheck.json",
+    "lint": "npm run typecheck",
+    "test": "node ../../scripts/frontend/run-vitest-clean.mjs",
+    "test:run": "node ../../scripts/frontend/run-vitest-clean.mjs run",
+    "verify:clean": "node ../../scripts/frontend/verify-clean.mjs"
   },
   "devDependencies": {
     "@fontsource/jetbrains-mono": "^5.2.8",

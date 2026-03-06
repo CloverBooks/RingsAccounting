@@ -6,8 +6,6 @@ pub struct AppConfig {
     pub app_port: u16,
     pub database_url: String,
     pub allowed_countries: Vec<String>,
-    pub payment_gateway_api_key: String,
-    pub webhook_secret: String,
 }
 
 impl AppConfig {
@@ -27,18 +25,10 @@ impl AppConfig {
             .filter(|item| !item.is_empty())
             .collect::<Vec<_>>();
 
-        let payment_gateway_api_key = env::var("PAYMENT_GATEWAY_API_KEY")
-            .unwrap_or_else(|_| "".to_string());
-
-        let webhook_secret = env::var("WEBHOOK_SECRET")
-            .map_err(|_| "WEBHOOK_SECRET is required".to_string())?;
-
         Ok(Self {
             app_port,
             database_url,
             allowed_countries,
-            payment_gateway_api_key,
-            webhook_secret,
         })
     }
 }

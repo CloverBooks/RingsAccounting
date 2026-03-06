@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/types/**/*.d.ts"],
+  "exclude": [
+    "src/admin/**/*",
+    "src/admin.tsx",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/contexts/AuthContext.test 2.tsx",
+    "src/bankReview/bank-review-entry.tsx",
+    "src/booksReview/books-review-entry.tsx",
+    "src/companion/CompanionOverviewPage.tsx"
+  ]
+}

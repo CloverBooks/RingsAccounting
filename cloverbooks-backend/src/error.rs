@@ -7,12 +7,8 @@ pub enum AppError {
     Validation(String),
     #[error("not found: {0}")]
     NotFound(String),
-    #[error("unauthorized")]
-    Unauthorized,
     #[error("database error: {0}")]
     Database(String),
-    #[error("internal error: {0}")]
-    Internal(String),
 }
 
 impl From<sqlx::Error> for AppError {
@@ -34,9 +30,7 @@ impl IntoResponse for AppError {
         let (status, message) = match self {
             AppError::Validation(message) => (StatusCode::BAD_REQUEST, message),
             AppError::NotFound(message) => (StatusCode::NOT_FOUND, message),
-            AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized".to_string()),
             AppError::Database(message) => (StatusCode::INTERNAL_SERVER_ERROR, message),
-            AppError::Internal(message) => (StatusCode::INTERNAL_SERVER_ERROR, message),
         };
 
         (status, Json(ErrorResponse { error: message })).into_response()
