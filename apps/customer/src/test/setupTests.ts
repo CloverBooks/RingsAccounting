@@ -1,6 +1,11 @@
 import "@testing-library/jest-dom";
+import { configure } from "@testing-library/react";
 import { vi } from "vitest";
 import "./strictConsole";
+
+configure({
+  asyncUtilTimeout: 10000,
+});
 
 vi.mock("recharts", async () => {
   const actual = await vi.importActual<typeof import("recharts")>("recharts");

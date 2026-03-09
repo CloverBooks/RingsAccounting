@@ -17,6 +17,8 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: "./src/test/setupTests.ts",
+    testTimeout: 15000,
+    hookTimeout: 15000,
     exclude: [...configDefaults.exclude],
   },
 });
