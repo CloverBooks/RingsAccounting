@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 
 const npmCli = process.env.npm_execpath;
-const tasks = ["typecheck", "test:run", "build"];
 const warningPatterns = [
   /warning/i,
   /baseline-browser-mapping/i,
@@ -10,6 +11,13 @@ const warningPatterns = [
   /width\(-1\)/i,
   /Unknown event handler property/i,
 ];
+
+function resolveTasks() {
+  const packageJsonPath = path.join(process.cwd(), "package.json");
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+  const packageScripts = packageJson.scripts || {};
+  return ["typecheck", "test:run", ...(packageScripts["check:hard-nav"] ? ["check:hard-nav"] : []), "build"];
+}
 
 function runTask(task) {
   return new Promise((resolve, reject) => {
@@ -65,6 +73,6 @@ function runTask(task) {
   });
 }
 
-for (const task of tasks) {
+for (const task of resolveTasks()) {
   await runTask(task);
 }

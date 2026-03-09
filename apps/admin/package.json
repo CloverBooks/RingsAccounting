@@ -12,6 +12,7 @@
     "lint": "npm run typecheck",
     "test": "node ../../scripts/frontend/run-vitest-clean.mjs",
     "test:run": "node ../../scripts/frontend/run-vitest-clean.mjs run",
+    "check:hard-nav": "node ../../scripts/frontend/check-hard-nav.mjs",
     "verify:clean": "node ../../scripts/frontend/verify-clean.mjs"
   },
   "dependencies": {
