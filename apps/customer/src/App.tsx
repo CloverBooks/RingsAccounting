@@ -162,6 +162,7 @@ export const AppRoutes: React.FC = () => (
         <Route path="/bank-accounts" element={<LazyBankAccountsPage />} />
         <Route path="/expense-list" element={<LazyExpenseListPage />} />
         <Route path="/ai-companion" element={<LazyAICompanionPage />} />
+        <Route path="/companion/tax" element={<LazyTaxGuardianPage />} />
         <Route path="/workflows" element={<LazyWorkflowsRulesPage />} />
         <Route path="/bills" element={<LazyBillsPage />} />
       </Route>
@@ -179,7 +180,6 @@ export const AppRoutes: React.FC = () => (
         <Route path="/companion/overview" element={<LazyCompanionOverviewPage />} />
         <Route path="/companion/issues" element={<LazyCompanionIssuesPage />} />
         <Route path="/companion/proposals" element={<LazyCompanionProposalsPage />} />
-        <Route path="/companion/tax" element={<LazyTaxGuardianPage />} />
         <Route path="/companion/tax/catalog" element={<LazyTaxCatalogPage />} />
         <Route path="/companion/tax/product-rules" element={<LazyTaxProductRulesPage />} />
         <Route path="/companion/tax/settings" element={<LazyTaxSettingsPage />} />
