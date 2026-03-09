@@ -50,6 +50,7 @@ const LazyBankAccountsPage = React.lazy(() => import("./banking/BankAccountsPage
 const LazyExpenseListPage = React.lazy(() => import("./expenses/ExpenseListPage"));
 const LazyAICompanionPage = React.lazy(() => import("./companion/AICompanionPage"));
 const LazyWorkflowsRulesPage = React.lazy(() => import("./workflows/WorkflowsRulesPage"));
+const LazyBillsPage = React.lazy(() => import("./bills/BillsPage"));
 const LazyReconciliationPage = React.lazy(() => import("./reconciliation/ReconciliationPage"));
 const LazyReconciliationReportPage = React.lazy(() => import("./reconciliation/ReconciliationReportPage"));
 const LazyProfitAndLossReportPage = React.lazy(() => import("./reports/ProfitAndLossReportPage"));
@@ -162,6 +163,7 @@ export const AppRoutes: React.FC = () => (
         <Route path="/expense-list" element={<LazyExpenseListPage />} />
         <Route path="/ai-companion" element={<LazyAICompanionPage />} />
         <Route path="/workflows" element={<LazyWorkflowsRulesPage />} />
+        <Route path="/bills" element={<LazyBillsPage />} />
       </Route>
 
       {/* Standard pages — sidebar layout */}

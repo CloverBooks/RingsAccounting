@@ -223,8 +223,8 @@ export const DarkSidebarLayout: React.FC = () => {
                                 <NavItem
                                     icon={<ArrowRightLeft size={16} />}
                                     label="Bills (AP)"
-                                    active={isActive("/transactions")}
-                                    onClick={() => go("/transactions")}
+                                    active={isActive("/bills")}
+                                    onClick={() => go("/bills")}
                                 />
                             </div>
                         </div>
