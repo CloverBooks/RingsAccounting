@@ -137,56 +137,56 @@ const JournalEntryDrawer: React.FC<JournalEntryDrawerProps> = ({ entry, currency
 
       {/* Drawer */}
       <motion.div
-        className="relative h-full w-full max-w-lg bg-white shadow-2xl flex flex-col"
+        className="relative h-full w-full max-w-lg bg-[#131316] shadow-2xl flex flex-col border-l border-white/5"
         initial={{ x: "100%" }}
         animate={{ x: 0 }}
         exit={{ x: "100%" }}
         transition={{ type: "spring", damping: 30, stiffness: 300 }}
       >
         {/* Header */}
-        <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
+        <div className="flex items-start justify-between gap-4 border-b border-white/5 px-6 py-5">
           <div className="space-y-1.5">
             <div className="flex items-center gap-2">
-              <h2 className="text-lg font-bold text-slate-900">
+              <h2 className="text-lg font-bold text-white">
                 Entry #{entry.id}
               </h2>
               {entry.is_void && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-rose-100 text-rose-700 border border-rose-200">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-red-500/10 text-red-400 border border-red-500/20">
                   Void
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-3 text-sm text-slate-500">
+            <div className="flex items-center gap-3 text-sm text-gray-500">
               <Calendar className="h-4 w-4" />
               {formatDate(entry.date)}
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-2 rounded-full hover:bg-slate-100 transition-colors"
+            className="p-2 rounded-full hover:bg-[#27272A] transition-colors"
           >
-            <X className="h-5 w-5 text-slate-500" />
+            <X className="h-5 w-5 text-gray-400" />
           </button>
         </div>
 
         {/* Totals Summary */}
-        <div className="border-b border-slate-100 px-6 py-4 bg-slate-50/50">
+        <div className="border-b border-white/5 px-6 py-4 bg-[#09090B]">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Total Debit</div>
-              <div className="text-xl font-bold text-emerald-600 mt-0.5">
+              <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-gray-500">Total Debit</div>
+              <div className="text-xl font-bold text-[#A3E635] mt-0.5 font-mono">
                 {formatCurrency(entry.total_debit, currency)}
               </div>
             </div>
             <div>
-              <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Total Credit</div>
-              <div className="text-xl font-bold text-rose-600 mt-0.5">
+              <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-gray-500">Total Credit</div>
+              <div className="text-xl font-bold text-red-400 mt-0.5 font-mono">
                 {formatCurrency(entry.total_credit, currency)}
               </div>
             </div>
           </div>
           {!isBalanced && (
-            <div className="mt-3 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-xs font-medium">
+            <div className="mt-3 px-3 py-2 rounded-lg bg-amber-400/10 border border-amber-400/20 text-amber-400 text-xs font-medium">
               ⚠️ Entry is not balanced
             </div>
           )}
@@ -206,23 +206,23 @@ const JournalEntryDrawer: React.FC<JournalEntryDrawerProps> = ({ entry, currency
             {/* Source */}
             {entry.source_type && (
               <div className="space-y-2">
-                <h4 className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Source</h4>
-                <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
-                  <div className="h-9 w-9 rounded-full bg-slate-200 flex items-center justify-center text-slate-500">
+                <h4 className="text-[10px] font-bold uppercase tracking-[0.16em] text-gray-500">Source</h4>
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-[#09090B] border border-white/5">
+                  <div className="h-9 w-9 rounded-full bg-[#27272A] flex items-center justify-center text-gray-400">
                     {getSourceIcon(entry.source_type)}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-slate-900 truncate capitalize">
+                    <div className="font-semibold text-white truncate capitalize">
                       {entry.source_type?.replace("banktransaction", "Bank Transaction")}
                     </div>
-                    <div className="text-xs text-slate-500">{entry.source_label || `ID: ${entry.source_object_id}`}</div>
+                    <div className="text-xs text-gray-500">{entry.source_label || `ID: ${entry.source_object_id}`}</div>
                   </div>
                   {sourceUrl && (
                     <a
                       href={sourceUrl}
-                      className="p-1.5 rounded-lg hover:bg-slate-200 transition-colors"
+                      className="p-1.5 rounded-lg hover:bg-[#27272A] transition-colors"
                     >
-                      <ExternalLink className="h-4 w-4 text-slate-400" />
+                      <ExternalLink className="h-4 w-4 text-gray-400" />
                     </a>
                   )}
                 </div>
@@ -232,24 +232,24 @@ const JournalEntryDrawer: React.FC<JournalEntryDrawerProps> = ({ entry, currency
             {/* Status */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <h4 className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Status</h4>
+                <h4 className="text-[10px] font-bold uppercase tracking-[0.16em] text-gray-500">Status</h4>
                 <div className={cn(
-                  "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold",
+                  "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border",
                   entry.is_void
-                    ? "bg-rose-50 text-rose-700 border border-rose-200"
-                    : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                    ? "bg-red-500/10 text-red-400 border-red-500/20"
+                    : "bg-[#A3E635]/10 text-[#A3E635] border-[#A3E635]/20"
                 )}>
                   <span className={cn(
                     "w-1.5 h-1.5 rounded-full",
-                    entry.is_void ? "bg-rose-500" : "bg-emerald-500"
+                    entry.is_void ? "bg-red-500" : "bg-[#A3E635]"
                   )} />
                   {entry.is_void ? "Void" : "Active"}
                 </div>
               </div>
               <div className="space-y-1.5">
-                <h4 className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Lines</h4>
-                <div className="flex items-center gap-2 text-sm text-slate-900">
-                  <Hash className="h-4 w-4 text-slate-400" />
+                <h4 className="text-[10px] font-bold uppercase tracking-[0.16em] text-gray-500">Lines</h4>
+                <div className="flex items-center gap-2 text-sm text-white">
+                  <Hash className="h-4 w-4 text-gray-400" />
                   {entry.lines.length} lines
                 </div>
               </div>
@@ -257,41 +257,41 @@ const JournalEntryDrawer: React.FC<JournalEntryDrawerProps> = ({ entry, currency
 
             {/* Journal Lines */}
             <div className="space-y-2">
-              <h4 className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Journal Lines</h4>
-              <div className="rounded-xl border border-slate-100 overflow-hidden">
+              <h4 className="text-[10px] font-bold uppercase tracking-[0.16em] text-gray-500">Journal Lines</h4>
+              <div className="rounded-xl border border-white/5 overflow-hidden">
                 <table className="w-full text-sm">
-                  <thead className="bg-slate-50 border-b border-slate-100">
-                    <tr className="text-[10px] uppercase text-slate-500 font-bold">
+                  <thead className="bg-[#09090B] border-b border-white/5">
+                    <tr className="text-[10px] uppercase text-gray-600 font-bold">
                       <th className="px-3 py-2 text-left">Account</th>
                       <th className="px-3 py-2 text-right">Debit</th>
                       <th className="px-3 py-2 text-right">Credit</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-50">
+                  <tbody className="divide-y divide-white/5">
                     {entry.lines.map((line) => (
-                      <tr key={line.id} className="hover:bg-slate-50/50">
+                      <tr key={line.id} className="hover:bg-[#18181B]">
                         <td className="px-3 py-2.5">
                           <div className="space-y-0.5">
-                            <div className="font-mono text-[10px] text-slate-400">{line.account_code}</div>
-                            <div className="font-medium text-slate-900 text-xs">{line.account_name}</div>
+                            <div className="font-mono text-[10px] text-gray-600">{line.account_code}</div>
+                            <div className="font-medium text-white text-xs">{line.account_name}</div>
                           </div>
                         </td>
-                        <td className="px-3 py-2.5 text-right font-medium text-emerald-600 text-xs">
+                        <td className="px-3 py-2.5 text-right font-medium text-[#A3E635] text-xs font-mono">
                           {parseFloat(line.debit) > 0 ? formatCurrency(line.debit, currency) : "—"}
                         </td>
-                        <td className="px-3 py-2.5 text-right font-medium text-rose-600 text-xs">
+                        <td className="px-3 py-2.5 text-right font-medium text-red-400 text-xs font-mono">
                           {parseFloat(line.credit) > 0 ? formatCurrency(line.credit, currency) : "—"}
                         </td>
                       </tr>
                     ))}
                   </tbody>
-                  <tfoot className="bg-slate-100 border-t border-slate-200">
+                  <tfoot className="bg-[#09090B] border-t border-white/5">
                     <tr className="font-bold text-xs">
-                      <td className="px-3 py-2.5 text-slate-700">Total</td>
-                      <td className="px-3 py-2.5 text-right text-emerald-700">
+                      <td className="px-3 py-2.5 text-gray-400">Total</td>
+                      <td className="px-3 py-2.5 text-right text-[#A3E635] font-mono">
                         {formatCurrency(entry.total_debit, currency)}
                       </td>
-                      <td className="px-3 py-2.5 text-right text-rose-700">
+                      <td className="px-3 py-2.5 text-right text-red-400 font-mono">
                         {formatCurrency(entry.total_credit, currency)}
                       </td>
                     </tr>
@@ -303,18 +303,18 @@ const JournalEntryDrawer: React.FC<JournalEntryDrawerProps> = ({ entry, currency
         </div>
 
         {/* Footer */}
-        <div className="border-t border-slate-100 px-6 py-4 bg-slate-50/50">
+        <div className="border-t border-white/5 px-6 py-4 bg-[#09090B]">
           <div className="flex items-center justify-between gap-3">
             <button
               onClick={onClose}
-              className="px-4 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-600 hover:bg-white transition-colors"
+              className="px-4 py-2 rounded-lg border border-white/10 text-sm font-medium text-gray-400 hover:bg-[#18181B] transition-colors"
             >
               Close
             </button>
             {sourceUrl && (
               <a
                 href={sourceUrl}
-                className="px-4 py-2 rounded-lg bg-slate-900 text-sm font-semibold text-white hover:bg-slate-800 transition-colors"
+                className="px-4 py-2 rounded-lg bg-[#A3E635] text-sm font-semibold text-black hover:bg-[#bef264] transition-colors"
               >
                 View Source
               </a>
@@ -383,26 +383,26 @@ export const JournalEntriesPage: React.FC = () => {
   const sourceChoices = data?.source_choices || [];
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
+    <div className="min-h-screen bg-[#09090B]" style={{ fontFamily: "'Inter', sans-serif" }}>
       <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Accounting</p>
-            <h1 className="text-2xl font-semibold">Journal Entries</h1>
-            <p className="text-sm text-slate-500">View and manage your general ledger entries.</p>
+            <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wide mb-1">Accounting</p>
+            <h1 className="text-2xl font-bold text-white">Journal Entries</h1>
+            <p className="text-sm text-gray-500">View and manage your general ledger entries.</p>
           </div>
           <div className="flex items-center gap-3">
             <button
               onClick={fetchData}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-300 bg-[#18181B] border border-white/10 rounded-xl hover:bg-[#27272A] transition-colors"
             >
               <RefreshCw className="h-4 w-4" />
               Refresh
             </button>
             <a
               href="/journal/new/"
-              className="px-4 py-2 text-sm font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800 transition-colors"
+              className="px-4 py-2 text-sm font-semibold text-black bg-[#A3E635] rounded-xl hover:bg-[#bef264] transition-colors"
             >
               + New Entry
             </a>
@@ -411,7 +411,7 @@ export const JournalEntriesPage: React.FC = () => {
 
         {/* Error Banner */}
         {error && (
-          <div className="rounded-lg bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3">
+          <div className="rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3">
             {error}
           </div>
         )}
@@ -419,43 +419,43 @@ export const JournalEntriesPage: React.FC = () => {
         {/* KPI Cards */}
         {stats && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-white border border-slate-200 rounded-xl p-4">
-              <div className="text-xs font-medium text-slate-500 uppercase">Total Entries</div>
-              <div className="text-2xl font-semibold text-slate-900 mt-1">{stats.total_entries}</div>
-              <p className="text-xs text-slate-500 mt-1">All time</p>
+            <div className="bg-[#131316] border border-white/5 rounded-2xl p-5">
+              <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Total Entries</div>
+              <div className="text-2xl font-bold text-white font-mono">{stats.total_entries}</div>
+              <p className="text-xs text-gray-600 mt-1">All time</p>
             </div>
-            <div className="bg-white border border-slate-200 rounded-xl p-4">
-              <div className="text-xs font-medium text-slate-500 uppercase">Year to Date</div>
-              <div className="text-2xl font-semibold text-slate-900 mt-1">{stats.ytd_entries}</div>
-              <p className="text-xs text-slate-500 mt-1">Entries this year</p>
+            <div className="bg-[#131316] border border-white/5 rounded-2xl p-5">
+              <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Year to Date</div>
+              <div className="text-2xl font-bold text-[#A3E635] font-mono">{stats.ytd_entries}</div>
+              <p className="text-xs text-gray-600 mt-1">Entries this year</p>
             </div>
-            <div className="bg-white border border-slate-200 rounded-xl p-4">
-              <div className="text-xs font-medium text-slate-500 uppercase">This Month</div>
-              <div className="text-2xl font-semibold text-slate-900 mt-1">{stats.mtd_entries}</div>
-              <p className="text-xs text-slate-500 mt-1">Entries this month</p>
+            <div className="bg-[#131316] border border-white/5 rounded-2xl p-5">
+              <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">This Month</div>
+              <div className="text-2xl font-bold text-[#8B5CF6] font-mono">{stats.mtd_entries}</div>
+              <p className="text-xs text-gray-600 mt-1">Entries this month</p>
             </div>
           </div>
         )}
 
         {/* Filters */}
-        <div className="bg-white border border-slate-200 rounded-xl p-4">
+        <div className="bg-[#131316] border border-white/5 rounded-2xl p-4">
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex-1 max-w-xs relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
               <input
                 type="text"
                 placeholder="Search by description..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+                className="w-full pl-10 pr-4 py-2 bg-[#09090B] border border-white/10 rounded-xl text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-[#8B5CF6]"
               />
             </div>
             <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-slate-700">Source:</label>
+              <label className="text-sm font-medium text-gray-400">Source:</label>
               <select
                 value={sourceFilter}
                 onChange={(e) => setSourceFilter(e.target.value)}
-                className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+                className="bg-[#09090B] border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-[#8B5CF6]"
               >
                 <option value="all">All Sources</option>
                 {sourceChoices.map((choice) => (
@@ -465,12 +465,12 @@ export const JournalEntriesPage: React.FC = () => {
                 ))}
               </select>
             </div>
-            <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+            <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
               <input
                 type="checkbox"
                 checked={showVoid}
                 onChange={(e) => setShowVoid(e.target.checked)}
-                className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                className="rounded border-white/20"
               />
               {showVoid ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               Show Void
@@ -479,25 +479,25 @@ export const JournalEntriesPage: React.FC = () => {
         </div>
 
         {/* Entries Table */}
-        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        <div className="bg-[#131316] border border-white/5 rounded-2xl overflow-hidden">
           {loading && !data ? (
-            <div className="p-8 text-center text-slate-500">Loading journal entries...</div>
+            <div className="p-8 text-center text-gray-500">Loading journal entries...</div>
           ) : entries.length === 0 ? (
-            <div className="p-8 text-center text-slate-500">
-              No journal entries found. <a href="/journal/new/" className="text-sky-600 hover:underline">Create your first entry</a>
+            <div className="p-8 text-center text-gray-500">
+              No journal entries found. <a href="/journal/new/" className="text-[#A3E635] hover:underline">Create your first entry</a>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 border-b border-slate-200">
-                  <tr className="text-xs uppercase text-slate-500">
-                    <th className="px-4 py-3 font-medium">Date</th>
-                    <th className="px-4 py-3 font-medium">Description</th>
-                    <th className="px-4 py-3 font-medium">Source</th>
-                    <th className="px-4 py-3 font-medium text-right">Debit</th>
-                    <th className="px-4 py-3 font-medium text-right">Credit</th>
-                    <th className="px-4 py-3 font-medium text-center">Lines</th>
-                    <th className="px-4 py-3 font-medium"></th>
+                <thead className="bg-[#09090B] border-b border-white/5">
+                  <tr className="text-xs uppercase text-gray-600">
+                    <th className="px-4 py-3 font-bold">Date</th>
+                    <th className="px-4 py-3 font-bold">Description</th>
+                    <th className="px-4 py-3 font-bold">Source</th>
+                    <th className="px-4 py-3 font-bold text-right">Debit</th>
+                    <th className="px-4 py-3 font-bold text-right">Credit</th>
+                    <th className="px-4 py-3 font-bold text-center">Lines</th>
+                    <th className="px-4 py-3 font-bold"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -508,43 +508,43 @@ export const JournalEntriesPage: React.FC = () => {
                         key={entry.id}
                         onClick={() => handleRowClick(entry)}
                         className={cn(
-                          "border-b border-slate-100 cursor-pointer transition-colors",
-                          isSelected ? "bg-sky-50" : "hover:bg-slate-50",
+                          "border-b border-white/5 cursor-pointer transition-colors",
+                          isSelected ? "bg-[#1C1C20]" : "hover:bg-[#18181B]",
                           entry.is_void && "opacity-50"
                         )}
                       >
-                        <td className="px-4 py-3 font-medium text-slate-800 whitespace-nowrap">
+                        <td className="px-4 py-3 font-medium text-white whitespace-nowrap">
                           {formatDate(entry.date)}
                         </td>
-                        <td className="px-4 py-3 text-slate-600 max-w-xs truncate">
+                        <td className="px-4 py-3 text-gray-400 max-w-xs truncate">
                           {entry.description || "—"}
                           {entry.is_void && (
-                            <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-rose-100 text-rose-700">
+                            <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-red-500/10 text-red-400">
                               Void
                             </span>
                           )}
                         </td>
                         <td className="px-4 py-3">
                           {entry.source_type && (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-[#27272A] text-gray-400 border border-white/5">
                               {getSourceIcon(entry.source_type)}
                               <span className="capitalize">{entry.source_label || entry.source_type}</span>
                             </span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-right font-medium text-emerald-600">
+                        <td className="px-4 py-3 text-right font-medium font-mono text-[#A3E635]">
                           {formatCurrency(entry.total_debit, currency)}
                         </td>
-                        <td className="px-4 py-3 text-right font-medium text-rose-600">
+                        <td className="px-4 py-3 text-right font-medium font-mono text-red-400">
                           {formatCurrency(entry.total_credit, currency)}
                         </td>
                         <td className="px-4 py-3 text-center">
-                          <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-slate-100 text-xs font-medium text-slate-600">
+                          <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-[#27272A] text-xs font-medium text-gray-400">
                             {entry.lines.length}
                           </span>
                         </td>
                         <td className="px-4 py-3">
-                          <ChevronRight className="h-4 w-4 text-slate-400" />
+                          <ChevronRight className="h-4 w-4 text-gray-500" />
                         </td>
                       </tr>
                     );

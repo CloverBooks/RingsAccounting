@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
     Plus,
     RefreshCw,
@@ -512,6 +513,7 @@ const AddManualPanel: React.FC<AddManualPanelProps> = ({ onAdd }) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function BankAccountsPage() {
+    const navigate = useNavigate();
     const [cards] = useState<BankCard[]>(MOCK_CARDS);
     const [activeCard, setActiveCard] = useState<BankCard>(MOCK_CARDS[0]);
     const [transactions, setTransactions] = useState<BankTransaction[]>(MOCK_TRANSACTIONS);
@@ -591,9 +593,12 @@ export default function BankAccountsPage() {
                         <BankCardPill key={card.id} card={card} active={activeCard.id === card.id} onClick={() => { setActiveCard(card); setSelectedTx(null); }} />
                     ))}
                     {/* Add Account */}
-                    <button className="flex-shrink-0 min-w-[140px] h-[68px] rounded-2xl border border-dashed border-white/10 flex flex-col items-center justify-center gap-1 cursor-pointer hover:border-[#8B5CF6]/40 hover:bg-[#8B5CF6]/5 transition-all">
-                        <Plus size={16} className="text-gray-500" />
-                        <span className="text-[10px] text-gray-500 font-medium">Connect Bank</span>
+                    <button
+                        onClick={() => navigate("/banking/setup")}
+                        className="flex-shrink-0 min-w-[140px] h-[68px] rounded-2xl border border-dashed border-white/10 flex flex-col items-center justify-center gap-1 cursor-pointer hover:border-[#A3E635]/40 hover:bg-[#A3E635]/5 transition-all group"
+                    >
+                        <Plus size={16} className="text-gray-500 group-hover:text-[#A3E635] transition-colors" />
+                        <span className="text-[10px] text-gray-500 group-hover:text-[#A3E635] font-medium transition-colors">Connect Bank</span>
                     </button>
                 </div>
 

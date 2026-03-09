@@ -160,6 +160,7 @@ export const AppRoutes: React.FC = () => (
         <Route path="/invoices/list" element={<Navigate to="/invoices" replace />} />
         <Route path="/customers" element={<LazyCustomersPage />} />
         <Route path="/bank-accounts" element={<LazyBankAccountsPage />} />
+        <Route path="/banking/setup" element={<LazyBankSetupPage />} />
         <Route path="/expense-list" element={<LazyExpenseListPage />} />
         <Route path="/ai-companion" element={<LazyAICompanionPage />} />
         <Route path="/companion/tax" element={<LazyTaxGuardianPage />} />
@@ -176,8 +177,8 @@ export const AppRoutes: React.FC = () => (
         }
       >
         <Route path="/ai-companion/*" element={<LegacyCompanionRedirect />} />
-        <Route path="/companion" element={<LazyCompanionControlTowerPage />} />
-        <Route path="/companion/overview" element={<LazyCompanionOverviewPage />} />
+        <Route path="/companion" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/companion/overview" element={<Navigate to="/dashboard" replace />} />
         <Route path="/companion/issues" element={<LazyCompanionIssuesPage />} />
         <Route path="/companion/proposals" element={<LazyCompanionProposalsPage />} />
         <Route path="/companion/tax/catalog" element={<LazyTaxCatalogPage />} />
@@ -191,17 +192,16 @@ export const AppRoutes: React.FC = () => (
         <Route path="/categories" element={<LazyCategoriesPage />} />
         <Route path="/inventory" element={<LazyInventoryOverviewPage />} />
         <Route path="/banking/old" element={<LazyBankingRoute />} />
-        <Route path="/banking/setup" element={<LazyBankSetupPage />} />
         <Route path="/reconciliation" element={<LazyReconciliationPage />} />
         <Route path="/reconciliation/report" element={<LazyReconciliationReportPage />} />
-        <Route path="/reports/pl" element={<ProfitAndLossReportRoute />} />
+        <Route path="/reports/pl" element={<Navigate to="/dashboard" replace />} />
         <Route path="/reports/cashflow" element={<CashflowReportRoute />} />
         <Route path="/reports/cashflow/print" element={<CashflowReportPrintRoute />} />
         <Route path="/accounts" element={<Navigate to="/chart-of-accounts" replace />} />
         <Route path="/accounts/" element={<Navigate to="/chart-of-accounts" replace />} />
         <Route path="/chart-of-accounts" element={<LazyChartOfAccountsRoute />} />
         <Route path="/journal" element={<LazyJournalEntriesPage />} />
-        <Route path="/transactions" element={<LazyTransactionsPage />} />
+        <Route path="/transactions" element={<Navigate to="/banking" replace />} />
         <Route path="/settings" element={<LazyAccountSettingsRoute />} />
         <Route path="/settings/roles" element={<LazyRolesSettingsPage />} />
         <Route path="/settings/team" element={<LazyTeamManagement />} />
