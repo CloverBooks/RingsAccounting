@@ -1,939 +1,748 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
-  AlertTriangle,
-  RefreshCw,
-  CheckCircle2,
-  ChevronDown,
-  Download,
-  Info,
-  Sparkles,
-  FileText,
-  ShieldCheck,
-  X,
-  Check,
-  ArrowRight,
-  Search,
-  MoreHorizontal,
-  Database,
-  Eye,
-  EyeOff,
-  TrendingUp,
-  ArrowUpRight,
-  ArrowDownRight,
-  Minus,
-  CreditCard,
-  Trash2,
-  Pencil,
+    AlertTriangle, RefreshCw, CheckCircle2, ChevronDown, Download,
+    Sparkles, FileText, ShieldCheck, X, Check, Search, TrendingUp,
+    ArrowUpRight, ArrowDownRight, CreditCard, Trash2, Pencil,
+    MoreHorizontal, Calendar, Globe, Zap, Clock,
 } from "lucide-react";
-import { useTaxGuardian, type Severity, type Status, type TaxAnomaly, type PaymentStatus, type TaxPayment, type TaxPaymentKind } from "./useTaxGuardian";
+import {
+    useTaxGuardian,
+    type Severity, type Status, type TaxAnomaly,
+    type PaymentStatus, type TaxPayment, type TaxPaymentKind,
+} from "./useTaxGuardian";
 import { useAuth } from "../contexts/AuthContext";
 import { usePermissions } from "../hooks/usePermissions";
 
-// -----------------------------------------------------------------------------
-// Helpers
-// -----------------------------------------------------------------------------
+// ─── Helpers ────────────────────────────────────────────────────────────────
 
-export function formatCurrency(amount: number | string | undefined | null, currency: string = "CAD"): string {
-  const num = typeof amount === "string" ? parseFloat(amount) || 0 : amount || 0;
-  if (isNaN(num)) {
-    return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(0);
-  }
-  return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(num);
+export function formatCurrency(v: number | string | undefined | null, currency = "USD"): string {
+    const n = typeof v === "string" ? parseFloat(v) || 0 : v || 0;
+    return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(isNaN(n as number) ? 0 : n as number);
 }
 
-function classNames(...classes: (string | false | null | undefined)[]) {
-  return classes.filter(Boolean).join(" ");
+function cx(...c: (string | false | null | undefined)[]) { return c.filter(Boolean).join(" "); }
+
+function paymentStatusLabel(s: PaymentStatus | null | undefined): string {
+    const map: Record<string, string> = {
+        PAID: "Paid", PARTIALLY_PAID: "Partial", UNPAID: "Unpaid", OVERPAID: "Overpaid",
+        SETTLED_ZERO: "Settled", NO_LIABILITY: "No Liability", REFUND_DUE: "Refund Due",
+        REFUND_PARTIALLY_RECEIVED: "Partial Refund", REFUND_RECEIVED: "Refunded", REFUND_OVERRECEIVED: "Over-Refunded",
+    };
+    return s ? (map[s] ?? "Unknown") : "—";
 }
 
-function paymentStatusLabel(status: PaymentStatus | null | undefined): string {
-  switch (status) {
-    case "PAID":
-      return "Paid";
-    case "PARTIALLY_PAID":
-      return "Partially paid";
-    case "UNPAID":
-      return "Unpaid";
-    case "OVERPAID":
-      return "Overpaid";
-    case "SETTLED_ZERO":
-      return "Settled";
-    case "NO_LIABILITY":
-      return "No liability";
-    case "REFUND_DUE":
-      return "Refund due";
-    case "REFUND_PARTIALLY_RECEIVED":
-      return "Partial refund";
-    case "REFUND_RECEIVED":
-      return "Refund received";
-    case "REFUND_OVERRECEIVED":
-      return "Over-refunded";
-    default:
-      return "Settled";
-  }
+function paymentStatusColor(s: PaymentStatus | null | undefined): string {
+    if (!s) return "text-slate-400 bg-slate-400/10 border-slate-400/20";
+    if (["PAID", "REFUND_RECEIVED", "SETTLED_ZERO", "NO_LIABILITY"].includes(s)) return "text-emerald-400 bg-emerald-400/10 border-emerald-400/20";
+    if (["PARTIALLY_PAID", "REFUND_PARTIALLY_RECEIVED"].includes(s)) return "text-amber-400 bg-amber-400/10 border-amber-400/20";
+    if (["UNPAID", "REFUND_DUE"].includes(s)) return "text-rose-400 bg-rose-400/10 border-rose-400/20";
+    return "text-sky-400 bg-sky-400/10 border-sky-400/20";
 }
 
-function paymentStatusClasses(status: PaymentStatus | null | undefined): string {
-  switch (status) {
-    case "PAID":
-    case "REFUND_RECEIVED":
-    case "SETTLED_ZERO":
-    case "NO_LIABILITY":
-      return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100";
-    case "PARTIALLY_PAID":
-    case "REFUND_PARTIALLY_RECEIVED":
-      return "bg-amber-50 text-amber-700 ring-1 ring-amber-100";
-    case "UNPAID":
-    case "REFUND_DUE":
-      return "bg-rose-50 text-rose-700 ring-1 ring-rose-100";
-    case "OVERPAID":
-    case "REFUND_OVERRECEIVED":
-      return "bg-blue-50 text-blue-700 ring-1 ring-blue-100";
-    default:
-      return "bg-slate-100 text-slate-600 ring-1 ring-slate-200";
-  }
+function periodSortKey(k: string): number {
+    const q = k.match(/^Q([1-4])\s+(\d{4})$/);
+    if (q) return Number(q[2]) * 10 + Number(q[1]);
+    const m = k.match(/^(\d{4})-(\d{2})$/);
+    if (m) return Number(m[1]) * 100 + Number(m[2]);
+    return 0;
 }
 
-function periodSortKey(periodKey: string): number {
-  const m = periodKey.match(/^(\d{4})-(\d{2})$/);
-  if (m) {
-    const year = Number(m[1]);
-    const month = Number(m[2]);
-    return Date.UTC(year, month - 1, 1);
-  }
-  const q = periodKey.match(/^(\d{4})Q([1-4])$/);
-  if (q) {
-    const year = Number(q[1]);
-    const quarter = Number(q[2]);
-    const endMonth = quarter * 3;
-    return Date.UTC(year, endMonth - 1, 1);
-  }
-  return 0;
-}
+// ─── Tiny Toast ─────────────────────────────────────────────────────────────
 
-function useQueryParams(): { period?: string; severity?: Severity | "all" } {
-  const params = new URLSearchParams(window.location.search);
-  return {
-    period: params.get("period") || undefined,
-    severity: (params.get("severity") as Severity | "all") || undefined,
-  };
-}
-
-// -----------------------------------------------------------------------------
-// Toast Component
-// -----------------------------------------------------------------------------
-const Toast: React.FC<{ message: string; type: "success" | "error" | "info"; onClose: () => void }> = ({ message, type, onClose }) => {
-  useEffect(() => {
-    const timer = setTimeout(onClose, 3000);
-    return () => clearTimeout(timer);
-  }, [onClose]);
-
-  const styles = {
-    success: "bg-emerald-600 text-white shadow-emerald-200",
-    error: "bg-rose-600 text-white shadow-rose-200",
-    info: "bg-slate-800 text-white shadow-slate-200",
-  };
-
-  return (
-    <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 rounded-2xl px-5 py-3 shadow-xl ${styles[type]} transition-all`}>
-      {type === "success" && <Check className="h-4 w-4" />}
-      {type === "error" && <AlertTriangle className="h-4 w-4" />}
-      {type === "info" && <Info className="h-4 w-4" />}
-      <span className="text-sm font-medium">{message}</span>
-      <button onClick={onClose} className="ml-2 opacity-70 hover:opacity-100">
-        <X className="h-3.5 w-3.5" />
-      </button>
-    </div>
-  );
-};
-
-// -----------------------------------------------------------------------------
-// Companion Panel
-// -----------------------------------------------------------------------------
-const DashboardCompanionPanel: React.FC<{
-  summary?: string | null;
-  isEnriching: boolean;
-  onEnrich: () => void;
-  userName?: string;
-}> = ({ summary, isEnriching, onEnrich, userName }) => {
-  return (
-    <div className="relative overflow-hidden rounded-[2rem] border border-white/60 bg-gradient-to-br from-white via-slate-50 to-slate-100 p-8 shadow-sm ring-1 ring-black/5 font-sans">
-      {/* Glass decorative blob */}
-      <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-blue-50/50 blur-3xl pointer-events-none" />
-
-      <div className="relative z-10 flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
-        <div className="flex gap-5">
-          {/* AI Avatar */}
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-slate-900 text-white shadow-md">
-            <span className="text-xs font-bold tracking-wider">AI</span>
-          </div>
-
-          <div className="space-y-3 max-w-2xl">
-            <div className="flex items-center gap-2">
-              <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                Tax Guardian Companion
-              </h3>
-            </div>
-
-            {isEnriching ? (
-              <div className="space-y-2">
-                <h2 className="text-xl font-semibold text-slate-900 animate-pulse">
-                  Analyzing your tax position...
-                </h2>
-                <div className="h-1.5 w-48 overflow-hidden rounded-full bg-slate-100">
-                  <div className="h-full w-2/3 bg-gradient-to-r from-transparent via-blue-400 to-transparent animate-pulse" />
-                </div>
-              </div>
-            ) : summary ? (
-              <div className="space-y-2">
-                <h2 className="text-xl font-semibold text-slate-900">
-                  I've analyzed your current period.
-                </h2>
-                <p className="text-sm leading-relaxed text-slate-600">
-                  {summary}
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <h2 className="text-xl font-semibold text-slate-900">
-                  Good day{userName ? `, ${userName}` : ""}. I'm ready to review.
-                </h2>
-                <p className="text-sm text-slate-600">
-                  I can cross-check recent activity, anomalies, and jurisdiction coverage to bring you a clean tax summary.
-                </p>
-              </div>
-            )}
-          </div>
+function Toast({ message, type, onClose }: { message: string; type: string; onClose: () => void }) {
+    useEffect(() => { const t = setTimeout(onClose, 4000); return () => clearTimeout(t); }, [onClose]);
+    const colors = type === "error" ? "bg-rose-500/90" : type === "success" ? "bg-emerald-500/90" : "bg-sky-500/90";
+    return (
+        <div className={cx("fixed top-5 right-5 z-[100] flex items-center gap-3 rounded-2xl px-5 py-3 text-sm font-medium text-white shadow-2xl backdrop-blur-md border border-white/10", colors)}>
+            {message}
+            <button onClick={onClose} className="ml-2 opacity-70 hover:opacity-100"><X className="h-4 w-4" /></button>
         </div>
-
-        {/* Action Button Area */}
-        <div className="flex flex-col items-end gap-3">
-          <div className="flex items-center gap-2 rounded-full bg-white/80 px-3 py-1 text-[10px] font-medium text-slate-500 shadow-sm ring-1 ring-slate-200 backdrop-blur-md">
-            <Sparkles className="h-3 w-3 text-emerald-500" />
-            <span>{isEnriching ? "Thinking..." : "Ready to analyze"}</span>
-          </div>
-
-          <button
-            onClick={onEnrich}
-            disabled={isEnriching}
-            className="group relative inline-flex items-center justify-center gap-2 rounded-full bg-slate-900 px-6 py-2.5 text-sm font-medium text-white shadow-lg shadow-slate-900/10 transition-all hover:bg-slate-800 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-70"
-          >
-            {isEnriching ? (
-              <RefreshCw className="h-4 w-4 animate-spin" />
-            ) : (
-              <>
-                <span>{summary ? "Refresh Analysis" : "Generate Analysis"}</span>
-                <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// -----------------------------------------------------------------------------
-// Helper Components
-// -----------------------------------------------------------------------------
-
-function MetricCard({
-  label,
-  value,
-  subtext,
-  tone = "neutral",
-  badge,
-}: {
-  label: string;
-  value: string;
-  subtext?: string;
-  tone?: "neutral" | "positive" | "negative";
-  badge?: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col overflow-hidden rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-slate-100/50 transition-all hover:shadow-md">
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">{label}</span>
-        {badge}
-      </div>
-      <div className="mt-2 flex items-baseline gap-2 min-w-0">
-        <span className="text-3xl font-bold tracking-tight text-slate-900 truncate font-mono-soft">{value}</span>
-      </div>
-      {subtext && (
-        <div className={classNames("mt-2 text-xs font-medium",
-          tone === "negative" ? "text-rose-600" : tone === "positive" ? "text-emerald-600" : "text-slate-500"
-        )}>
-          {subtext}
-        </div>
-      )}
-    </div>
-  );
+    );
 }
 
-// -----------------------------------------------------------------------------
-// Main Page
-// -----------------------------------------------------------------------------
+// ─── Glass card helper ───────────────────────────────────────────────────────
+
+const Glass = ({ children, className = "", hover = false }: any) => (
+    <div className={cx(
+        "rounded-2xl border border-white/[0.07] bg-white/[0.04] backdrop-blur-xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.07)]",
+        hover && "transition-all hover:border-white/[0.12] hover:bg-white/[0.07] hover:shadow-lg",
+        className
+    )}>{children}</div>
+);
+
+// ─── Page ───────────────────────────────────────────────────────────────────
+
+function useQueryParams() {
+    const { search } = useLocation();
+    const p = new URLSearchParams(search);
+    return { period: p.get("period") ?? undefined, severity: p.get("severity") as Severity | undefined };
+}
 
 const TaxGuardianPage: React.FC = () => {
-  const queryParams = useQueryParams();
-  const { auth } = useAuth();
-  const { can } = usePermissions();
-  const userName = auth?.user?.firstName || auth?.user?.username || "there";
-  const navigate = useNavigate();
-  const location = useLocation();
+    const qp = useQueryParams();
+    const { auth } = useAuth();
+    const { can } = usePermissions();
+    const userName = auth?.user?.firstName || auth?.user?.username || "there";
+    const navigate = useNavigate();
+    const location = useLocation();
 
-  const {
-    periods,
-    snapshot,
-    anomalies,
-    bankAccounts,
-    selectedPeriod,
-    setSelectedPeriod,
-    severityFilter,
-    setSeverityFilter,
-    loading,
-    error,
-    refresh,
-    llmEnrich,
-    resetPeriod,
-    createPayment,
-    updatePayment,
-    deletePayment,
-    updatePeriodStatus,
-    updateAnomalyStatus,
-  } = useTaxGuardian(queryParams.period, queryParams.severity);
+    const {
+        periods, snapshot, anomalies, bankAccounts,
+        selectedPeriod, setSelectedPeriod,
+        severityFilter, setSeverityFilter,
+        loading, error, refresh, llmEnrich,
+        resetPeriod, createPayment, updatePayment, deletePayment,
+        updatePeriodStatus, updateAnomalyStatus,
+    } = useTaxGuardian(qp.period, qp.severity);
 
-  const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
-  const [statusFilter, setStatusFilter] = useState<Status | "all">("all");
-  const [enriching, setEnriching] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [resetOpen, setResetOpen] = useState(false);
-  const [resetReason, setResetReason] = useState("");
-  const [resetting, setResetting] = useState(false);
-  const [paymentSaving, setPaymentSaving] = useState(false);
-  const [paymentForm, setPaymentForm] = useState<{
-    id: string | null;
-    kind: TaxPaymentKind;
-    bank_account_id: string;
-    amount: string;
-    payment_date: string;
-    method: string;
-    reference: string;
-    notes: string;
-  }>({
-    id: null,
-    kind: "PAYMENT",
-    bank_account_id: "",
-    amount: "",
-    payment_date: new Date().toISOString().slice(0, 10),
-    method: "EFT",
-    reference: "",
-    notes: "",
-  });
+    const [toast, setToast] = useState<{ message: string; type: string } | null>(null);
+    const [statusFilter, setStatusFilter] = useState<Status | "all">("all");
+    const [enriching, setEnriching] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
+    const [resetOpen, setResetOpen] = useState(false);
+    const [resetReason, setResetReason] = useState("");
+    const [resetting, setResetting] = useState(false);
+    const [paymentSaving, setPaymentSaving] = useState(false);
+    const [activeTab, setActiveTab] = useState<"overview" | "payments" | "anomalies" | "filings">("overview");
+    const [paymentForm, setPaymentForm] = useState<{
+        id: string | null; kind: TaxPaymentKind; bank_account_id: string;
+        amount: string; payment_date: string; method: string; reference: string; notes: string;
+    }>({ id: null, kind: "PAYMENT", bank_account_id: "", amount: "", payment_date: new Date().toISOString().slice(0, 10), method: "EFT", reference: "", notes: "" });
 
-  // Filtered anomalies
-  const filteredAnomalies = useMemo(() => {
-    return anomalies.filter((a: TaxAnomaly) => {
-      if (severityFilter !== "all" && a.severity !== severityFilter) return false;
-      if (statusFilter !== "all" && a.status !== statusFilter) return false;
-      if (searchQuery) {
-        const q = searchQuery.toLowerCase();
-        return a.code.toLowerCase().includes(q) || a.description.toLowerCase().includes(q);
-      }
-      return true;
-    });
-  }, [anomalies, severityFilter, statusFilter, searchQuery]);
+    const showToast = (message: string, type: "success" | "error" | "info") => setToast({ message, type });
 
-  const showToast = (message: string, type: "success" | "error" | "info") => setToast({ message, type });
+    const filteredAnomalies = useMemo(() => anomalies.filter((a: TaxAnomaly) => {
+        if (severityFilter !== "all" && a.severity !== severityFilter) return false;
+        if (statusFilter !== "all" && a.status !== statusFilter) return false;
+        return true;
+    }), [anomalies, severityFilter, statusFilter]);
 
-  useEffect(() => {
-    if (!selectedPeriod) return;
-    const params = new URLSearchParams(location.search);
-    params.set("period", selectedPeriod);
-    if (severityFilter !== "all") {
-      params.set("severity", severityFilter);
-    } else {
-      params.delete("severity");
-    }
-    navigate(
-      { pathname: location.pathname, search: params.toString() ? `?${params.toString()}` : "" },
-      { replace: true }
-    );
-  }, [location.pathname, location.search, navigate, selectedPeriod, severityFilter]);
+    useEffect(() => {
+        if (!selectedPeriod) return;
+        const p = new URLSearchParams(location.search);
+        p.set("period", selectedPeriod);
+        if (severityFilter !== "all") p.set("severity", severityFilter); else p.delete("severity");
+        navigate({ pathname: location.pathname, search: p.toString() ? `?${p}` : "" }, { replace: true });
+    }, [location.pathname, location.search, navigate, selectedPeriod, severityFilter]);
 
-  const handleRefresh = async () => {
-    if (!selectedPeriod) return;
-    setRefreshing(true);
-    try {
-      await refresh(selectedPeriod);
-      showToast("Tax data refreshed from ledger", "success");
-    } catch (e: any) {
-      showToast(e.message || "Refresh failed", "error");
-    } finally {
-      setRefreshing(false);
-    }
-  };
+    const handleEnrich = async () => {
+        if (!selectedPeriod) return;
+        setEnriching(true);
+        try { await llmEnrich(selectedPeriod); showToast("AI analysis complete", "success"); }
+        catch (e: any) { showToast(e.message || "AI analysis failed", "error"); }
+        finally { setEnriching(false); }
+    };
+    const handleStatusUpdate = async (s: string) => {
+        if (!selectedPeriod) return;
+        try { await updatePeriodStatus(selectedPeriod, s); showToast(`Status updated to ${s}`, "success"); }
+        catch (e: any) { showToast(e.message || "Update failed", "error"); }
+    };
+    const handleAnomalyAction = async (id: string, status: Status) => {
+        if (!selectedPeriod) return;
+        try { await updateAnomalyStatus(selectedPeriod, id, status, statusFilter); showToast("Anomaly updated", "success"); }
+        catch (e: any) { showToast(e.message || "Failed", "error"); }
+    };
+    const handleResetPeriod = async () => {
+        if (!selectedPeriod) return;
+        setResetting(true);
+        try { await resetPeriod(selectedPeriod, resetReason); setResetOpen(false); setResetReason(""); showToast("Period reset", "success"); }
+        catch (e: any) { showToast(e.message || "Reset failed", "error"); }
+        finally { setResetting(false); }
+    };
+    const savePayment = async () => {
+        if (!selectedPeriod) return;
+        setPaymentSaving(true);
+        try {
+            if (!paymentForm.amount.trim()) throw new Error("Amount required");
+            if (!paymentForm.bank_account_id) throw new Error("Bank account required");
+            const payload = { kind: paymentForm.kind, bank_account_id: paymentForm.bank_account_id, amount: paymentForm.amount, payment_date: paymentForm.payment_date, method: paymentForm.method, reference: paymentForm.reference, notes: paymentForm.notes };
+            if (paymentForm.id) { await updatePayment(selectedPeriod, paymentForm.id, payload); showToast("Payment updated", "success"); }
+            else { await createPayment(selectedPeriod, payload); showToast("Payment recorded", "success"); }
+            setPaymentForm(f => ({ ...f, id: null, amount: "", reference: "", notes: "" }));
+        } catch (e: any) { showToast(e.message || "Failed", "error"); }
+        finally { setPaymentSaving(false); }
+    };
 
-  const handleEnrich = async () => {
-    if (!selectedPeriod) return;
-    setEnriching(true);
-    try {
-      await llmEnrich(selectedPeriod);
-      showToast("AI analysis generated", "success");
-    } catch (e: any) {
-      showToast(e.message || "AI analysis failed", "error");
-    } finally {
-      setEnriching(false);
-    }
-  };
+    const netTax = useMemo(() => {
+        if (!snapshot) return 0;
+        if (snapshot.net_tax !== undefined && snapshot.net_tax !== null) return snapshot.net_tax;
+        return Object.values(snapshot.summary_by_jurisdiction || {}).reduce((s: number, j: any) => s + (j.net_tax || 0), 0);
+    }, [snapshot]);
 
-  const handleStatusUpdate = async (nextStatus: string) => {
-    if (!selectedPeriod) return;
-    try {
-      await updatePeriodStatus(selectedPeriod, nextStatus);
-      showToast(`Period marked as ${nextStatus}`, "success");
-    } catch (e: any) {
-      showToast(e.message || "Status update failed", "error");
-    }
-  };
+    useEffect(() => {
+        if (paymentForm.id) return;
+        if (!bankAccounts?.length) return;
+        if (!paymentForm.bank_account_id) setPaymentForm(f => ({ ...f, bank_account_id: bankAccounts[0].id }));
+    }, [bankAccounts, paymentForm.bank_account_id, paymentForm.id]);
 
-  const handleAnomalyResolve = async (anomalyId: string) => {
-    if (!selectedPeriod) return;
-    try {
-      await updateAnomalyStatus(selectedPeriod, anomalyId, "RESOLVED", statusFilter);
-      showToast("Anomaly marked as resolved", "success");
-    } catch (e: any) {
-      showToast(e.message || "Failed to update anomaly", "error");
-    }
-  };
+    const currency = snapshot?.country === "US" ? "USD" : "CAD";
+    const payments: TaxPayment[] = (snapshot?.payments as any) || [];
+    const paymentsTotal = snapshot?.payments_total ?? 0;
+    const remainingBalance = snapshot?.remaining_balance ?? (netTax - paymentsTotal);
+    const paymentStatus = snapshot?.payment_status as PaymentStatus | null;
+    const trendPeriods = useMemo(() => {
+        const s = [...periods].sort((a, b) => periodSortKey(a.period_key) - periodSortKey(b.period_key));
+        return s.slice(Math.max(0, s.length - 8));
+    }, [periods]);
+    const jurisdictions = Object.entries(snapshot?.summary_by_jurisdiction || {});
+    const dueBadge = useMemo(() => {
+        if (snapshot?.is_overdue) return { text: "Overdue", cls: "text-rose-400 bg-rose-400/10 border-rose-400/20" };
+        if (snapshot?.is_due_soon) return { text: "Due Soon", cls: "text-amber-400 bg-amber-400/10 border-amber-400/20" };
+        return { text: "On Track", cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/20" };
+    }, [snapshot]);
 
-  const handleResetPeriod = async () => {
-    if (!selectedPeriod) return;
-    setResetting(true);
-    try {
-      await resetPeriod(selectedPeriod, resetReason);
-      setResetOpen(false);
-      setResetReason("");
-      showToast("Return reset to REVIEWED. Refresh is now enabled.", "success");
-    } catch (e: any) {
-      showToast(e.message || "Failed to reset period", "error");
-    } finally {
-      setResetting(false);
-    }
-  };
-
-  const beginEditPayment = (p: TaxPayment) => {
-    setPaymentForm({
-      id: p.id,
-      kind: p.kind || "PAYMENT",
-      bank_account_id: p.bank_account_id ? String(p.bank_account_id) : (bankAccounts[0]?.id ?? ""),
-      amount: String(p.amount ?? ""),
-      payment_date: (p.payment_date || "").slice(0, 10) || new Date().toISOString().slice(0, 10),
-      method: p.method || "EFT",
-      reference: p.reference || "",
-      notes: p.notes || "",
-    });
-  };
-
-  const clearPaymentForm = () => {
-    setPaymentForm({
-      id: null,
-      kind: netTax < 0 ? "REFUND" : "PAYMENT",
-      bank_account_id: paymentForm.bank_account_id || (bankAccounts[0]?.id ?? ""),
-      amount: "",
-      payment_date: new Date().toISOString().slice(0, 10),
-      method: "EFT",
-      reference: "",
-      notes: "",
-    });
-  };
-
-  const savePayment = async () => {
-    if (!selectedPeriod) return;
-    setPaymentSaving(true);
-    try {
-      if (!paymentForm.amount.trim()) throw new Error("Amount is required.");
-      if (!paymentForm.payment_date) throw new Error("Payment date is required.");
-      if (!paymentForm.bank_account_id) throw new Error("Bank account is required.");
-      const payload = {
-        kind: paymentForm.kind,
-        bank_account_id: paymentForm.bank_account_id,
-        amount: paymentForm.amount,
-        payment_date: paymentForm.payment_date,
-        method: paymentForm.method,
-        reference: paymentForm.reference,
-        notes: paymentForm.notes,
-      };
-      if (paymentForm.id) {
-        await updatePayment(selectedPeriod, paymentForm.id, payload);
-        showToast("Payment updated", "success");
-      } else {
-        await createPayment(selectedPeriod, payload);
-        showToast("Payment recorded", "success");
-      }
-      clearPaymentForm();
-    } catch (e: any) {
-      showToast(e.message || "Failed to save payment", "error");
-    } finally {
-      setPaymentSaving(false);
-    }
-  };
-
-  const removePayment = async (paymentId: string) => {
-    if (!selectedPeriod) return;
-    if (!confirm("Delete this payment record?")) return;
-    setPaymentSaving(true);
-    try {
-      await deletePayment(selectedPeriod, paymentId);
-      showToast("Payment deleted", "success");
-      if (paymentForm.id === paymentId) clearPaymentForm();
-    } catch (e: any) {
-      showToast(e.message || "Failed to delete payment", "error");
-    } finally {
-      setPaymentSaving(false);
-    }
-  };
-
-  // Compute net tax from snapshot
-  const netTax = useMemo(() => {
-    if (!snapshot) return 0;
-    if (snapshot.net_tax !== undefined && snapshot.net_tax !== null) return snapshot.net_tax;
-    if (!snapshot.summary_by_jurisdiction) return 0;
-    return Object.values(snapshot.summary_by_jurisdiction).reduce((sum: number, j: any) => sum + (j.net_tax || 0), 0);
-  }, [snapshot]);
-
-  useEffect(() => {
-    if (paymentForm.id) return;
-    const desired: TaxPaymentKind = netTax < 0 ? "REFUND" : "PAYMENT";
-    if (paymentForm.kind !== desired) setPaymentForm((f) => ({ ...f, kind: desired }));
-  }, [netTax, paymentForm.id, paymentForm.kind]);
-
-  useEffect(() => {
-    if (paymentForm.bank_account_id) return;
-    if (!bankAccounts || bankAccounts.length === 0) return;
-    setPaymentForm((f) => ({ ...f, bank_account_id: bankAccounts[0].id }));
-  }, [bankAccounts, paymentForm.bank_account_id]);
-
-  const currency = snapshot?.country === "US" ? "USD" : "CAD";
-  const payments: TaxPayment[] = (snapshot?.payments as any) || [];
-  const paymentsTotal = snapshot?.payments_total ?? snapshot?.payments_net_total ?? 0;
-  const paymentsPaymentTotal = snapshot?.payments_payment_total ?? 0;
-  const paymentsRefundTotal = snapshot?.payments_refund_total ?? 0;
-  const paymentStatus: PaymentStatus | null = (snapshot?.payment_status as any) || null;
-  const balance = snapshot?.balance ?? ((netTax || 0) - (paymentsTotal || 0));
-  const remainingBalance = snapshot?.remaining_balance ?? balance;
-  const dueBadge = useMemo(() => {
-    if (snapshot?.is_overdue) return { text: `Overdue`, className: "text-rose-600" };
-    if (snapshot?.is_due_soon) return { text: `Due soon`, className: "text-amber-600" };
-    return { text: "On track", className: "text-emerald-600" };
-  }, [snapshot]);
-
-  // Format due date
-  const dueDate = useMemo(() => {
-    if (!snapshot?.due_date) return null;
-    try {
-      return new Date(snapshot.due_date).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-    } catch {
-      return snapshot.due_date;
-    }
-  }, [snapshot]);
-
-  const trendPeriods = useMemo(() => {
-    const sorted = [...periods].sort((a, b) => periodSortKey(a.period_key) - periodSortKey(b.period_key));
-    return sorted.slice(Math.max(0, sorted.length - 12));
-  }, [periods]);
-
-  if (loading && !snapshot) {
-    return (
-      <div className="min-h-screen bg-[#09090B] flex items-center justify-center">
-        <div className="text-center">
-          <RefreshCw className="h-8 w-8 animate-spin text-gray-500 mx-auto mb-3" />
-          <p className="text-sm text-gray-400">Loading Tax Guardian...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="min-h-screen bg-[#09090B] p-8">
-        <div className="max-w-xl mx-auto p-6 bg-[#131316] border border-red-500/20 rounded-[24px] shadow-2xl">
-          <AlertTriangle className="h-6 w-6 mb-3 text-red-500" />
-          <p className="font-semibold text-white">Error loading Tax Guardian</p>
-          <p className="text-sm mt-1 text-gray-400">{error}</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-[#09090B] font-sans text-white p-4 md:p-6" style={{ fontFamily: "'Inter', sans-serif" }}>
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-      {resetOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="w-full max-w-lg rounded-[24px] bg-[#131316] border border-white/5 p-6 shadow-2xl">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-bold text-white">Reset filed return?</h2>
-                <p className="mt-1 text-xs text-gray-400">
-                  This will reopen the period for changes. It does not delete transactions, but it clears the FILED lock.
-                </p>
-              </div>
-              <button onClick={() => setResetOpen(false)} className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/5 text-gray-400 hover:text-white hover:bg-white/10">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="mt-6">
-              <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Reason (optional)</label>
-              <input value={resetReason} onChange={(e) => setResetReason(e.target.value)} placeholder="e.g., Filing was premature; adjusting rates" className="mt-1.5 h-11 w-full rounded-xl border border-white/10 bg-[#18181B] px-3 text-sm text-white focus:outline-none focus:border-[#8B5CF6]/50" />
-            </div>
-            <div className="mt-6 flex items-center justify-end gap-3">
-              <button onClick={() => setResetOpen(false)} className="rounded-xl border border-white/5 bg-[#18181B] px-4 py-2.5 text-xs font-semibold text-gray-300 hover:text-white">Cancel</button>
-              <button onClick={handleResetPeriod} disabled={resetting} className="rounded-xl bg-[#F87171]/10 border border-[#F87171]/20 px-4 py-2.5 text-xs font-semibold text-[#F87171] hover:bg-[#F87171]/20 disabled:opacity-50">
-                {resetting ? "Resetting..." : "Reset return"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="mx-auto max-w-[1360px] rounded-[28px] bg-[#131316] border border-white/5 p-5 shadow-2xl">
-        <TopBar userName={userName} unread={filteredAnomalies.length} onExport={() => { }} />
-
-        <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[1.05fr_1fr_1fr_1.08fr]">
-          <PromoCard onEnrich={handleEnrich} isEnriching={enriching} summary={snapshot?.llm_summary} />
-          <StatCard title="Tax Liability" value={formatCurrency(netTax, currency)} change={dueBadge.text} positive={!snapshot?.is_overdue} sub={`Period: ${selectedPeriod || 'Current'}`} />
-          <StatCard title="Total Payments" value={formatCurrency(paymentsTotal, currency)} change="View history" positive={true} sub="Payments applied to period" />
-          <StatCard title="Remaining Balance" value={formatCurrency(remainingBalance, currency)} change={paymentStatusLabel(paymentStatus)} positive={remainingBalance <= 0} sub="Outstanding amount" />
-        </div>
-
-        <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[1.15fr_1.35fr_0.9fr]">
-          <TransactionCard trendPeriods={trendPeriods} />
-          <SalesCard summary={snapshot?.summary_by_jurisdiction} />
-          <ScheduleCard anomalies={filteredAnomalies} />
-        </div>
-
-        <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[1.15fr_1.35fr_0.9fr]">
-          <OrdersHeatmapCard />
-          <ProductStatsCard trendPeriods={trendPeriods} />
-
-          <div className="rounded-[24px] bg-transparent flex flex-col justify-end gap-3">
-            <div className="rounded-[24px] bg-[#18181B] border border-white/5 p-6 shadow-sm flex flex-col justify-center items-center text-center h-[230px]">
-              <div className="h-12 w-12 rounded-full bg-[#131316] border border-white/10 flex items-center justify-center mb-3">
-                <ShieldCheck className="h-6 w-6 text-[#A3E635]" />
-              </div>
-              <h3 className="text-white font-semibold text-lg mb-1">Ready to File?</h3>
-              <p className="text-gray-400 text-xs mb-5">Once anomalies are resolved, lock {selectedPeriod} period.</p>
-              <div className="w-full flex gap-3">
-                <button onClick={() => handleStatusUpdate("REVIEWED")} disabled={snapshot?.status !== "DRAFT"} className="flex-1 bg-[#27272A] hover:bg-[#3f3f46] text-white py-2.5 rounded-xl text-xs font-semibold transition-colors disabled:opacity-50">Review</button>
-                <button onClick={() => handleStatusUpdate("FILED")} disabled={snapshot?.status === "FILED"} className="flex-1 bg-[#A3E635] hover:bg-[#bef264] text-black py-2.5 rounded-xl text-xs font-semibold transition-colors shadow-[0_0_15px_rgba(163,230,53,0.2)] disabled:opacity-50 disabled:shadow-none">File Return</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+if (loading && !snapshot) return (
+    <div className="min-h-screen bg-[#0A0A0F] flex items-center justify-center">
+        <div className="text-center"><RefreshCw className="h-8 w-8 animate-spin text-violet-400 mx-auto mb-3" /><p className="text-sm text-slate-400">Loading Tax Guardian...</p></div>
     </div>
-  );
+);
 
+const openAnomalies = anomalies.filter((a: TaxAnomaly) => a.status === "OPEN");
+const highAnomalies = openAnomalies.filter((a: TaxAnomaly) => a.severity === "high");
+
+return (
+    <div className="min-h-screen bg-[#0A0A0F] text-white" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
+        {/* Background blobs */}
+        <div className="pointer-events-none fixed inset-0 overflow-hidden">
+            <div className="absolute -top-40 -right-40 h-[600px] w-[600px] rounded-full bg-violet-600/10 blur-[120px]" />
+            <div className="absolute -bottom-40 -left-40 h-[500px] w-[500px] rounded-full bg-emerald-600/8 blur-[100px]" />
+            <div className="absolute top-1/2 left-1/2 h-[400px] w-[400px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-sky-600/5 blur-[80px]" />
+        </div>
+
+        {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+
+        {/* Reset Dialog */}
+        {resetOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+                <Glass className="w-full max-w-md p-6">
+                    <div className="flex items-start justify-between mb-4">
+                        <div><h2 className="text-base font-semibold text-white">Reset Filed Return</h2><p className="mt-1 text-xs text-slate-400">This will reopen the period. Transactions are preserved.</p></div>
+                        <button onClick={() => setResetOpen(false)} className="text-slate-500 hover:text-white"><X className="h-4 w-4" /></button>
+                    </div>
+                    <label className="block text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1.5">Reason (optional)</label>
+                    <input value={resetReason} onChange={e => setResetReason(e.target.value)} placeholder="e.g., Filing was premature" className="w-full rounded-xl bg-white/5 border border-white/10 px-3 py-2.5 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-violet-500/50" />
+                    <div className="mt-4 flex justify-end gap-3">
+                        <button onClick={() => setResetOpen(false)} className="rounded-xl px-4 py-2 text-xs font-medium text-slate-400 hover:text-white border border-white/10">Cancel</button>
+                        <button onClick={handleResetPeriod} disabled={resetting} className="rounded-xl px-4 py-2 text-xs font-semibold bg-rose-500/20 text-rose-400 border border-rose-500/30 hover:bg-rose-500/30 disabled:opacity-50">
+                            {resetting ? "Resetting…" : "Reset Return"}
+                        </button>
+                    </div>
+                </Glass>
+            </div>
+        )}
+
+        <div className="relative mx-auto max-w-[1400px] px-4 py-6 md:px-8">
+            {/* ── Header ── */}
+            <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div>
+                    <div className="flex items-center gap-2 text-xs text-slate-500 mb-2">
+                        <ShieldCheck className="h-3.5 w-3.5 text-violet-400" />
+                        <span>Tax Guardian</span>
+                        <span>/</span>
+                        <span className="text-slate-300">{selectedPeriod || "No Period"}</span>
+                    </div>
+                    <h1 className="text-3xl font-bold tracking-tight text-white">Tax Center</h1>
+                    <p className="mt-1 text-sm text-slate-400">
+                        {highAnomalies.length > 0 ? (
+                            <span className="text-rose-400">{highAnomalies.length} high-priority issue{highAnomalies.length > 1 ? "s" : ""} require attention</span>
+                        ) : (
+                            <span className="text-emerald-400">No high-priority issues · </span>
+                        )}
+                        <span className="text-slate-500">{selectedPeriod}</span>
+                    </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5">
+                    {/* Period selector */}
+                    <div className="relative">
+                        <select value={selectedPeriod || ""} onChange={e => setSelectedPeriod(e.target.value)}
+                            className="h-9 appearance-none rounded-xl bg-white/[0.06] border border-white/10 pl-3 pr-8 text-sm text-white focus:outline-none focus:border-violet-500/50 cursor-pointer">
+                            {periods.map(p => <option key={p.period_key} value={p.period_key} className="bg-[#1a1a2e]">{p.period_key}</option>)}
+                        </select>
+                        <ChevronDown className="pointer-events-none absolute right-2.5 top-2.5 h-4 w-4 text-slate-400" />
+                    </div>
+
+                    <button onClick={handleEnrich} disabled={enriching || !selectedPeriod}
+                        className="flex h-9 items-center gap-2 rounded-xl bg-violet-600/20 border border-violet-500/30 px-4 text-sm font-medium text-violet-300 hover:bg-violet-600/30 transition-all disabled:opacity-50">
+                        <Sparkles className="h-4 w-4" />
+                        {enriching ? "Analyzing…" : "AI Audit"}
+                    </button>
+
+                    {can("tax.guardian.export") && selectedPeriod && (
+                        <a href={`/api/tax/periods/${selectedPeriod}/export.json`}
+                            className="flex h-9 items-center gap-2 rounded-xl bg-white/[0.06] border border-white/10 px-4 text-sm text-slate-300 hover:bg-white/[0.10] transition-all">
+                            <Download className="h-4 w-4" />Export
+                        </a>
+                    )}
+
+                    {snapshot?.status === "FILED" && (
+                        <button onClick={() => setResetOpen(true)} className="flex h-9 items-center gap-2 rounded-xl bg-white/[0.06] border border-white/10 px-4 text-sm text-slate-300 hover:bg-white/[0.10]">
+                            Reset
+                        </button>
+                    )}
+                </div>
+            </div>
+
+            {/* ── AI Summary Banner ── */}
+            {snapshot?.llm_summary && (
+                <Glass className="mb-6 p-4 flex items-start gap-4" style={{ background: "linear-gradient(135deg,rgba(139,92,246,0.08),rgba(16,16,28,0.6))" }}>
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-500/20 border border-violet-500/30">
+                        <Sparkles className="h-4 w-4 text-violet-400" />
+                    </div>
+                    <div>
+                        <p className="text-xs font-semibold uppercase tracking-wider text-violet-400 mb-1">AI Companion Analysis</p>
+                        <p className="text-sm text-slate-300 leading-relaxed">{snapshot.llm_summary}</p>
+                    </div>
+                </Glass>
+            )}
+
+            {/* ── KPI Row ── */}
+            <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
+                {[
+                    { label: "Net Tax Liability", value: formatCurrency(netTax, currency), badge: dueBadge.text, badgeCls: dueBadge.cls, icon: <TrendingUp className="h-4 w-4" />, iconBg: "bg-violet-500/20 text-violet-400" },
+                    { label: "Payments Made", value: formatCurrency(paymentsTotal, currency), badge: `${payments.length} txn${payments.length !== 1 ? "s" : ""}`, badgeCls: "text-sky-400 bg-sky-400/10 border-sky-400/20", icon: <CreditCard className="h-4 w-4" />, iconBg: "bg-sky-500/20 text-sky-400" },
+                    { label: "Remaining Balance", value: formatCurrency(remainingBalance, currency), badge: paymentStatusLabel(paymentStatus), badgeCls: paymentStatusColor(paymentStatus), icon: <CheckCircle2 className="h-4 w-4" />, iconBg: remainingBalance <= 0 ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400" },
+                    { label: "Open Anomalies", value: String(openAnomalies.length), badge: highAnomalies.length > 0 ? `${highAnomalies.length} High` : "All Clear", badgeCls: highAnomalies.length > 0 ? "text-rose-400 bg-rose-400/10 border-rose-400/20" : "text-emerald-400 bg-emerald-400/10 border-emerald-400/20", icon: <AlertTriangle className="h-4 w-4" />, iconBg: highAnomalies.length > 0 ? "bg-rose-500/20 text-rose-400" : "bg-emerald-500/20 text-emerald-400" },
+                ].map((k, i) => (
+                    <Glass key={i} className="p-5">
+                        <div className="flex items-start justify-between mb-3">
+                            <div className={cx("flex h-8 w-8 items-center justify-center rounded-lg", k.iconBg)}>{k.icon}</div>
+                            <span className={cx("rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider", k.badgeCls)}>{k.badge}</span>
+                        </div>
+                        <p className="text-2xl font-bold text-white tracking-tight">{k.value}</p>
+                        <p className="mt-1 text-xs text-slate-500">{k.label}</p>
+                    </Glass>
+                ))}
+            </div>
+
+            {/* ── Period History Scroller ── */}
+            {trendPeriods.length > 1 && (
+                <div className="mb-6 overflow-x-auto">
+                    <div className="flex gap-3 pb-1 min-w-max">
+                        {trendPeriods.map(p => {
+                            const isSel = p.period_key === selectedPeriod;
+                            const statusCls = p.payment_status ? paymentStatusColor(p.payment_status as PaymentStatus) : "text-slate-500 bg-slate-500/10 border-slate-500/20";
+                            return (
+                                <button key={p.period_key} onClick={() => setSelectedPeriod(p.period_key)}
+                                    className={cx("rounded-xl border px-4 py-3 text-left transition-all min-w-[150px]",
+                                        isSel ? "border-violet-500/50 bg-violet-500/10 shadow-[0_0_20px_rgba(139,92,246,0.15)]" : "border-white/[0.07] bg-white/[0.03] hover:border-white/[0.12] hover:bg-white/[0.06]")}>
+                                    <div className="text-xs font-semibold text-slate-300">{p.period_key}</div>
+                                    <div className="mt-1.5 text-base font-bold text-white">{formatCurrency(p.net_tax, currency)}</div>
+                                    <span className={cx("mt-2 inline-block rounded-full border px-2 py-0.5 text-[10px] font-semibold", statusCls)}>
+                                        {paymentStatusLabel(p.payment_status as PaymentStatus)}
+                                    </span>
+                                    {(p.anomaly_counts?.high ?? 0) > 0 && (
+                                        <span className="ml-1.5 inline-block rounded-full bg-rose-400/10 border border-rose-400/20 text-rose-400 px-1.5 py-0.5 text-[10px] font-bold">{p.anomaly_counts.high}H</span>
+                                    )}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
+            {/* ── Tab Nav ── */}
+            <div className="mb-6 flex gap-1 rounded-xl bg-white/[0.04] border border-white/[0.07] p-1 w-fit">
+                {(["overview", "payments", "anomalies", "filings"] as const).map(tab => (
+                    <button key={tab} onClick={() => setActiveTab(tab)}
+                        className={cx("rounded-lg px-4 py-2 text-sm font-medium transition-all capitalize",
+                            activeTab === tab ? "bg-white/[0.10] text-white shadow-sm" : "text-slate-500 hover:text-slate-300")}>
+                        {tab}
+                        {tab === "anomalies" && openAnomalies.length > 0 && (
+                            <span className={cx("ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-bold", highAnomalies.length > 0 ? "bg-rose-500/20 text-rose-400" : "bg-slate-500/20 text-slate-400")}>
+                                {openAnomalies.length}
+                            </span>
+                        )}
+                    </button>
+                ))}
+            </div>
+
+            {/* ── Overview Tab ── */}
+            {activeTab === "overview" && (
+                <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+                    {/* Left: Trend Chart + Jurisdiction Breakdown */}
+                    <div className="space-y-6">
+                        {/* Trend Chart */}
+                        <Glass className="p-6">
+                            <div className="mb-4 flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-base font-semibold text-white">Tax Liability Trend</h2>
+                                    <p className="text-xs text-slate-500 mt-0.5">Net liability vs total payments across periods</p>
+                                </div>
+                                <div className="flex items-center gap-4 text-xs text-slate-400">
+                                    <span className="flex items-center gap-1.5"><span className="h-2 w-5 rounded-full bg-violet-500 inline-block" /><span>Liability</span></span>
+                                    <span className="flex items-center gap-1.5"><span className="h-2 w-5 rounded-full bg-emerald-500 inline-block" /><span>Paid</span></span>
+                                </div>
+                            </div>
+                            {(() => {
+                                const W = 500, H = 140;
+                                const maxV = Math.max(10, ...trendPeriods.map(p => Math.max(Number(p.net_tax) || 0, Number(p.payments_total) || 0)));
+                                const mkPath = (key: string) => trendPeriods.map((p, i) => {
+                                    const v = Number((p as any)[key]) || 0;
+                                    const x = trendPeriods.length < 2 ? W / 2 : (i / (trendPeriods.length - 1)) * (W - 40) + 20;
+                                    const y = H - (v / maxV) * (H - 20) - 10;
+                                    return `${i === 0 ? "M" : "L"} ${x} ${y}`;
+                                }).join(" ");
+                                const mkFill = (key: string, color: string) => trendPeriods.length < 2 ? null : (() => {
+                                    const pts = trendPeriods.map((p, i) => {
+                                        const v = Number((p as any)[key]) || 0;
+                                        const x = (i / (trendPeriods.length - 1)) * (W - 40) + 20;
+                                        const y = H - (v / maxV) * (H - 20) - 10;
+                                        return `${x},${y}`;
+                                    });
+                                    return <path d={`M ${pts[0]} L ${pts.join(" L ")} L ${(W - 20)},${H} L 20,${H} Z`} fill={color} opacity={0.08} />;
+                                })();
+                                return (
+                                    <div className="rounded-xl bg-white/[0.02] border border-white/[0.05] p-3">
+                                        <svg viewBox={`0 0 ${W} ${H}`} className="w-full overflow-visible" style={{ height: 140 }}>
+                                            {[0, 25, 50, 75, 100].map(pct => {
+                                                const y = H - (pct / 100) * (H - 20) - 10;
+                                                return <g key={pct}><line x1={20} x2={W - 20} y1={y} y2={y} stroke="white" strokeOpacity={0.04} strokeDasharray="3 4" /><text x={15} y={y + 4} fontSize={9} fill="#52525b" textAnchor="end">{(maxV * pct / 100 / 1000).toFixed(0)}k</text></g>;
+                                            })}
+                                            {mkFill("net_tax", "#8b5cf6")}
+                                            {mkFill("payments_total", "#10b981")}
+                                            {trendPeriods.length > 0 && <>
+                                                <path d={mkPath("net_tax")} fill="none" stroke="#8b5cf6" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+                                                <path d={mkPath("payments_total")} fill="none" stroke="#10b981" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" strokeDasharray="5 3" />
+                                            </>}
+                                            {trendPeriods.map((p, i) => {
+                                                const v = Number(p.net_tax) || 0;
+                                                const x = trendPeriods.length < 2 ? W / 2 : (i / (trendPeriods.length - 1)) * (W - 40) + 20;
+                                                const y = H - (v / maxV) * (H - 20) - 10;
+                                                return <g key={i}><circle cx={x} cy={y} r={3.5} fill="#8b5cf6" className="cursor-pointer" /><text x={x} y={H + 12} fontSize={9} fill="#52525b" textAnchor="middle">{p.period_key.replace("20", "'")}</text></g>;
+                                            })}
+                                        </svg>
+                                    </div>
+                                );
+                            })()}
+                        </Glass>
+
+                        {/* Jurisdiction Breakdown */}
+                        <Glass className="p-6">
+                            <div className="mb-4 flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-base font-semibold text-white">Tax by Jurisdiction</h2>
+                                    <p className="text-xs text-slate-500 mt-0.5">{jurisdictions.length} active jurisdiction{jurisdictions.length !== 1 ? "s" : ""}</p>
+                                </div>
+                                <Globe className="h-4 w-4 text-slate-500" />
+                            </div>
+                            {jurisdictions.length === 0 ? (
+                                <p className="text-sm text-slate-500 py-4 text-center">No jurisdiction data for this period</p>
+                            ) : (
+                                <div className="space-y-3">
+                                    {jurisdictions.map(([code, data]: [string, any]) => {
+                                        const jNet = data.net_tax || 0;
+                                        const pct = netTax > 0 ? Math.round((jNet / netTax) * 100) : 0;
+                                        return (
+                                            <div key={code} className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 hover:bg-white/[0.05] transition-all">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-base">{code === "US" || code === "WA" || code === "TX" || code === "NY" || code === "CA" ? "🇺🇸" : code === "CA_GST" ? "🇨🇦" : "🌐"}</span>
+                                                        <span className="text-sm font-semibold text-white">{code}</span>
+                                                        {data.status && <span className={cx("rounded-full border px-2 py-0.5 text-[10px] font-semibold", data.status === "FILED" ? "text-emerald-400 bg-emerald-400/10 border-emerald-400/20" : "text-slate-400 bg-slate-400/10 border-slate-400/20")}>{data.status}</span>}
+                                                    </div>
+                                                    <span className="text-sm font-bold text-white">{formatCurrency(jNet, currency)}</span>
+                                                </div>
+                                                <div className="flex gap-2 text-xs text-slate-500 mb-2">
+                                                    {data.taxable_sales && <span>Taxable: {formatCurrency(data.taxable_sales, currency)}</span>}
+                                                    {data.exempt_sales && <span>Exempt: {formatCurrency(data.exempt_sales, currency)}</span>}
+                                                </div>
+                                                <div className="h-1.5 rounded-full bg-white/[0.05] overflow-hidden">
+                                                    <div className="h-full rounded-full bg-violet-500/60 transition-all" style={{ width: `${pct}%` }} />
+                                                </div>
+                                                <p className="mt-1 text-right text-[10px] text-slate-600">{pct}% of total</p>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </Glass>
+                    </div>
+
+                    {/* Right: Status + Quick Actions + Filing Timeline */}
+                    <div className="space-y-5">
+                        {/* Period Status Card */}
+                        <Glass className="p-5" style={{ background: "linear-gradient(135deg,rgba(139,92,246,0.07),rgba(10,10,15,0.8))" }}>
+                            <div className="flex items-center justify-between mb-4">
+                                <h3 className="text-sm font-semibold text-white">Filing Status</h3>
+                                <span className={cx("rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider",
+                                    snapshot?.status === "FILED" ? "text-emerald-400 bg-emerald-400/10 border-emerald-400/20" :
+                                        snapshot?.status === "REVIEWED" ? "text-sky-400 bg-sky-400/10 border-sky-400/20" :
+                                            "text-amber-400 bg-amber-400/10 border-amber-400/20")}>
+                                    {snapshot?.status || "Draft"}
+                                </span>
+                            </div>
+                            {snapshot?.due_date && (
+                                <div className="flex items-center gap-2 text-xs text-slate-400 mb-4">
+                                    <Calendar className="h-3.5 w-3.5" />
+                                    <span>Due {new Date(snapshot.due_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</span>
+                                    <span className={cx("rounded-full border px-1.5 py-0.5 text-[10px] font-semibold", dueBadge.cls)}>{dueBadge.text}</span>
+                                </div>
+                            )}
+                            {/* Filing steps */}
+                            {[
+                                { label: "Draft created", done: true },
+                                { label: "Transactions reviewed", done: (openAnomalies.length === 0) },
+                                { label: "Period reviewed", done: ["REVIEWED", "FILED"].includes(snapshot?.status || "") },
+                                { label: "Return filed", done: snapshot?.status === "FILED" },
+                            ].map((step, i) => (
+                                <div key={i} className="flex items-center gap-3 py-2 border-b border-white/[0.05] last:border-0">
+                                    <div className={cx("flex h-5 w-5 items-center justify-center rounded-full shrink-0", step.done ? "bg-emerald-500/20 text-emerald-400" : "bg-white/[0.05] text-slate-600")}>
+                                        {step.done ? <Check className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
+                                    </div>
+                                    <span className={cx("text-xs", step.done ? "text-slate-300" : "text-slate-600")}>{step.label}</span>
+                                </div>
+                            ))}
+                            <div className="mt-5 grid grid-cols-2 gap-2">
+                                <button onClick={() => handleStatusUpdate("REVIEWED")} disabled={snapshot?.status !== "DRAFT"}
+                                    className="rounded-xl py-2.5 text-xs font-semibold bg-white/[0.06] border border-white/10 text-slate-300 hover:bg-white/[0.10] disabled:opacity-40 transition-all">
+                                    Mark Reviewed
+                                </button>
+                                <button onClick={() => handleStatusUpdate("FILED")} disabled={snapshot?.status === "FILED"}
+                                    className="rounded-xl py-2.5 text-xs font-bold bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/30 disabled:opacity-40 transition-all shadow-[0_0_20px_rgba(16,185,129,0.15)]">
+                                    File Return
+                                </button>
+                            </div>
+                        </Glass>
+
+                        {/* Quick Links */}
+                        <Glass className="p-5">
+                            <h3 className="text-sm font-semibold text-white mb-3">Quick Actions</h3>
+                            <div className="space-y-1.5">
+                                {[
+                                    { label: "View Tax Settings", to: "/companion/tax/settings", icon: <Zap className="h-3.5 w-3.5" /> },
+                                    { label: "Tax Rate Catalog", to: "/companion/tax/catalog", icon: <FileText className="h-3.5 w-3.5" /> },
+                                    { label: "Product Tax Rules", to: "/companion/tax/product-rules", icon: <Globe className="h-3.5 w-3.5" /> },
+                                ].map(l => (
+                                    <Link key={l.to} to={l.to} className="flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-xs text-slate-400 hover:text-white hover:bg-white/[0.06] transition-all">
+                                        <span className="text-violet-400">{l.icon}</span>{l.label}
+                                        <ArrowUpRight className="h-3 w-3 ml-auto opacity-50" />
+                                    </Link>
+                                ))}
+                                {can("tax.guardian.export") && selectedPeriod && (<>
+                                    <a href={`/api/tax/periods/${selectedPeriod}/export.csv`} className="flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-xs text-slate-400 hover:text-white hover:bg-white/[0.06] transition-all"><Download className="h-3.5 w-3.5 text-sky-400" />Export CSV<ArrowUpRight className="h-3 w-3 ml-auto opacity-50" /></a>
+                                    <a href={`/api/tax/periods/${selectedPeriod}/anomalies/export.csv`} className="flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-xs text-slate-400 hover:text-white hover:bg-white/[0.06] transition-all"><AlertTriangle className="h-3.5 w-3.5 text-amber-400" />Anomalies CSV<ArrowUpRight className="h-3 w-3 ml-auto opacity-50" /></a>
+                                </>)}
+                            </div>
+                        </Glass>
+
+                        {/* Anomaly Summary mini */}
+                        <Glass className="p-5">
+                            <div className="flex items-center justify-between mb-3">
+                                <h3 className="text-sm font-semibold text-white">Anomaly Summary</h3>
+                                <button onClick={() => setActiveTab("anomalies")} className="text-xs text-violet-400 hover:text-violet-300">View All</button>
+                            </div>
+                            {[{ sev: "high", label: "High", cls: "text-rose-400 bg-rose-400/10 border-rose-400/20" }, { sev: "medium", label: "Medium", cls: "text-amber-400 bg-amber-400/10 border-amber-400/20" }, { sev: "low", label: "Low", cls: "text-sky-400 bg-sky-400/10 border-sky-400/20" }].map(sv => {
+                                const count = anomalies.filter((a: TaxAnomaly) => a.severity === sv.sev && a.status === "OPEN").length;
+                                return (
+                                    <div key={sv.sev} className="flex items-center justify-between py-2 border-b border-white/[0.05] last:border-0">
+                                        <span className={cx("rounded-full border px-2 py-0.5 text-[10px] font-semibold", sv.cls)}>{sv.label}</span>
+                                        <span className="text-sm font-bold text-white">{count}</span>
+                                    </div>
+                                );
+                            })}
+                        </Glass>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Payments Tab ── */}
+            {activeTab === "payments" && (
+                <div className="space-y-6">
+                    <Glass className="overflow-hidden">
+                        <div className="p-5 border-b border-white/[0.07] flex items-center justify-between">
+                            <div>
+                                <h2 className="text-base font-semibold text-white">Payments &amp; Refunds</h2>
+                                <p className="text-xs text-slate-500 mt-0.5">{payments.length} transaction{payments.length !== 1 ? "s" : ""} · Net {formatCurrency(paymentsTotal, currency)}</p>
+                            </div>
+                        </div>
+                        {payments.length === 0 ? (
+                            <div className="py-16 text-center text-sm text-slate-500">No payments recorded for {selectedPeriod}.</div>
+                        ) : (
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead><tr className="text-[10px] uppercase tracking-wider text-slate-500 border-b border-white/[0.05]">
+                                        {["Date", "Type", "Method", "Reference", "Amount", ""].map(h => <th key={h} className="px-5 py-3 text-left font-semibold">{h}</th>)}
+                                    </tr></thead>
+                                    <tbody className="divide-y divide-white/[0.04]">
+                                        {payments.map((p: TaxPayment) => (
+                                            <tr key={p.id} className="group hover:bg-white/[0.03] transition-colors">
+                                                <td className="px-5 py-3.5 text-slate-300 tabular-nums">{p.payment_date?.slice(0, 10)}</td>
+                                                <td className="px-5 py-3.5"><span className={cx("rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase", p.kind === "REFUND" ? "text-sky-400 bg-sky-400/10 border-sky-400/20" : "text-emerald-400 bg-emerald-400/10 border-emerald-400/20")}>{p.kind || "PAYMENT"}</span></td>
+                                                <td className="px-5 py-3.5 text-slate-400">{p.method}</td>
+                                                <td className="px-5 py-3.5 text-slate-500 font-mono text-xs">{p.reference || "—"}</td>
+                                                <td className="px-5 py-3.5 font-semibold text-white tabular-nums">{p.kind === "REFUND" ? "+" : ""}{formatCurrency(p.amount, currency)}</td>
+                                                <td className="px-5 py-3.5">
+                                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <button onClick={() => setPaymentForm({ id: p.id, kind: p.kind || "PAYMENT", bank_account_id: p.bank_account_id || "", amount: String(p.amount), payment_date: (p.payment_date || "").slice(0, 10), method: p.method || "EFT", reference: p.reference || "", notes: p.notes || "" })} className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-500 hover:text-white hover:bg-white/[0.08]"><Pencil className="h-3.5 w-3.5" /></button>
+                                                        <button onClick={async () => { if (confirm("Delete this payment?")) { try { await deletePayment(selectedPeriod!, p.id); showToast("Deleted", "success"); } catch (e: any) { showToast(e.message, "error"); } } }} className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-400/10"><Trash2 className="h-3.5 w-3.5" /></button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </Glass>
+
+                    {/* Add Payment Form */}
+                    <Glass className="p-6">
+                        <h3 className="text-sm font-semibold text-white mb-5">{paymentForm.id ? "Edit Payment" : "Record New Transaction"}</h3>
+                        <div className="mb-4 flex gap-2">
+                            {(["PAYMENT", "REFUND"] as TaxPaymentKind[]).map(k => (
+                                <button key={k} onClick={() => setPaymentForm(f => ({ ...f, kind: k }))}
+                                    className={cx("rounded-xl px-4 py-2 text-xs font-semibold border transition-all", paymentForm.kind === k ? (k === "PAYMENT" ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-300" : "bg-sky-500/20 border-sky-500/40 text-sky-300") : "bg-white/[0.04] border-white/[0.07] text-slate-500 hover:text-slate-300")}>
+                                    {k === "PAYMENT" ? "Payment to Agency" : "Refund Received"}
+                                </button>
+                            ))}
+                        </div>
+                        <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
+                            {[
+                                { label: "Amount", col: 1, el: <input value={paymentForm.amount} onChange={e => setPaymentForm(f => ({ ...f, amount: e.target.value }))} placeholder="0.00" className="mt-1 w-full rounded-xl bg-white/[0.05] border border-white/[0.08] px-3 py-2.5 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-violet-500/50" /> },
+                                { label: "Date", col: 1, el: <input type="date" value={paymentForm.payment_date} onChange={e => setPaymentForm(f => ({ ...f, payment_date: e.target.value }))} className="mt-1 w-full rounded-xl bg-white/[0.05] border border-white/[0.08] px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500/50" /> },
+                                { label: "Bank Account", col: 2, el: <select value={paymentForm.bank_account_id} onChange={e => setPaymentForm(f => ({ ...f, bank_account_id: e.target.value }))} className="mt-1 w-full rounded-xl bg-white/[0.05] border border-white/[0.08] px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500/50 bg-[#0a0a0f]"><option value="">Select…</option>{bankAccounts.map(b => <option key={b.id} value={b.id} className="bg-[#1a1a2e]">{b.name}</option>)}</select> },
+                                { label: "Method", col: 1, el: <select value={paymentForm.method} onChange={e => setPaymentForm(f => ({ ...f, method: e.target.value }))} className="mt-1 w-full rounded-xl bg-white/[0.05] border border-white/[0.08] px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500/50 bg-[#0a0a0f]"><option>EFT</option><option>Cheque</option><option>Card</option><option>ACH</option><option>Wire</option><option>Other</option></select> },
+                                { label: "Reference", col: 1, el: <input value={paymentForm.reference} onChange={e => setPaymentForm(f => ({ ...f, reference: e.target.value }))} placeholder="CRA ref…" className="mt-1 w-full rounded-xl bg-white/[0.05] border border-white/[0.08] px-3 py-2.5 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-violet-500/50" /> },
+                            ].map((field, i) => <div key={i} className={`md:col-span-${field.col}`}><label className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">{field.label}</label>{field.el}</div>)}
+                        </div>
+                        <div className="mt-5 flex justify-end gap-3">
+                            {paymentForm.id && <button onClick={() => setPaymentForm(f => ({ ...f, id: null, amount: "", reference: "", notes: "" }))} className="rounded-xl px-4 py-2 text-xs font-medium border border-white/[0.07] text-slate-400 hover:text-white">Cancel Edit</button>}
+                            <button onClick={savePayment} disabled={paymentSaving || !selectedPeriod || !paymentForm.bank_account_id}
+                                className="rounded-xl px-5 py-2 text-xs font-bold bg-violet-600/30 border border-violet-500/50 text-violet-200 hover:bg-violet-600/40 transition-all disabled:opacity-50">
+                                {paymentSaving ? "Saving…" : paymentForm.id ? "Update Payment" : "Record Payment"}
+                            </button>
+                        </div>
+                    </Glass>
+                </div>
+            )}
+
+            {/* ── Anomalies Tab ── */}
+            {activeTab === "anomalies" && (
+                <div>
+                    <div className="mb-4 flex flex-wrap items-center gap-3">
+                        <div className="flex gap-2">
+                            {(["all", "high", "medium", "low"] as const).map(s => (
+                                <button key={s} onClick={() => setSeverityFilter(s as any)}
+                                    className={cx("rounded-lg px-3 py-1.5 text-xs font-semibold capitalize transition-all border",
+                                        severityFilter === s ? "border-violet-500/50 bg-violet-500/20 text-violet-300" : "border-white/[0.07] bg-white/[0.04] text-slate-500 hover:text-slate-300")}>
+                                    {s === "all" ? "All Severity" : s}
+                                </button>
+                            ))}
+                        </div>
+                        <div className="flex gap-2 ml-2">
+                            {(["all", "OPEN", "RESOLVED", "ACKNOWLEDGED"] as const).map(s => (
+                                <button key={s} onClick={() => setStatusFilter(s as any)}
+                                    className={cx("rounded-lg px-3 py-1.5 text-xs font-semibold capitalize transition-all border",
+                                        statusFilter === s ? "border-violet-500/50 bg-violet-500/20 text-violet-300" : "border-white/[0.07] bg-white/[0.04] text-slate-500 hover:text-slate-300")}>
+                                    {s === "all" ? "All Status" : s.toLowerCase()}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {filteredAnomalies.length === 0 ? (
+                        <Glass className="py-24 text-center">
+                            <ShieldCheck className="h-12 w-12 text-emerald-400/50 mx-auto mb-3" />
+                            <p className="text-base font-semibold text-white">All Clear</p>
+                            <p className="text-sm text-slate-500 mt-1">No anomalies match the current filters.</p>
+                        </Glass>
+                    ) : (
+                        <div className="space-y-3">
+                            {filteredAnomalies.map((a: TaxAnomaly) => {
+                                const sevCls = a.severity === "high" ? "text-rose-400 bg-rose-400/10 border-rose-400/20" : a.severity === "medium" ? "text-amber-400 bg-amber-400/10 border-amber-400/20" : "text-sky-400 bg-sky-400/10 border-sky-400/20";
+                                const stCls = a.status === "RESOLVED" ? "text-emerald-400 bg-emerald-400/10 border-emerald-400/20" : a.status === "ACKNOWLEDGED" ? "text-sky-400 bg-sky-400/10 border-sky-400/20" : "text-amber-400 bg-amber-400/10 border-amber-400/20";
+                                return (
+                                    <Glass key={a.id} hover className="p-5">
+                                        <div className="flex items-start gap-4">
+                                            <div className="pt-0.5 shrink-0">
+                                                <div className={cx("h-2 w-2 rounded-full mt-1.5", a.severity === "high" ? "bg-rose-400 shadow-[0_0_6px_rgba(248,113,113,0.6)]" : a.severity === "medium" ? "bg-amber-400" : "bg-sky-400")} />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                                                    <span className="text-xs font-bold text-white font-mono uppercase tracking-wide">{a.code}</span>
+                                                    <span className={cx("rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase", sevCls)}>{a.severity}</span>
+                                                    <span className={cx("rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase", stCls)}>{a.status}</span>
+                                                    {a.jurisdiction_code && <span className="rounded-full bg-violet-400/10 border border-violet-400/20 text-violet-400 px-2 py-0.5 text-[10px] font-semibold">{a.jurisdiction_code}</span>}
+                                                </div>
+                                                <p className="text-sm text-slate-300 leading-relaxed">{a.description}</p>
+                                                {(a.expected_tax_amount || a.actual_tax_amount) && (
+                                                    <div className="mt-2.5 flex gap-4 text-xs text-slate-500">
+                                                        {a.expected_tax_amount && <span>Expected: <span className="text-slate-300 font-mono">{formatCurrency(a.expected_tax_amount, currency)}</span></span>}
+                                                        {a.actual_tax_amount && <span>Actual: <span className="text-slate-300 font-mono">{formatCurrency(a.actual_tax_amount, currency)}</span></span>}
+                                                        {a.difference && <span>Diff: <span className="text-rose-400 font-mono">{formatCurrency(a.difference, currency)}</span></span>}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="shrink-0 flex items-center gap-1.5">
+                                                {a.linked_model && a.linked_id && (
+                                                    <Link to={`/${a.linked_model === "Invoice" ? "invoices" : "expenses"}/${a.linked_id}`}
+                                                        className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:text-white hover:bg-white/[0.08]">
+                                                        <FileText className="h-4 w-4" />
+                                                    </Link>
+                                                )}
+                                                {a.status === "OPEN" && <>
+                                                    <button onClick={() => handleAnomalyAction(a.id, "ACKNOWLEDGED")} className="flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs text-slate-400 hover:text-white hover:bg-white/[0.08] border border-white/[0.07]">Acknowledge</button>
+                                                    <button onClick={() => handleAnomalyAction(a.id, "RESOLVED")} className="flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-emerald-300 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40"><Check className="h-3.5 w-3.5" />Resolve</button>
+                                                </>}
+                                            </div>
+                                        </div>
+                                    </Glass>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* ── Filings Tab ── */}
+            {activeTab === "filings" && (
+                <div className="space-y-6">
+                    {snapshot?.line_mappings && Object.keys(snapshot.line_mappings).length > 0 ? (
+                        <div className="grid gap-4 md:grid-cols-2">
+                            {Object.entries(snapshot.line_mappings).map(([code, lines]: [string, any]) => (
+                                <Glass key={code} className="p-6">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xl">{code === "CA" || code.startsWith("CA_") ? "🇨🇦" : "🇺🇸"}</span>
+                                            <div>
+                                                <p className="text-sm font-semibold text-white">{code === "CA" ? "GST/HST" : code === "QC" ? "QST" : code}</p>
+                                                <p className="text-xs text-slate-500">{code} Jurisdiction</p>
+                                            </div>
+                                        </div>
+                                        <span className={cx("rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase", snapshot.status === "FILED" ? "text-emerald-400 bg-emerald-400/10 border-emerald-400/20" : "text-slate-400 bg-slate-400/10 border-slate-400/20")}>{snapshot.status || "Draft"}</span>
+                                    </div>
+                                    <div className="space-y-2.5">
+                                        {Object.entries(lines).slice(0, 6).map(([lineCode, amount]: [string, any]) => (
+                                            <div key={lineCode} className="flex items-center justify-between">
+                                                <span className="text-xs text-slate-400 capitalize">{lineCode.replace(/_/g, " ")}</span>
+                                                <span className="text-xs font-semibold text-white font-mono">{formatCurrency(amount, currency)}</span>
+                                            </div>
+                                        ))}
+                                        {lines.net_tax !== undefined && (
+                                            <div className="flex items-center justify-between pt-3 mt-1 border-t border-white/[0.07]">
+                                                <span className="text-sm font-semibold text-white">Net Payable</span>
+                                                <span className="text-sm font-bold text-white font-mono">{formatCurrency(lines.net_tax, currency)}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </Glass>
+                            ))}
+                        </div>
+                    ) : (
+                        <Glass className="py-24 text-center">
+                            <FileText className="h-12 w-12 text-slate-500/50 mx-auto mb-3" />
+                            <p className="text-base font-semibold text-white">No Filing Data</p>
+                            <p className="text-sm text-slate-500 mt-1">Run the AI Audit to generate filing line mappings.</p>
+                            <button onClick={handleEnrich} disabled={enriching} className="mt-4 rounded-xl px-5 py-2.5 text-sm font-semibold bg-violet-600/20 border border-violet-500/40 text-violet-300 hover:bg-violet-600/30 inline-flex items-center gap-2 disabled:opacity-50"><Sparkles className="h-4 w-4" />{enriching ? "Analyzing…" : "Run AI Audit"}</button>
+                        </Glass>
+                    )}
+                </div>
+            )}
+        </div>
+    </div>
+);
 };
-
-// Helper for greeting
-function getGreeting(): string {
-  const hour = new Date().getHours();
-  if (hour >= 5 && hour < 12) return "Morning";
-  if (hour >= 12 && hour < 18) return "Afternoon";
-  return "Evening";
-}
-
-// -----------------------------------------------------------------------------
-// New Dashboard Layout Components
-// -----------------------------------------------------------------------------
-
-function TopBar({ userName, unread, onExport }: any) {
-  return (
-    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between px-2 mb-2">
-      <div>
-        <h1 className="text-[34px] font-semibold tracking-[-0.03em] text-white">Welcome Back, {userName}</h1>
-        <p className="mt-1 text-sm text-gray-400">You have <span className="font-medium text-[#A3E635]">{unread} unread</span> tax anomalies</p>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex h-11 min-w-[250px] items-center gap-2 rounded-full bg-[#18181B] border border-white/5 px-4 shadow-sm focus-within:border-[#8B5CF6]/50 transition-colors">
-          <Search className="h-4 w-4 text-gray-500" />
-          <input
-            className="w-full bg-transparent text-sm text-white outline-none placeholder:text-gray-600"
-            placeholder="Search periods..."
-            defaultValue=""
-          />
-          <span className="text-xs text-gray-600">⌘ K</span>
-        </div>
-
-        <button className="flex h-11 items-center gap-2 rounded-full bg-[#18181B] border border-white/5 px-4 text-sm text-gray-300 hover:text-white hover:bg-[#27272A] shadow-sm transition-colors">
-          Date
-          <ChevronDown className="h-4 w-4" />
-        </button>
-
-        <button onClick={onExport} className="flex h-11 items-center gap-2 rounded-full bg-[#18181B] border border-white/5 px-4 text-sm font-medium text-white shadow-sm hover:bg-[#27272A] transition-colors">
-          Export Return
-          <Download className="h-4 w-4 text-gray-400" />
-        </button>
-
-        <button className="grid h-11 w-11 place-items-center rounded-full bg-[#18181B] border border-white/5 text-gray-400 shadow-sm hover:text-white hover:bg-[#27272A] transition-colors">
-          <MoreHorizontal className="h-5 w-5" />
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function PromoCard({ onEnrich, isEnriching, summary }: any) {
-  return (
-    <div className="relative overflow-hidden rounded-[24px] bg-[#18181B] p-6 shadow-sm ring-1 ring-white/5 border border-white/5 flex flex-col justify-between" style={{ background: 'linear-gradient(135deg, rgba(139,92,246,0.1) 0%, rgba(24,24,27,1) 50%, rgba(163,230,53,0.05) 100%)' }}>
-      <div className="absolute right-0 top-0 h-full w-2/3 rounded-l-[80px] bg-[radial-gradient(circle_at_20%_40%,rgba(139,92,246,0.1),transparent_40%),radial-gradient(circle_at_80%_60%,rgba(163,230,53,0.1),transparent_40%)] pointer-events-none" />
-      <div className="relative z-10">
-        <div className="flex items-center gap-2 mb-3">
-          <Sparkles className="h-4 w-4 text-[#A3E635]" />
-          <span className="text-xs font-bold uppercase tracking-widest text-[#A3E635]">Companion AI</span>
-        </div>
-        <p className="text-[24px] font-semibold leading-[1.1] tracking-[-0.03em] text-white">
-          {summary ? "Analysis Ready" : "Tax Audit Analysis"}
-        </p>
-        <p className="mt-2 text-xs text-gray-400 max-w-[200px] line-clamp-2 leading-relaxed">
-          {summary || "Run an instant compliance check on your liabilities, anomalies, and jurisdiction exposure."}
-        </p>
-      </div>
-      <button onClick={onEnrich} disabled={isEnriching} className="relative z-10 mt-5 w-max rounded-full bg-white px-5 py-2.5 text-xs font-bold text-black shadow-[0_0_15px_rgba(255,255,255,0.2)] transition-all hover:bg-gray-100 disabled:opacity-50">
-        {isEnriching ? "Analyzing..." : summary ? "Refresh Audit" : "Run AI Audit"}
-      </button>
-    </div>
-  )
-}
-
-function StatCard({ title, value, change, positive, sub }: any) {
-  return (
-    <div className="rounded-[24px] bg-[#18181B] p-6 shadow-sm ring-1 ring-white/5 border border-white/5 flex flex-col justify-between">
-      <div>
-        <div className="flex items-start justify-between gap-3 mb-4">
-          <p className="text-xs font-bold uppercase tracking-wider text-gray-500">{title}</p>
-          <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${positive ? 'bg-[#A3E635]/10 text-[#A3E635] border border-[#A3E635]/20' : 'bg-[#F87171]/10 text-[#F87171] border border-[#F87171]/20'}`}>
-            {change}
-          </span>
-        </div>
-        <p className="text-[34px] font-semibold tracking-[-0.04em] text-white font-mono">{value}</p>
-      </div>
-      <p className="mt-4 text-xs font-medium text-gray-500">{sub}</p>
-    </div>
-  )
-}
-
-function TransactionCard({ trendPeriods }: any) {
-  const width = 360; const height = 150;
-  const maxVal = trendPeriods?.length ? Math.max(10, ...trendPeriods.map((p: any) => Math.max(Number(p.net_tax) || 0, Number(p.payments_total) || 0))) : 100;
-  const maxY = Math.ceil(maxVal / 100) * 100;
-
-  const makePath = (key: string) => {
-    if (!trendPeriods || trendPeriods.length === 0) return "";
-    return trendPeriods.map((p: any, i: number) => {
-      const v = Number(p[key]) || 0;
-      const x = (i / Math.max(1, trendPeriods.length - 1)) * (width - 30) + 15;
-      const y = height - (v / maxY) * (height - 30) - 15;
-      return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
-    }).join(' ');
-  };
-
-  return (
-    <div className="rounded-[24px] bg-[#18181B] p-6 shadow-sm border border-white/5 flex flex-col justify-between">
-      <div>
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-xl font-semibold tracking-[-0.03em] text-white">Tax Activity</h3>
-          <button className="text-sm text-gray-500 hover:text-white">Trend ▾</button>
-        </div>
-
-        <div className="flex gap-4 text-xs font-medium text-gray-400">
-          <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-[#8B5CF6] shadow-[0_0_8px_rgba(139,92,246,0.6)]" />Net Liability</span>
-          <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-[#A3E635] shadow-[0_0_8px_rgba(163,230,53,0.6)]" />Total Paid</span>
-        </div>
-      </div>
-
-      <div className="mt-4 overflow-hidden rounded-[20px] bg-[#131316] p-4 border border-white/[0.03] flex-1 min-h-[170px]">
-        <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full overflow-visible">
-          {[0, 25, 50, 75, 100].map((tickPct) => {
-            const y = height - (tickPct / 100) * (height - 30) - 15;
-            const tickVal = (maxY * (tickPct / 100)).toFixed(0);
-            return (
-              <g key={tickPct}>
-                <line x1="10" x2={width - 10} y1={y} y2={y} stroke="#ffffff" strokeOpacity="0.05" strokeWidth="1" strokeDasharray="3 3" />
-                <text x="-5" y={y + 3} fontSize="9" fill="#52525b" textAnchor="end" className="font-mono">{tickVal}</text>
-              </g>
-            )
-          })}
-          {trendPeriods?.length > 0 && (
-            <>
-              <path d={makePath('net_tax')} fill="none" stroke="#8B5CF6" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-              <path d={makePath('payments_total')} fill="none" stroke="#A3E635" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-            </>
-          )}
-        </svg>
-      </div>
-    </div>
-  )
-}
-
-function SalesCard({ summary }: any) {
-  const jurisdictions = Object.entries(summary || {});
-  let bars = jurisdictions.map(([code, data]: any) => ({ code, net: data.net_tax || 0 }));
-  if (bars.length < 5) {
-    const dummy = [42, 56, 32, 72, 28, 64, 49];
-    while (bars.length < 5) bars.push({ code: `J${bars.length + 1}`, net: dummy[bars.length] });
-  }
-  const maxH = Math.max(1, ...bars.map(b => b.net));
-
-  return (
-    <div className="rounded-[24px] bg-[#18181B] p-6 shadow-sm border border-white/5 flex flex-col justify-between">
-      <div>
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h3 className="text-xl font-semibold tracking-[-0.03em] text-white">Jurisdictions</h3>
-            <div className="mt-2 flex items-center gap-3">
-              <span className="text-[28px] font-semibold tracking-[-0.04em] text-white leading-none">{jurisdictions.length}</span>
-              <span className="rounded-full bg-[#8B5CF6]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#8B5CF6]">Active</span>
-            </div>
-          </div>
-          <button className="text-sm text-gray-500 hover:text-white">All ▾</button>
-        </div>
-      </div>
-
-      <div className="mt-5 flex h-[200px] items-end gap-3 rounded-[20px] bg-[#131316] px-4 py-5 border border-white/[0.03]">
-        {bars.slice(0, 8).map((b, idx) => (
-          <div key={idx} className="flex flex-1 flex-col items-center justify-end gap-3 group relative cursor-pointer">
-            <div
-              className="w-full rounded-t-[8px] transition-all bg-[#8B5CF6]/80 group-hover:bg-[#a78bfa] group-hover:shadow-[0_0_15px_rgba(139,92,246,0.3)]"
-              style={{ height: `${Math.max(5, (b.net / maxH) * 150)}px` }}
-            />
-            <span className="text-[10px] font-bold text-gray-600 uppercase tracking-wider">{b.code}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function ScheduleCard({ anomalies }: any) {
-  const items = anomalies?.slice(0, 4) || [];
-  return (
-    <div className="rounded-[24px] bg-[#18181B] p-6 shadow-sm border border-white/5 flex flex-col min-h-[350px]">
-      <div className="flex items-center justify-between">
-        <h3 className="text-xl font-semibold tracking-[-0.03em] text-white">Anomalies</h3>
-        <button className="text-sm font-medium text-gray-500 hover:text-white">See All</button>
-      </div>
-
-      <div className="mt-5 flex gap-5 border-b border-white/5 pb-3 text-sm">
-        <button className="font-semibold text-white shadow-[0_2px_0_#A3E635]">Review Required</button>
-        <button className="font-medium text-gray-500 hover:text-gray-300 transition-colors">Resolved</button>
-      </div>
-
-      <div className="mt-5 space-y-3 flex-1 overflow-y-auto" style={{ scrollbarWidth: "none" }}>
-        {items.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-sm text-gray-500 flex-col gap-2">
-            <ShieldCheck className="h-8 w-8 text-[#A3E635]/50" />
-            <p>100% Compliant. No anomalies.</p>
-          </div>
-        ) : items.map((a: any, idx: number) => (
-          <div key={idx} className="rounded-[18px] border border-white/5 bg-[#131316] p-4 transition hover:border-[#8B5CF6]/30 hover:bg-[#18181B] group">
-            <span className={`inline-flex rounded-full px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider ${a.severity === 'high' ? 'bg-[#F87171]/10 text-[#F87171] border border-[#F87171]/20' : a.severity === 'medium' ? 'bg-[#F59E0B]/10 text-[#F59E0B] border border-[#F59E0B]/20' : 'bg-[#A3E635]/10 text-[#A3E635] border border-[#A3E635]/20'}`}>
-              {a.severity} Priority
-            </span>
-            <h4 className="mt-3 text-sm font-semibold text-white truncate">{a.code}</h4>
-            <p className="mt-1.5 text-xs text-gray-400 line-clamp-2 leading-relaxed">{a.description}</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function OrdersHeatmapCard() {
-  const rows = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
-  const heatmap = Array.from({ length: 5 }, () => Array.from({ length: 18 }, () => Math.random() > 0.8 ? 3 : Math.random() > 0.5 ? 2 : Math.random() > 0.3 ? 1 : 0));
-
-  return (
-    <div className="rounded-[24px] bg-[#18181B] p-6 shadow-sm border border-white/5 flex flex-col justify-between">
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h3 className="text-xl font-semibold tracking-[-0.03em] text-white">Exception Heatmap</h3>
-          <div className="mt-3 flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-gray-500">
-            <span className="h-2 w-2 rounded-sm bg-[#27272A]" />
-            <span className="h-2 w-2 rounded-sm bg-[#8B5CF6]/40" />
-            <span className="h-2 w-2 rounded-sm bg-[#8B5CF6]" />
-            <span className="ml-1">Intensity</span>
-          </div>
-        </div>
-        <button className="text-sm font-medium text-gray-500 hover:text-white">Q1 2025 ▾</button>
-      </div>
-
-      <div className="grid grid-cols-[30px_1fr] gap-3 mt-4">
-        <div className="grid grid-rows-5 gap-2 pt-1 text-[10px] font-bold uppercase tracking-widest text-gray-600">
-          {rows.map((label, i) => <span key={i} className="flex items-center">{label}</span>)}
-        </div>
-        <div className="space-y-2">
-          {heatmap.map((row, r) => (
-            <div key={r} className="grid gap-1.5" style={{ gridTemplateColumns: "repeat(18, minmax(0, 1fr))" }}>
-              {row.map((cell, c) => (
-                <div
-                  key={`${r}-${c}`}
-                  className={`aspect-square rounded-[4px] transition-transform hover:scale-125 hover:z-10 ${cell === 3 ? 'bg-[#8B5CF6] shadow-[0_0_10px_rgba(139,92,246,0.5)]' : cell === 2 ? 'bg-[#8B5CF6]/60' : cell === 1 ? 'bg-[#8B5CF6]/20' : 'bg-[#27272A]'}`}
-                />
-              ))}
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function ProductStatsCard({ trendPeriods }: any) {
-  let bars = trendPeriods?.slice(-12).map((p: any) => ({
-    taxable: Number(p.net_tax) * 1.5,
-    nontaxable: Number(p.net_tax) * 0.4
-  })) || [];
-  if (bars.length < 12) {
-    const d = [28, 52, 24, 39, 20, 33, 18, 31, 14, 54, 19, 44];
-    bars = d.map(v => ({ taxable: v * 1.5, nontaxable: v * 0.5 }));
-  }
-  const maxH = Math.max(1, ...bars.map((b: any) => b.taxable + b.nontaxable));
-
-  return (
-    <div className="rounded-[24px] bg-[#18181B] p-6 shadow-sm border border-white/5 flex flex-col justify-between">
-      <div>
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-xl font-semibold tracking-[-0.03em] text-white">Taxable Scope</h3>
-          <button className="text-sm font-medium text-gray-500 hover:text-white">Last Year ▾</button>
-        </div>
-        <div className="flex gap-4 text-xs font-medium text-gray-400">
-          <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-sm bg-[#38BDF8]" />Taxable</span>
-          <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-sm bg-[#0C4A6E]" />Exempt</span>
-        </div>
-      </div>
-
-      <div className="mt-5 flex h-[190px] items-end gap-3 rounded-[20px] bg-[#131316] px-4 py-5 border border-white/[0.03]">
-        {bars.map((b: any, idx: number) => {
-          const th = (b.taxable / maxH) * 150;
-          const nh = (b.nontaxable / maxH) * 150;
-          return (
-            <div key={idx} className="flex flex-1 flex-col items-center justify-end gap-2 group cursor-pointer relative">
-              <div className="relative flex w-full flex-col items-center justify-end gap-[3px]">
-                <div className="w-full max-w-[12px] rounded-[3px] bg-[#38BDF8] transition-all group-hover:brightness-110 shadow-[0_0_8px_rgba(56,189,248,0.2)]" style={{ height: `${Math.max(4, th)}px` }} />
-                <div className="w-full max-w-[12px] rounded-[3px] bg-[#0C4A6E] transition-all group-hover:bg-[#0EA5E9]" style={{ height: `${Math.max(4, nh)}px` }} />
-              </div>
-              <span className="text-[9px] font-bold uppercase tracking-wider text-gray-600 mt-1 opacity-0 group-hover:opacity-100 transition-opacity absolute -bottom-4">Q{idx % 4 + 1}</span>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
 
 export default TaxGuardianPage;
