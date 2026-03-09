@@ -1,31 +1,9 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AppShell } from "@shared-ui";
-import {
-  fetchReconciliationMetrics,
-  fetchLedgerHealth,
-  fetchInvoicesAudit,
-  fetchExpensesAudit,
-  fetchRuntimeSettings,
-  type ReconciliationMetrics,
-  type LedgerHealth,
-  type InvoicesAudit,
-  type ExpensesAudit,
-  type RuntimeSettingsSnapshot,
-} from "./api";
-import { UsersSection } from "./UsersSection";
-import { WorkspacesSection } from "./WorkspacesSection";
-import { BankingSection } from "./BankingSection";
-import { AuditLogSection } from "./AuditLogSection";
-import { SupportSection } from "./SupportSection";
-import { ApprovalsSection } from "./ApprovalsSection";
+import { fetchRuntimeSettings, type RuntimeSettingsSnapshot } from "./api";
 import { OverviewSection } from "./OverviewSection";
-import { EmployeesSection } from "./EmployeesSection";
-import { AutonomySection } from "./AutonomySection";
-import { AiOpsSection } from "./AiOpsSection";
-import { FeatureFlagsSection } from "./FeatureFlagsSection";
-import { RuntimeSettingsSection } from "./RuntimeSettingsSection";
-import { Card, SimpleTable, StatusPill, cn } from "./AdminUI";
+import { Card, StatusPill, cn } from "./AdminUI";
 import { useAuth } from "../contexts/AuthContext";
 
 type Role = "support" | "finance" | "engineer" | "superadmin";
@@ -88,6 +66,124 @@ const navGroups: { label: string; items: NavItem[] }[] = [
   },
 ];
 
+const importUsersSection = () => import("./UsersSection");
+const importWorkspacesSection = () => import("./WorkspacesSection");
+const importBankingSection = () => import("./BankingSection");
+const importSupportSection = () => import("./SupportSection");
+const importApprovalsSection = () => import("./ApprovalsSection");
+const importEmployeesSection = () => import("./EmployeesSection");
+const importAutonomySection = () => import("./AutonomySection");
+const importAiOpsSection = () => import("./AiOpsSection");
+const importFeatureFlagsSection = () => import("./FeatureFlagsSection");
+const importRuntimeSettingsSection = () => import("./RuntimeSettingsSection");
+const importOperationalSections = () => import("./AdminOperationalSections");
+
+const LazyUsersSection = React.lazy(async () => {
+  const module = await importUsersSection();
+  return { default: module.UsersSection };
+});
+const LazyWorkspacesSection = React.lazy(async () => {
+  const module = await importWorkspacesSection();
+  return { default: module.WorkspacesSection };
+});
+const LazyBankingSection = React.lazy(async () => {
+  const module = await importBankingSection();
+  return { default: module.BankingSection };
+});
+const LazySupportSection = React.lazy(async () => {
+  const module = await importSupportSection();
+  return { default: module.SupportSection };
+});
+const LazyApprovalsSection = React.lazy(async () => {
+  const module = await importApprovalsSection();
+  return { default: module.ApprovalsSection };
+});
+const LazyEmployeesSection = React.lazy(async () => {
+  const module = await importEmployeesSection();
+  return { default: module.EmployeesSection };
+});
+const LazyAutonomySection = React.lazy(async () => {
+  const module = await importAutonomySection();
+  return { default: module.AutonomySection };
+});
+const LazyAiOpsSection = React.lazy(async () => {
+  const module = await importAiOpsSection();
+  return { default: module.AiOpsSection };
+});
+const LazyFeatureFlagsSection = React.lazy(async () => {
+  const module = await importFeatureFlagsSection();
+  return { default: module.FeatureFlagsSection };
+});
+const LazyRuntimeSettingsSection = React.lazy(async () => {
+  const module = await importRuntimeSettingsSection();
+  return { default: module.RuntimeSettingsSection };
+});
+const LazyReconciliationSection = React.lazy(async () => {
+  const module = await importOperationalSections();
+  return { default: module.ReconciliationSection };
+});
+const LazyLedgerSection = React.lazy(async () => {
+  const module = await importOperationalSections();
+  return { default: module.LedgerSection };
+});
+const LazyInvoicesSection = React.lazy(async () => {
+  const module = await importOperationalSections();
+  return { default: module.InvoicesSection };
+});
+const LazyExpensesSection = React.lazy(async () => {
+  const module = await importOperationalSections();
+  return { default: module.ExpensesSection };
+});
+const LazyLogsSection = React.lazy(async () => {
+  const module = await importOperationalSections();
+  return { default: module.LogsSection };
+});
+
+const sectionPrefetchers: Partial<Record<NavSectionId, () => Promise<unknown>>> = {
+  users: importUsersSection,
+  employees: importEmployeesSection,
+  support: importSupportSection,
+  approvals: importApprovalsSection,
+  workspaces: importWorkspacesSection,
+  banking: importBankingSection,
+  reconciliation: importOperationalSections,
+  ledger: importOperationalSections,
+  invoices: importOperationalSections,
+  expenses: importOperationalSections,
+  autonomy: importAutonomySection,
+  "ai-monitoring": importAiOpsSection,
+  "feature-flags": importFeatureFlagsSection,
+  settings: importRuntimeSettingsSection,
+  logs: importOperationalSections,
+};
+
+type IdleWindow = Window & {
+  requestIdleCallback?: (callback: () => void) => number;
+  cancelIdleCallback?: (id: number) => void;
+};
+
+function scheduleWhenIdle(callback: () => void): () => void {
+  if (typeof window === "undefined") {
+    callback();
+    return () => undefined;
+  }
+
+  const idleWindow = window as IdleWindow;
+  if (typeof idleWindow.requestIdleCallback === "function") {
+    const idleId = idleWindow.requestIdleCallback(callback);
+    return () => idleWindow.cancelIdleCallback?.(idleId);
+  }
+
+  const timeoutId = window.setTimeout(callback, 0);
+  return () => window.clearTimeout(timeoutId);
+}
+
+const SectionFallback: React.FC = () => (
+  <Card>
+    <p className="text-sm text-slate-600">Loading section...</p>
+  </Card>
+);
+
 const LogoutButton: React.FC = () => {
   const { logout } = useAuth();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -106,7 +202,7 @@ const LogoutButton: React.FC = () => {
     <button
       onClick={handleLogout}
       disabled={isLoggingOut}
-      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm disabled:opacity-50 transition flex items-center justify-center gap-2"
+      className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -128,327 +224,47 @@ const LogoutButton: React.FC = () => {
   );
 };
 
-const ReconciliationSection: React.FC = () => {
-  const [data, setData] = useState<ReconciliationMetrics | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchReconciliationMetrics()
-      .then(setData)
-      .catch((e) => setError(e?.message || "Failed to load"))
-      .finally(() => setLoading(false));
-  }, []);
-
-  return (
-    <div className="space-y-4">
-      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-900">Reconciliation tracking</h2>
-          <p className="text-sm text-slate-600 max-w-xl">
-            High-friction areas in matching and period completion. This view exists solely for internal staff -
-            end users never see this lens.
-          </p>
-        </div>
-      </header>
-      {loading ? (
-        <Card><p className="text-sm text-slate-600">Loading reconciliation metrics...</p></Card>
-      ) : error ? (
-        <Card><p className="text-sm text-rose-700">Error: {error}</p></Card>
-      ) : data ? (
-        <>
-          <div className="grid gap-3 md:grid-cols-4">
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Total unreconciled</p>
-              <p className="text-2xl font-semibold text-slate-900 mt-1">{data.total_unreconciled}</p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">0-30 days</p>
-              <p className="text-2xl font-semibold text-emerald-700 mt-1">{data.aging["0_30_days"]}</p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">30-60 days</p>
-              <p className="text-2xl font-semibold text-amber-700 mt-1">{data.aging["30_60_days"]}</p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Over 60 days</p>
-              <p className="text-2xl font-semibold text-rose-700 mt-1">{data.aging["60_90_days"] + data.aging.over_90_days}</p>
-            </div>
-          </div>
-          <Card title="Top workspaces by unreconciled" subtitle="Workspaces with the most pending items.">
-            {data.top_workspaces.length ? (
-              <SimpleTable
-                headers={["Workspace", "Unreconciled"]}
-                rows={data.top_workspaces.map((w) => [
-                  <span key="n" className="text-sm text-slate-800">{w.name}</span>,
-                  <span key="c" className="text-sm font-semibold text-slate-900">{w.unreconciled_count}</span>,
-                ])}
-              />
-            ) : (
-              <p className="text-sm text-slate-600">No unreconciled transactions found.</p>
-            )}
-          </Card>
-        </>
-      ) : null}
-    </div>
-  );
-};
-
-const LedgerSection: React.FC = () => {
-  const [data, setData] = useState<LedgerHealth | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchLedgerHealth()
-      .then(setData)
-      .catch((e) => setError(e?.message || "Failed to load"))
-      .finally(() => setLoading(false));
-  }, []);
-
-  return (
-    <div className="space-y-4">
-      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-900">Ledger health</h2>
-          <p className="text-sm text-slate-600 max-w-xl">
-            Trial balance anomalies, unbalanced entries, orphan accounts, and suspense balances. All purely internal
-            diagnostics.
-          </p>
-        </div>
-      </header>
-      {loading ? (
-        <Card><p className="text-sm text-slate-600">Loading ledger health...</p></Card>
-      ) : error ? (
-        <Card><p className="text-sm text-rose-700">Error: {error}</p></Card>
-      ) : data ? (
-        <>
-          <div className="grid gap-3 md:grid-cols-3">
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Unbalanced entries</p>
-              <p className={cn("text-2xl font-semibold mt-1", data.summary.unbalanced_entries > 0 ? "text-rose-700" : "text-emerald-700")}>
-                {data.summary.unbalanced_entries}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Orphan accounts</p>
-              <p className={cn("text-2xl font-semibold mt-1", data.summary.orphan_accounts > 0 ? "text-amber-700" : "text-slate-700")}>
-                {data.summary.orphan_accounts}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Suspense with balance</p>
-              <p className={cn("text-2xl font-semibold mt-1", data.summary.suspense_with_balance > 0 ? "text-amber-700" : "text-slate-700")}>
-                {data.summary.suspense_with_balance}
-              </p>
-            </div>
-          </div>
-          {data.unbalanced_entries.length > 0 && (
-            <Card title="Unbalanced entries" subtitle="Journal entries where debits != credits.">
-              <SimpleTable
-                headers={["Workspace", "Date", "Description", "Difference"]}
-                rows={data.unbalanced_entries.slice(0, 10).map((e) => [
-                  <span key="w" className="text-sm text-slate-800">{e.workspace}</span>,
-                  <span key="d" className="text-xs text-slate-600">{e.date || "-"}</span>,
-                  <span key="desc" className="text-xs text-slate-700 max-w-[200px] truncate">{e.description || "-"}</span>,
-                  <span key="diff" className="text-sm font-semibold text-rose-700">${e.difference.toFixed(2)}</span>,
-                ])}
-              />
-            </Card>
-          )}
-        </>
-      ) : null}
-    </div>
-  );
-};
-
-const InvoicesSection: React.FC = () => {
-  const [data, setData] = useState<InvoicesAudit | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchInvoicesAudit()
-      .then(setData)
-      .catch((e) => setError(e?.message || "Failed to load"))
-      .finally(() => setLoading(false));
-  }, []);
-
-  return (
-    <div className="space-y-4">
-      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-900">Invoices (global audit)</h2>
-          <p className="text-sm text-slate-600 max-w-xl">
-            Cross-tenant visibility into invoice status, failed sends, and potential duplicate or anomalous documents.
-          </p>
-        </div>
-      </header>
-      {loading ? (
-        <Card><p className="text-sm text-slate-600">Loading invoices audit...</p></Card>
-      ) : error ? (
-        <Card><p className="text-sm text-rose-700">Error: {error}</p></Card>
-      ) : data ? (
-        <>
-          <div className="grid gap-3 md:grid-cols-5">
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Total</p>
-              <p className="text-2xl font-semibold text-slate-900 mt-1">{data.summary.total}</p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Draft</p>
-              <p className="text-2xl font-semibold text-slate-600 mt-1">{data.summary.draft}</p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Sent</p>
-              <p className="text-2xl font-semibold text-amber-700 mt-1">{data.summary.sent}</p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Paid</p>
-              <p className="text-2xl font-semibold text-emerald-700 mt-1">{data.summary.paid}</p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Issues</p>
-              <p className={cn("text-2xl font-semibold mt-1", data.summary.issues > 0 ? "text-rose-700" : "text-slate-600")}>
-                {data.summary.issues}
-              </p>
-            </div>
-          </div>
-          {data.recent_issues.length > 0 && (
-            <Card title="Recent issues" subtitle="Invoices with failed, rejected, or error status.">
-              <SimpleTable
-                headers={["Workspace", "Customer", "Status", "Total"]}
-                rows={data.recent_issues.slice(0, 10).map((inv) => [
-                  <span key="w" className="text-sm text-slate-800">{inv.workspace}</span>,
-                  <span key="c" className="text-sm text-slate-700">{inv.customer}</span>,
-                  <StatusPill key="s" tone="warning" label={inv.status} />,
-                  <span key="t" className="text-sm font-semibold text-slate-900">${inv.total.toFixed(2)}</span>,
-                ])}
-              />
-            </Card>
-          )}
-        </>
-      ) : null}
-    </div>
-  );
-};
-
-const ExpensesSection: React.FC = () => {
-  const [data, setData] = useState<ExpensesAudit | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchExpensesAudit()
-      .then(setData)
-      .catch((e) => setError(e?.message || "Failed to load"))
-      .finally(() => setLoading(false));
-  }, []);
-
-  return (
-    <div className="space-y-4">
-      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-900">Expenses & receipts</h2>
-          <p className="text-sm text-slate-600 max-w-xl">
-            Spot mis-categorized spend, receipt anomalies, and FX conversion issues from a single, internal lens.
-          </p>
-        </div>
-      </header>
-      {loading ? (
-        <Card><p className="text-sm text-slate-600">Loading expenses audit...</p></Card>
-      ) : error ? (
-        <Card><p className="text-sm text-rose-700">Error: {error}</p></Card>
-      ) : data ? (
-        <>
-          <div className="grid gap-3 md:grid-cols-4">
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Total expenses</p>
-              <p className="text-2xl font-semibold text-slate-900 mt-1">{data.summary.total_expenses}</p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Total receipts</p>
-              <p className="text-2xl font-semibold text-slate-900 mt-1">{data.summary.total_receipts}</p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Uncategorized</p>
-              <p className={cn("text-2xl font-semibold mt-1", data.summary.uncategorized > 0 ? "text-amber-700" : "text-slate-600")}>
-                {data.summary.uncategorized}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Pending receipts</p>
-              <p className={cn("text-2xl font-semibold mt-1", data.summary.pending_receipts > 0 ? "text-amber-700" : "text-slate-600")}>
-                {data.summary.pending_receipts}
-              </p>
-            </div>
-          </div>
-          <Card title="Top workspaces by expense count" subtitle="Workspaces with the most expense entries.">
-            {data.top_workspaces.length ? (
-              <SimpleTable
-                headers={["Workspace", "Count", "Total"]}
-                rows={data.top_workspaces.slice(0, 10).map((w) => [
-                  <span key="n" className="text-sm text-slate-800">{w.name}</span>,
-                  <span key="c" className="text-sm text-slate-700">{w.count}</span>,
-                  <span key="t" className="text-sm font-semibold text-slate-900">${w.total.toFixed(2)}</span>,
-                ])}
-              />
-            ) : (
-              <p className="text-sm text-slate-600">No expense data found.</p>
-            )}
-          </Card>
-        </>
-      ) : null}
-    </div>
-  );
-};
-
-
-const LogsSection: React.FC = () => (
-  <div className="space-y-4">
-    <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900">Audit & logs</h2>
-        <p className="text-sm text-slate-600 max-w-xl">
-          Append-only trail of admin actions across users, workspaces, and configuration.
-        </p>
-      </div>
-    </header>
-    <AuditLogSection />
-  </div>
-);
-
 const TopBar: React.FC<{
   currentSection: NavSectionId;
   onSelect: (id: NavSectionId) => void;
 }> = ({ currentSection, onSelect }) => {
   const [runtime, setRuntime] = useState<RuntimeSettingsSnapshot | null>(null);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  const [runtimeLoading, setRuntimeLoading] = useState(false);
+
+  const loadRuntime = useCallback(async () => {
+    if (runtimeLoading || runtime) {
+      return;
+    }
+
+    setRuntimeLoading(true);
+    try {
+      const snapshot = await fetchRuntimeSettings();
+      setRuntime(snapshot);
+      setRuntimeError(null);
+    } catch (error: any) {
+      setRuntimeError(error?.message || "Runtime unavailable");
+    } finally {
+      setRuntimeLoading(false);
+    }
+  }, [runtime, runtimeLoading]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    fetchRuntimeSettings()
-      .then((snapshot) => {
-        if (!cancelled) {
-          setRuntime(snapshot);
-          setRuntimeError(null);
-        }
-      })
-      .catch((error: any) => {
-        if (!cancelled) {
-          setRuntimeError(error?.message || "Runtime unavailable");
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (currentSection === "settings") {
+      void loadRuntime();
+      return;
+    }
+    if (runtime || runtimeError || runtimeLoading) {
+      return;
+    }
+    return scheduleWhenIdle(() => {
+      void loadRuntime();
+    });
+  }, [currentSection, loadRuntime, runtime, runtimeError, runtimeLoading]);
 
   const sectionLabel = navGroups
-    .flatMap((g) => g.items)
-    .find((i) => i.id === currentSection)?.label;
+    .flatMap((group) => group.items)
+    .find((item) => item.id === currentSection)?.label;
   const runtimeSummary = runtime
     ? `${runtime.environment.name} / ${runtime.build.service}`
     : runtimeError
@@ -456,15 +272,23 @@ const TopBar: React.FC<{
       : "loading runtime";
   const runtimeTone = runtime?.environment.jwt_secret_configured ? "good" : "warning";
   const oauthTone = runtime?.environment.google_oauth_enabled ? "good" : "warning";
-  const quickAction = currentSection === "settings"
-    ? { label: "Open audit logs", target: "logs" as NavSectionId }
-    : { label: "Open runtime settings", target: "settings" as NavSectionId };
+  const quickAction =
+    currentSection === "settings"
+      ? { label: "Open audit logs", target: "logs" as NavSectionId }
+      : { label: "Open runtime settings", target: "settings" as NavSectionId };
+
+  const handleQuickAction = () => {
+    if (quickAction.target === "settings") {
+      void loadRuntime();
+    }
+    onSelect(quickAction.target);
+  };
 
   return (
     <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 backdrop-blur">
       <div className="flex items-center justify-between px-4 py-3 sm:px-6">
         <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 text-sm font-semibold">
+          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-50 text-sm font-semibold text-emerald-700">
             CB
           </div>
           <div>
@@ -473,7 +297,7 @@ const TopBar: React.FC<{
           </div>
         </div>
         <div className="flex items-center gap-3 text-xs text-slate-700">
-          <div className="hidden sm:flex items-center gap-2">
+          <div className="hidden items-center gap-2 sm:flex">
             <StatusPill tone={runtimeTone} label={runtimeSummary} />
             {runtime ? (
               <StatusPill
@@ -483,8 +307,8 @@ const TopBar: React.FC<{
             ) : null}
           </div>
           <button
-            onClick={() => onSelect(quickAction.target)}
-            className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+            onClick={handleQuickAction}
+            className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
           >
             {quickAction.label}
           </button>
@@ -497,57 +321,59 @@ const TopBar: React.FC<{
 const Sidebar: React.FC<{
   current: NavSectionId;
   onSelect: (id: NavSectionId) => void;
+  onPrefetch: (id: NavSectionId) => void;
   canManageAdminUsers: boolean;
-}> = ({ current, onSelect, canManageAdminUsers }) => {
+}> = ({ current, onSelect, onPrefetch, canManageAdminUsers }) => {
   return (
-    <aside className="hidden md:flex md:flex-col md:border-r md:border-slate-200 md:bg-white md:w-64 lg:w-72">
-      <div className="px-4 pt-4 pb-3 border-b border-slate-200">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 mb-1">Navigation</p>
+    <aside className="hidden w-64 flex-col border-r border-slate-200 bg-white md:flex lg:w-72">
+      <div className="border-b border-slate-200 px-4 pb-3 pt-4">
+        <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Navigation</p>
         <p className="text-xs text-slate-600">Internal-only rails. Every action is accountable.</p>
       </div>
-      <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
+      <nav className="flex-1 space-y-4 overflow-y-auto px-2 py-3">
         {navGroups.map((group) => {
-          const visibleItems = group.items.filter(
-            (item) => item.id !== "employees" || canManageAdminUsers
-          );
-          if (visibleItems.length === 0) return null;
+          const visibleItems = group.items.filter((item) => item.id !== "employees" || canManageAdminUsers);
+          if (visibleItems.length === 0) {
+            return null;
+          }
           return (
-          <div key={group.label}>
-            <p className="px-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500 mb-1.5">
-              {group.label}
-            </p>
-            <div className="space-y-0.5">
-              {visibleItems.map((item) => {
-
-                const active = current === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => onSelect(item.id)}
-                    className={cn(
-                      "w-full rounded-xl px-2.5 py-2 text-left text-xs transition flex flex-col border",
-                      active
-                        ? "bg-white border-slate-200 text-slate-900 shadow-sm"
-                        : "border-transparent text-slate-700 hover:bg-slate-100 hover:border-slate-200"
-                    )}
-                  >
-                    <span className="font-semibold">{item.label}</span>
-                    {item.description && (
-                      <span className="text-[11px] text-slate-500 mt-0.5">{item.description}</span>
-                    )}
-                  </button>
-                );
-              })}
+            <div key={group.label}>
+              <p className="mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                {group.label}
+              </p>
+              <div className="space-y-0.5">
+                {visibleItems.map((item) => {
+                  const active = current === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => onSelect(item.id)}
+                      onMouseEnter={() => onPrefetch(item.id)}
+                      onFocus={() => onPrefetch(item.id)}
+                      className={cn(
+                        "flex w-full flex-col rounded-xl border px-2.5 py-2 text-left text-xs transition",
+                        active
+                          ? "border-slate-200 bg-white text-slate-900 shadow-sm"
+                          : "border-transparent text-slate-700 hover:border-slate-200 hover:bg-slate-100",
+                      )}
+                    >
+                      <span className="font-semibold">{item.label}</span>
+                      {item.description ? (
+                        <span className="mt-0.5 text-[11px] text-slate-500">{item.description}</span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        );
+          );
         })}
       </nav>
-      <div className="border-t border-slate-200 px-4 py-3 space-y-3">
+      <div className="space-y-3 border-t border-slate-200 px-4 py-3">
         <LogoutButton />
         <div className="text-[11px] text-slate-600">
           <p>Everything you do here leaves a trail.</p>
-          <p className="mt-0.5">Built for internal ops  /  Clover Books</p>
+          <p className="mt-0.5">Built for internal ops / Clover Books</p>
         </div>
       </div>
     </aside>
@@ -555,11 +381,11 @@ const Sidebar: React.FC<{
 };
 
 const roleFromAuth = (opts: { role?: string | null; isStaff?: boolean; isSuperuser?: boolean }): Role => {
-  const r = (opts.role || "").toLowerCase();
-  if (r === "support") return "support";
-  if (r === "finance" || r === "ops") return "finance";
-  if (r === "engineer" || r === "engineering") return "engineer";
-  if (r === "superadmin" || r === "admin") return "superadmin";
+  const role = (opts.role || "").toLowerCase();
+  if (role === "support") return "support";
+  if (role === "finance" || role === "ops") return "finance";
+  if (role === "engineer" || role === "engineering") return "engineer";
+  if (role === "superadmin" || role === "admin") return "superadmin";
   if (opts.isSuperuser || opts.isStaff) return "superadmin";
   return "support";
 };
@@ -587,51 +413,26 @@ export const AdminApp: React.FC = () => {
   const role = useMemo(
     () =>
       roleFromAuth({
-      role: auth.user?.role,
-      isSuperuser: Boolean(auth.user?.isSuperuser ?? auth.user?.is_superuser ?? auth.user?.is_admin),
+        role: auth.user?.role,
+        isSuperuser: Boolean(auth.user?.isSuperuser ?? auth.user?.is_superuser ?? auth.user?.is_admin),
       }),
-    [auth.user?.role, auth.user?.isSuperuser, auth.user?.is_superuser, auth.user?.is_admin]
+    [auth.user?.isSuperuser, auth.user?.is_admin, auth.user?.is_superuser, auth.user?.role],
   );
   const current = useMemo(() => routeSection(location.pathname), [location.pathname]);
 
-  const renderSection = () => {
-    switch (current) {
-      case "overview":
-        return <OverviewSection />;
-      case "users":
-        return <UsersSection roleLevel={roleLevel(role)} />;
-      case "employees":
-        return <EmployeesSection canManageAdminUsers={canManageAdminUsers} canGrantSuperadmin={canGrantSuperadmin} />;
-      case "support":
-        return <SupportSection role={role} />;
-      case "approvals":
-        return <ApprovalsSection role={{ level: roleLevel(role) }} />;
-      case "workspaces":
-        return <WorkspacesSection roleLevel={roleLevel(role)} />;
-      case "banking":
-        return <BankingSection />;
-      case "reconciliation":
-        return <ReconciliationSection />;
-      case "ledger":
-        return <LedgerSection />;
-      case "invoices":
-        return <InvoicesSection />;
-      case "expenses":
-        return <ExpensesSection />;
-      case "autonomy":
-        return <AutonomySection />;
-      case "ai-monitoring":
-        return <AiOpsSection />;
-      case "feature-flags":
-        return <FeatureFlagsSection role={role} />;
-      case "settings":
-        return <RuntimeSettingsSection />;
-      case "logs":
-        return <LogsSection />;
-      default:
-        return <OverviewSection />;
+  const prefetchSection = useCallback((id: NavSectionId) => {
+    if (id === "overview") {
+      return;
     }
-  };
+    const importer = sectionPrefetchers[id];
+    if (importer) {
+      void importer();
+    }
+  }, []);
+
+  useEffect(() => {
+    prefetchSection(current);
+  }, [current, prefetchSection]);
 
   const handleSelect = (id: NavSectionId) => {
     if (id === "overview") {
@@ -645,20 +446,68 @@ export const AdminApp: React.FC = () => {
     navigate(`/${id}`);
   };
 
+  const sectionBody = (() => {
+    switch (current) {
+      case "overview":
+        return <OverviewSection />;
+      case "users":
+        return <LazyUsersSection roleLevel={roleLevel(role)} />;
+      case "employees":
+        return (
+          <LazyEmployeesSection
+            canManageAdminUsers={canManageAdminUsers}
+            canGrantSuperadmin={canGrantSuperadmin}
+          />
+        );
+      case "support":
+        return <LazySupportSection role={role} />;
+      case "approvals":
+        return <LazyApprovalsSection role={{ level: roleLevel(role) }} />;
+      case "workspaces":
+        return <LazyWorkspacesSection roleLevel={roleLevel(role)} />;
+      case "banking":
+        return <LazyBankingSection />;
+      case "reconciliation":
+        return <LazyReconciliationSection />;
+      case "ledger":
+        return <LazyLedgerSection />;
+      case "invoices":
+        return <LazyInvoicesSection />;
+      case "expenses":
+        return <LazyExpensesSection />;
+      case "autonomy":
+        return <LazyAutonomySection />;
+      case "ai-monitoring":
+        return <LazyAiOpsSection />;
+      case "feature-flags":
+        return <LazyFeatureFlagsSection role={role} />;
+      case "settings":
+        return <LazyRuntimeSettingsSection />;
+      case "logs":
+        return <LazyLogsSection />;
+      default:
+        return <OverviewSection />;
+    }
+  })();
+
   return (
     <AppShell className="bg-transparent">
-      <div className="min-h-screen text-slate-900 flex flex-col">
+      <div className="flex min-h-screen flex-col text-slate-900">
         <TopBar currentSection={current} onSelect={handleSelect} />
         <div className="flex flex-1">
-          <Sidebar current={current} onSelect={handleSelect} canManageAdminUsers={canManageAdminUsers} />
+          <Sidebar
+            current={current}
+            onSelect={handleSelect}
+            onPrefetch={prefetchSection}
+            canManageAdminUsers={canManageAdminUsers}
+          />
           <main className="flex-1 px-4 py-4 sm:px-6 lg:px-8">
-            <div className="max-w-6xl mx-auto space-y-6 pb-8">{renderSection()}</div>
+            <div className="mx-auto max-w-6xl space-y-6 pb-8">
+              <Suspense fallback={<SectionFallback />}>{sectionBody}</Suspense>
+            </div>
           </main>
         </div>
       </div>
     </AppShell>
   );
 };
-
-
-
