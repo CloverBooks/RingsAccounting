@@ -464,24 +464,36 @@ pub fn build_context(profile_json: &Value) -> ContextBuilderOutput {
 
     // Helper to extract string field
     let get_str = |key: &str| -> Option<&str> {
-        profile_json.get(key).and_then(|v| v.as_str()).filter(|s| !s.is_empty())
+        profile_json
+            .get(key)
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.trim().is_empty())
+    };
+    let get_first_str = |keys: &[&str]| -> Option<&str> {
+        keys.iter().find_map(|key| get_str(key))
+    };
+    let get_first_array = |keys: &[&str]| -> Option<&Vec<Value>> {
+        keys.iter()
+            .find_map(|key| profile_json.get(key).and_then(|v| v.as_array()).filter(|v| !v.is_empty()))
     };
 
     // Extract known fields - never invent defaults
-    let business_name = get_str("business_name");
+    let business_name = get_first_str(&["legal_business_name", "business_name"]);
     let industry = get_str("industry");
-    let intent = get_str("intent");
+    let intent = get_first_str(&["companion_intent_goals", "intent"]);
     let entity_type = get_str("entity_type");
     let fiscal_year_end = get_str("fiscal_year_end");
     
     // New fields for enhanced AI context
-    let employee_count = get_str("employee_count");
+    let employee_count = get_first_str(&["team_size", "employee_count"]);
     let business_age = get_str("business_age");
-    let biggest_challenges = profile_json.get("biggest_challenges").and_then(|v| v.as_array());
-    let current_tools = get_str("current_tools");
-    let monthly_transactions = get_str("monthly_transactions");
+    let biggest_challenges =
+        get_first_array(&["top_accounting_challenges", "biggest_challenges", "tax_concerns"]);
+    let current_tools = get_first_str(&["current_system_tool", "current_tools"]);
+    let monthly_transactions = get_first_str(&["monthly_transaction_band", "monthly_transactions"]);
     let has_accountant = profile_json.get("has_accountant").and_then(|v| v.as_bool());
-    let accounting_frequency = get_str("accounting_frequency");
+    let accounting_frequency =
+        get_first_str(&["accounting_review_frequency", "accounting_frequency"]);
 
     // Check for inferred data
     let inferred = profile_json.get("_inferred").and_then(|v| v.as_object());
@@ -1159,11 +1171,40 @@ mod tests {
     #[test]
     fn test_build_context_complete() {
         let profile = json!({
+            "legal_business_name": "Acme Corp",
+            "operating_name": "Acme",
             "business_name": "Acme Corp",
             "industry": "Retail",
-            "intent": "Track expenses",
             "entity_type": "LLC",
-            "fiscal_year_end": "December"
+            "business_age": "1-3",
+            "team_size": "2-5",
+            "country": "CA",
+            "primary_timezone": "America/Toronto",
+            "base_currency": "CAD",
+            "tax_registration_status": "registered",
+            "primary_tax_jurisdiction": "CA-ON",
+            "tax_ids_by_jurisdiction": [
+                { "jurisdiction": "CA-ON", "id": "123456789" }
+            ],
+            "fiscal_year_end_month": 12,
+            "fiscal_year_end_day": 31,
+            "accounting_method": "accrual",
+            "filing_cadence": "monthly",
+            "monthly_transaction_band": "101-500",
+            "bank_account_count": "2",
+            "current_system_tool": "spreadsheets",
+            "data_source": "manual",
+            "has_accountant": true,
+            "accounting_review_frequency": "monthly",
+            "default_invoice_terms": "net_30",
+            "default_bill_terms": "due_on_receipt",
+            "default_tax_behavior": "exclusive",
+            "high_risk_approval_threshold": 1000,
+            "companion_intent_goals": "Track expenses",
+            "top_accounting_challenges": ["cash_flow_visibility"],
+            "risk_appetite": "balanced",
+            "preferred_explanation_style": "concise",
+            "notification_preference": "email"
         });
         let ctx = build_context(&profile);
         assert!(ctx.narrative_context_string.contains("Acme Corp"));
@@ -1201,7 +1242,7 @@ mod tests {
         });
         let ctx = build_context(&profile);
         assert!(ctx.narrative_context_string.contains("likely"));
-        assert!(!ctx.unknowns.contains(&"industry".to_string()));
+        assert!(ctx.unknowns.contains(&"industry".to_string()));
     }
 
     #[test]
