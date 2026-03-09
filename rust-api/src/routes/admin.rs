@@ -1104,10 +1104,8 @@ pub async fn approve_approval(
     }
 
     let mut payload = parse_payload_object(&approval.payload_json);
-    if approval.action_type == "PASSWORD_RESET_LINK" {
-        if !payload.contains_key("_redacted") {
-            payload.insert("_redacted".to_string(), json!(["reset_url"]));
-        }
+    if approval.action_type == "PASSWORD_RESET_LINK" && !payload.contains_key("_redacted") {
+        payload.insert("_redacted".to_string(), json!(["reset_url"]));
     }
     let payload_json = Value::Object(payload).to_string();
 
@@ -5267,6 +5265,7 @@ async fn load_basic_user_by_id(
         .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn create_admin_approval_request(
     pool: &SqlitePool,
     principal: &AdminPrincipal,
@@ -7390,6 +7389,7 @@ where
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn insert_audit_event<'e, E>(
     executor: E,
     request_id: &str,
