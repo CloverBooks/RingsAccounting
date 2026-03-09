@@ -12,6 +12,7 @@ import {
   Receipt,
   Users,
 } from "lucide-react";
+import AppLink from "../routing/AppLink";
 
 // ─────────────────────────────────────────────────────────────────────────────
 //    Types (mirrors the existing CustomersPage types)
@@ -288,9 +289,9 @@ const CustomersPage: React.FC = () => {
               <div className="bg-[#131316] border border-white/5 rounded-2xl overflow-hidden">
                 <div className="flex justify-between items-center p-4 border-b border-white/5">
                   <h3 className="text-white text-sm font-semibold uppercase tracking-wider">Invoices</h3>
-                  <a href="/invoices" className="text-[#8B5CF6] text-xs flex items-center gap-1 hover:gap-2 transition-all">
+                  <AppLink href="/invoices" className="text-[#8B5CF6] text-xs flex items-center gap-1 hover:gap-2 transition-all">
                     View All <ChevronRight size={12} />
-                  </a>
+                  </AppLink>
                 </div>
                 <div className="divide-y divide-white/5">
                   {customerInvoices.slice(0, 4).map((inv: any) => (

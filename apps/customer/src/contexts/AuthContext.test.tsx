@@ -89,8 +89,8 @@ describe("AuthContext", () => {
       </AuthProvider>,
     );
 
-    await waitFor(() => expect(screen.getByText("Logout")).toBeInTheDocument());
-    expect(screen.getByTestId("auth-state").textContent).toBe("auth");
+    await waitFor(() => expect(screen.getByTestId("auth-state").textContent).toBe("auth"));
+    expect(screen.getByText("Logout")).toBeInTheDocument();
     expect(screen.getByTestId("bootstrapped").textContent).toBe("ready");
   });
 
