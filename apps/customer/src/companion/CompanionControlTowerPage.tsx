@@ -38,6 +38,7 @@ import { PanelType, toCustomerCopy } from "./companionCopy";
 import { buildApiUrl, getAccessToken } from "@/api/client";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useOnboardingReadiness } from "@/onboarding/useOnboardingReadiness";
+import AppLink from "../routing/AppLink";
 import {
   applyEngineBatch,
   fetchCockpitQueues,
@@ -688,9 +689,9 @@ export default function AICompanionControlTower() {
           <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             <div className="font-semibold">Advanced Companion modes are locked</div>
             <div className="mt-1">{blockedReason}</div>
-            <a href="/onboarding" className="mt-2 inline-flex font-semibold hover:underline">
-              Finish onboarding
-            </a>
+                <AppLink href="/onboarding" className="mt-2 inline-flex font-semibold hover:underline">
+                  Finish onboarding
+                </AppLink>
           </div>
         </div>
       ) : null}

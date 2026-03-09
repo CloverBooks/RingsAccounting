@@ -7,7 +7,7 @@ import { backendUrl } from "../utils/apiClient";
 /**
  * Clover Books - Login Page
  * Palette: white / black / grey + orange accent
- * Font: JetBrains Mono (loaded via the <style> block below)
+ * Font: JetBrains Mono (loaded globally)
  */
 
 const CloverBooksLoginPage: React.FC = () => {
@@ -56,12 +56,6 @@ const CloverBooksLoginPage: React.FC = () => {
 
   return (
     <div className="min-h-screen w-full bg-[#fbfbfc] text-neutral-900">
-      {/* Font */}
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
-        :root { --cb-orange: #f97316; }
-      `}</style>
-
       {/* Subtle paper + grain */}
       <div
         aria-hidden

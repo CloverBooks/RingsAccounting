@@ -594,7 +594,7 @@ export default function BooksReviewPage() {
                   ) : companionEnabled === false ? (
                     <div className="text-sm text-slate-500 bg-slate-50 p-4 rounded-lg border border-slate-200">
                       <span className="font-medium">AI Companion is turned off</span> for this business. Turn it on in{" "}
-                      <a href="/settings/account" className="text-sky-600 underline hover:text-sky-700">Account settings</a>{" "}
+                      <Link to="/settings" className="text-sky-600 underline hover:text-sky-700">Account settings</Link>{" "}
                       to see AI insights.
                     </div>
                   ) : companionEnabled ? (

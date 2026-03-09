@@ -1,8 +1,10 @@
 import React, { useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { Banknote, ChevronRight, FileText, Layers, ListChecks, Loader2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { navigateToCustomerHref } from "../routing/customerNavigation";
 
 type SurfaceKey = "receipts" | "invoices" | "books" | "banking";
 
@@ -51,6 +53,7 @@ function surfaceMeta(key: SurfaceKey) {
 }
 
 export default function IssuesPanel({ issues, surface, loading = false }: IssuesPanelProps) {
+  const navigate = useNavigate();
   const surfaceKey = normalizeSurfaceKey(surface);
 
   const filteredIssues = useMemo(() => {
@@ -103,7 +106,7 @@ export default function IssuesPanel({ issues, surface, loading = false }: Issues
                 <div className="mt-4 flex gap-2">
                   <Button
                     className="rounded-2xl bg-zinc-950 text-white hover:bg-zinc-900"
-                    onClick={() => (window.location.href = i.target_url || "#")}
+                    onClick={() => i.target_url && navigateToCustomerHref(navigate, i.target_url)}
                     disabled={!i.target_url}
                   >
                     Open review

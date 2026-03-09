@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import "../index.css";
+import { navigateToCustomerHref } from "../routing/customerNavigation";
 
 type BankAccountRow = {
   id: string;
@@ -78,6 +80,7 @@ function BankAccountRowForm({
 }
 
 export default function BankSetupPage({ skipUrl }: { skipUrl?: string }) {
+  const navigate = useNavigate();
   const [rows, setRows] = useState<BankAccountRow[]>([
     {
       id: makeId(),
@@ -132,7 +135,7 @@ export default function BankSetupPage({ skipUrl }: { skipUrl?: string }) {
       }
 
       // Redirect to workspace or import page
-      window.location.href = "/workspace/";
+      navigateToCustomerHref(navigate, "/workspace/");
     } catch (err) {
       console.error(err);
       alert("Error saving bank setup. Please try again.");
@@ -175,7 +178,7 @@ export default function BankSetupPage({ skipUrl }: { skipUrl?: string }) {
       const targetUrl = ALLOWED_SKIP_DESTINATIONS.includes(skipUrl || "")
         ? skipUrl!
         : defaultUrl;
-      window.location.href = targetUrl;
+      navigateToCustomerHref(navigate, targetUrl);
     } catch (err) {
       console.error(err);
       alert("Error skipping setup. Please try again.");

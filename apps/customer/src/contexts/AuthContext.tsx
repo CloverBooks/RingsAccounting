@@ -16,6 +16,7 @@ export interface AuthState {
   user: User | null;
   loading: boolean;
   isAdmin: boolean;
+  bootstrapped: boolean;
 }
 
 interface AuthContextType {
@@ -26,6 +27,9 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+const AUTH_SNAPSHOT_KEY = "auth_snapshot_v1";
+const AUTH_SNAPSHOT_MAX_AGE_MS = 15 * 60 * 1000;
 
 const computeIsAdmin = (user: User | null) => {
   if (!user) return false;
@@ -43,31 +47,127 @@ const computeIsAdmin = (user: User | null) => {
   );
 };
 
-const toAuthState = (user: User | null, loading = false): AuthState => ({
+type AuthSnapshot = {
+  savedAt: number;
+  user: User;
+};
+
+function getStorage(): Storage | null {
+  if (typeof window === "undefined" || !window.localStorage) return null;
+  const storage = window.localStorage as Storage;
+  if (typeof storage.getItem !== "function") return null;
+  if (typeof storage.setItem !== "function") return null;
+  if (typeof storage.removeItem !== "function") return null;
+  return storage;
+}
+
+function snapshotUser(user: User): User {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name ?? null,
+    username: user.username,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    first_name: user.first_name,
+    last_name: user.last_name,
+    role: user.role ?? null,
+    is_admin: user.is_admin,
+    isStaff: user.isStaff,
+    isSuperuser: user.isSuperuser,
+    is_staff: user.is_staff,
+    is_superuser: user.is_superuser,
+    internalAdmin: user.internalAdmin ?? null,
+  };
+}
+
+function readSnapshot(): User | null {
+  const storage = getStorage();
+  const raw = storage?.getItem(AUTH_SNAPSHOT_KEY);
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as AuthSnapshot;
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      typeof parsed.savedAt !== "number" ||
+      !parsed.user ||
+      typeof parsed.user.email !== "string"
+    ) {
+      storage?.removeItem(AUTH_SNAPSHOT_KEY);
+      return null;
+    }
+
+    if (Date.now() - parsed.savedAt > AUTH_SNAPSHOT_MAX_AGE_MS) {
+      storage?.removeItem(AUTH_SNAPSHOT_KEY);
+      return null;
+    }
+
+    return parsed.user;
+  } catch {
+    storage?.removeItem(AUTH_SNAPSHOT_KEY);
+    return null;
+  }
+}
+
+function writeSnapshot(user: User | null) {
+  const storage = getStorage();
+  if (!storage) {
+    return;
+  }
+
+  if (!user) {
+    storage.removeItem(AUTH_SNAPSHOT_KEY);
+    return;
+  }
+
+  storage.setItem(
+    AUTH_SNAPSHOT_KEY,
+    JSON.stringify({
+      savedAt: Date.now(),
+      user: snapshotUser(user),
+    } satisfies AuthSnapshot),
+  );
+}
+
+const toAuthState = (user: User | null, options?: { loading?: boolean; bootstrapped?: boolean }): AuthState => ({
   authenticated: Boolean(user),
   user,
-  loading,
+  loading: options?.loading ?? false,
   isAdmin: computeIsAdmin(user),
+  bootstrapped: options?.bootstrapped ?? true,
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [auth, setAuth] = useState<AuthState>(() => toAuthState(null, true));
+  const [auth, setAuth] = useState<AuthState>(() => {
+    const cachedUser = readSnapshot();
+    if (cachedUser) {
+      return toAuthState(cachedUser, { loading: false, bootstrapped: false });
+    }
+    return toAuthState(null, { loading: true, bootstrapped: false });
+  });
 
   const refresh = async () => {
     try {
       const data: TokenResponse = await apiRefresh();
-      const nextAuth = toAuthState(data.user, false);
+      writeSnapshot(data.user);
+      const nextAuth = toAuthState(data.user, { loading: false, bootstrapped: true });
       setAuth(nextAuth);
       return nextAuth;
     } catch {
-      setAuth(toAuthState(null, false));
+      writeSnapshot(null);
+      setAuth(toAuthState(null, { loading: false, bootstrapped: true }));
       return undefined;
     }
   };
 
   const login = async (email: string, password: string) => {
     const data = await apiLogin(email, password);
-    setAuth(toAuthState(data.user, false));
+    writeSnapshot(data.user);
+    setAuth(toAuthState(data.user, { loading: false, bootstrapped: true }));
     return data;
   };
 
@@ -75,9 +175,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await apiLogout();
     } finally {
-      setAuth(toAuthState(null, false));
+      writeSnapshot(null);
+      setAuth(toAuthState(null, { loading: false, bootstrapped: true }));
       if (typeof window !== "undefined" && window.location?.assign) {
-        window.location.assign("/login/");
+        window.location.assign("/login");
       }
     }
   };

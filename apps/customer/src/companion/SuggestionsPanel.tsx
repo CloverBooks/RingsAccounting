@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Banknote,
   CheckCircle2,
@@ -27,6 +28,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { buildApiUrl, getAccessToken } from "@/api/client";
+import { navigateToCustomerHref } from "../routing/customerNavigation";
 
 type SurfaceKey = "receipts" | "invoices" | "books" | "banking";
 
@@ -122,6 +124,7 @@ export default function SuggestionsPanel({
   applyBlocked = false,
   applyBlockedReason,
 }: SuggestionsPanelProps) {
+  const navigate = useNavigate();
   const [tab, setTab] = useState<"all" | "ready" | "review" | "needs_attention">("all");
   const [q, setQ] = useState("");
   const [batchOpen, setBatchOpen] = useState(false);
@@ -255,6 +258,7 @@ export default function SuggestionsPanel({
                 workspaceId={workspaceId}
                 applyBlocked={applyBlocked}
                 applyBlockedReason={applyBlockedReason}
+                navigate={navigate}
               />
             ))
           )}
@@ -307,6 +311,7 @@ function SuggestionCard({
   workspaceId,
   applyBlocked = false,
   applyBlockedReason,
+  navigate,
 }: {
   proposal: Proposal;
   onApplied: (id: string) => void;
@@ -314,6 +319,7 @@ function SuggestionCard({
   workspaceId?: number;
   applyBlocked?: boolean;
   applyBlockedReason?: string;
+  navigate: ReturnType<typeof useNavigate>;
 }) {
   const meta = surfaceMeta(proposal.surface);
   const chip = riskChip(proposal.risk);
@@ -454,7 +460,7 @@ function SuggestionCard({
                 <Button
                   variant="outline"
                   className="rounded-2xl border-zinc-200 bg-white"
-                  onClick={() => (proposal.target_url ? (window.location.href = proposal.target_url) : undefined)}
+                  onClick={() => proposal.target_url && navigateToCustomerHref(navigate, proposal.target_url)}
                   disabled={!proposal.target_url}
                 >
                   {actionKind === "review" ? "Open review" : "Review details"}

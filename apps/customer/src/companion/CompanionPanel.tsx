@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import type { CompanionOverview, CompanionInsight, CompanionAction } from "./api";
 import { applyCompanionAction, dismissCompanionAction, fetchCompanionOverview, getPrimaryButtonLabel, ACTION_BEHAVIOR_MAP } from "./api";
 import CompanionThinkingScreen from "./CompanionThinkingScreen";
+import { navigateToCustomerHref } from "../routing/customerNavigation";
 
 const severityStyles: Record<CompanionInsight["severity"], string> = {
   info: "bg-sky-50 text-sky-700 border border-sky-100",
@@ -27,6 +29,7 @@ const actionSeverityOrder: Record<string, number> = {
 };
 
 const CompanionPanel: React.FC = () => {
+  const navigate = useNavigate();
   const [data, setData] = useState<CompanionOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -133,14 +136,14 @@ const CompanionPanel: React.FC = () => {
           if (targetUrl) {
             // Dismiss the action first, then navigate
             await dismissCompanionAction(action.id);
-            window.location.href = targetUrl;
+            navigateToCustomerHref(navigate, targetUrl);
           } else {
             // Fallback: navigate based on context
             const context = action.context || action.payload?.metadata?.target_context;
-            if (context === "invoices") window.location.href = "/invoices";
-            else if (context === "expenses") window.location.href = "/expenses";
-            else if (context === "bank") window.location.href = "/banking";
-            else if (context === "reconciliation") window.location.href = "/reconciliation";
+            if (context === "invoices") navigateToCustomerHref(navigate, "/invoices");
+            else if (context === "expenses") navigateToCustomerHref(navigate, "/expenses");
+            else if (context === "bank") navigateToCustomerHref(navigate, "/banking");
+            else if (context === "reconciliation") navigateToCustomerHref(navigate, "/reconciliation");
             await dismissCompanionAction(action.id);
           }
       } else {

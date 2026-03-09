@@ -1,6 +1,7 @@
 import React from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 
 import CompanionStrip from "./CompanionStrip";
 import { fetchCompanionOverview, markCompanionContextSeen } from "./api";
@@ -38,6 +39,13 @@ const mockSummary: useCompanionSummaryModule.CompanionSummary = {
 };
 
 describe("CompanionStrip", () => {
+  const renderStrip = () =>
+    render(
+      <MemoryRouter>
+        <CompanionStrip context="bank" />
+      </MemoryRouter>,
+    );
+
   afterEach(() => {
     vi.resetAllMocks();
     resetCompanionContextCacheForTests();
@@ -66,7 +74,7 @@ describe("CompanionStrip", () => {
       new_actions_count: 0,
     });
 
-    render(<CompanionStrip context="bank" />);
+    renderStrip();
 
     await waitFor(() => expect(screen.getByTestId("companion-strip-glow")).toBeInTheDocument());
     expect(screen.getByTestId("companion-strip-glow")).toHaveClass("companion-glow");
@@ -95,7 +103,7 @@ describe("CompanionStrip", () => {
       new_actions_count: 0,
     });
 
-    render(<CompanionStrip context="bank" />);
+    renderStrip();
 
     await waitFor(() => expect(screen.getByTestId("companion-strip-glow")).toBeInTheDocument());
     // Should show "All clear" for high score (focusMode label)
@@ -113,7 +121,7 @@ describe("CompanionStrip", () => {
     const mockedFetch = fetchCompanionOverview as unknown as Mock;
     mockedFetch.mockRejectedValue(new Error("fail"));
 
-    render(<CompanionStrip context="bank" />);
+    renderStrip();
 
     await waitFor(() => expect(screen.getByTestId("companion-strip-glow")).toBeInTheDocument());
     // Should show unavailable message
@@ -146,7 +154,7 @@ describe("CompanionStrip", () => {
     const mockedMarkSeen = markCompanionContextSeen as unknown as Mock;
     mockedMarkSeen.mockResolvedValue({ ok: true });
 
-    render(<CompanionStrip context="bank" />);
+    renderStrip();
 
     await waitFor(() => expect(screen.getByTestId("companion-strip-glow")).toBeInTheDocument());
     await waitFor(() => expect(mockedMarkSeen).toHaveBeenCalledTimes(1));

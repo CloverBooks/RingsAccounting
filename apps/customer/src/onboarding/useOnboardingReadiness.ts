@@ -7,6 +7,13 @@ import {
   OnboardingReadiness,
 } from "./readiness";
 
+export type OnboardingReadinessSeed = {
+  status: string;
+  score: number;
+  unknowns: string[];
+  hasProfile: boolean;
+};
+
 type ReadinessSnapshot = {
   loading: boolean;
   error: string | null;
@@ -24,13 +31,36 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-export function useOnboardingReadiness(): ReadinessSnapshot {
-  const [loading, setLoading] = useState(true);
+function readinessFromSeed(seed: OnboardingReadinessSeed): OnboardingReadiness {
+  return {
+    ...emptyReadiness,
+    status:
+      seed.status === "in_progress" ||
+      seed.status === "ready_for_companion" ||
+      seed.status === "completed"
+        ? seed.status
+        : "not_started",
+    score: Math.max(0, Math.min(100, Math.round(seed.score))),
+    missing_required_fields: seed.unknowns,
+    required_fields_complete: seed.unknowns.length === 0,
+  };
+}
+
+export function useOnboardingReadiness(
+  options?: {
+    enabled?: boolean;
+    initialSnapshot?: OnboardingReadinessSeed | null;
+  },
+): ReadinessSnapshot {
+  const initialSnapshot = options?.initialSnapshot ?? null;
+  const [loading, setLoading] = useState(!initialSnapshot);
   const [error, setError] = useState<string | null>(null);
-  const [status, setStatus] = useState<string>("not_started");
-  const [unknowns, setUnknowns] = useState<string[]>(emptyReadiness.missing_required_fields);
-  const [readiness, setReadiness] = useState<OnboardingReadiness>(emptyReadiness);
-  const [hasProfile, setHasProfile] = useState(false);
+  const [status, setStatus] = useState<string>(initialSnapshot?.status || "not_started");
+  const [unknowns, setUnknowns] = useState<string[]>(initialSnapshot?.unknowns || emptyReadiness.missing_required_fields);
+  const [readiness, setReadiness] = useState<OnboardingReadiness>(
+    initialSnapshot ? readinessFromSeed(initialSnapshot) : emptyReadiness,
+  );
+  const [hasProfile, setHasProfile] = useState(Boolean(initialSnapshot?.hasProfile));
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -70,8 +100,21 @@ export function useOnboardingReadiness(): ReadinessSnapshot {
   }, []);
 
   useEffect(() => {
+    if (initialSnapshot) {
+      setStatus(initialSnapshot.status);
+      setUnknowns(initialSnapshot.unknowns);
+      setReadiness(readinessFromSeed(initialSnapshot));
+      setHasProfile(Boolean(initialSnapshot.hasProfile));
+      setLoading(false);
+    }
+  }, [initialSnapshot]);
+
+  useEffect(() => {
+    if (options?.enabled === false) {
+      return;
+    }
     void refresh();
-  }, [refresh]);
+  }, [options?.enabled, refresh]);
 
   return {
     loading,
