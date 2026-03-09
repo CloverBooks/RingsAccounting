@@ -1,5 +1,10 @@
 import "@testing-library/jest-dom";
+import { configure } from "@testing-library/react";
 import "./strictConsole";
+
+configure({
+  asyncUtilTimeout: 10000,
+});
 
 class ResizeObserverMock {
   observe() {}

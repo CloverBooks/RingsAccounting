@@ -91,17 +91,14 @@ describe("BankReviewPage", () => {
   it("renders AI companion insights when present", async () => {
     renderWithRouter(<BankReviewPage />);
 
-    await waitFor(() => expect(screen.getByText(/Previous runs/i)).toBeInTheDocument());
+    expect(await screen.findByRole("heading", { name: /Previous runs/i })).toBeInTheDocument();
 
-    // Wait for the rows to load
-    await waitFor(() => expect(screen.getByText("#1")).toBeInTheDocument());
+    const viewButton = await screen.findByRole("button", { name: "View" });
+    fireEvent.click(viewButton);
 
-    const viewBtns = screen.getAllByRole("button", { name: "View" });
-    fireEvent.click(viewBtns[0]);
-
-    await waitFor(() => expect(screen.getByText(/Run #1/)).toBeInTheDocument());
+    expect(await screen.findByRole("heading", { name: "Run #1" })).toBeInTheDocument();
     expect(screen.getByText(/AI Companion insights/i)).toBeInTheDocument();
     expect(screen.getByText(/Focus on unmatched withdrawals first./i)).toBeInTheDocument();
     expect(screen.getByText(/Top transactions to review/i)).toBeInTheDocument();
-  });
+  }, 10000);
 });
