@@ -8,6 +8,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use crate::AppState;
@@ -183,6 +184,16 @@ pub struct DisabledActionResponse {
     pub message: String,
 }
 
+#[derive(Debug, Serialize, Clone)]
+pub struct DashboardTaxGuardianCard {
+    pub period_key: String,
+    pub net_tax_due: Option<f64>,
+    pub due_date: Option<String>,
+    pub status: String,
+    pub open_anomalies: i32,
+    pub due_label: String,
+}
+
 // =============================================================================
 // Helper Functions
 // =============================================================================
@@ -215,6 +226,71 @@ fn neutral_snapshot(period_key: &str) -> TaxSnapshot {
         anomaly_counts: AnomalyCounts { low: 0, medium: 0, high: 0 },
         has_high_severity_blockers: false,
     }
+}
+
+async fn table_exists(pool: &sqlx::SqlitePool, table: &str) -> bool {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
+    )
+    .bind(table)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0)
+        > 0
+}
+
+async fn column_exists(pool: &sqlx::SqlitePool, table: &str, column: &str) -> bool {
+    let pragma = format!("PRAGMA table_info({})", table);
+    let columns = sqlx::query_as::<_, (i64, String, String, i64, Option<String>, i64)>(&pragma)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+    columns.into_iter().any(|(_, name, _, _, _, _)| name == column)
+}
+
+async fn count_open_anomalies_for_business(pool: &sqlx::SqlitePool, business_id: i64) -> i32 {
+    for table in ["tax_anomaly", "core_tax_anomaly", "tax_guardian_anomaly"] {
+        if !table_exists(pool, table).await || !column_exists(pool, table, "status").await {
+            continue;
+        }
+
+        let mut query = format!(
+            "SELECT COUNT(*) FROM {} WHERE upper(COALESCE(status, 'OPEN')) IN ('OPEN', 'PENDING', 'NEW')",
+            table,
+        );
+        if column_exists(pool, table, "business_id").await {
+            query.push_str(" AND business_id = ?");
+            return sqlx::query_scalar::<_, i64>(&query)
+                .bind(business_id)
+                .fetch_one(pool)
+                .await
+                .unwrap_or(0) as i32;
+        }
+
+        return sqlx::query_scalar::<_, i64>(&query)
+            .fetch_one(pool)
+            .await
+            .unwrap_or(0) as i32;
+    }
+
+    0
+}
+
+pub async fn fetch_dashboard_tax_guardian_card(
+    pool: &sqlx::SqlitePool,
+    business_id: i64,
+) -> Option<DashboardTaxGuardianCard> {
+    let open_anomalies = count_open_anomalies_for_business(pool, business_id).await;
+    let status = if open_anomalies > 0 { "attention" } else { "all_clear" };
+
+    Some(DashboardTaxGuardianCard {
+        period_key: Utc::now().format("%Y-%m").to_string(),
+        net_tax_due: Some(0.0),
+        due_date: None,
+        status: status.to_string(),
+        open_anomalies,
+        due_label: "Unknown".to_string(),
+    })
 }
 
 // =============================================================================

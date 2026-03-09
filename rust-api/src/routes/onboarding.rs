@@ -233,6 +233,14 @@ pub struct OnboardingReadiness {
     pub ai_handshake_complete: bool,
 }
 
+#[derive(Debug, Serialize, Clone)]
+pub struct DashboardOnboardingReadinessSummary {
+    pub status: String,
+    pub score: i32,
+    pub unknowns: Vec<String>,
+    pub has_profile: bool,
+}
+
 // =============================================================================
 // Helpers
 // =============================================================================
@@ -454,6 +462,50 @@ async fn fetch_ai_handshake_complete(db: &sqlx::SqlitePool, business_id: i64) ->
     .flatten();
 
     exists.is_some()
+}
+
+pub async fn fetch_dashboard_readiness_summary(
+    db: &sqlx::SqlitePool,
+    business_id: i64,
+    user_id: i64,
+) -> DashboardOnboardingReadinessSummary {
+    let profile_row = sqlx::query_as::<_, (String, String)>(
+        "SELECT profile_json, onboarding_status
+         FROM business_profiles
+         WHERE business_id = ?",
+    )
+    .bind(business_id)
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten();
+
+    let (profile, onboarding_status, has_profile) = match profile_row {
+        Some((profile_json, onboarding_status)) => (
+            serde_json::from_str(&profile_json).unwrap_or_else(|_| json!({})),
+            onboarding_status,
+            true,
+        ),
+        None => (json!({}), "not_started".to_string(), false),
+    };
+
+    let (granted_consents, ai_handshake_complete) = tokio::join!(
+        fetch_granted_consents(db, business_id, user_id),
+        fetch_ai_handshake_complete(db, business_id),
+    );
+    let readiness = compute_readiness(
+        &profile,
+        &onboarding_status,
+        &granted_consents,
+        ai_handshake_complete,
+    );
+
+    DashboardOnboardingReadinessSummary {
+        status: readiness.status,
+        score: readiness.score,
+        unknowns: readiness.missing_required_fields,
+        has_profile,
+    }
 }
 
 /// Build AI context from profile for companion injection
