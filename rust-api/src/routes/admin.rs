@@ -1,7 +1,7 @@
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
-    response::IntoResponse,
+    http::{header, HeaderMap, HeaderValue, StatusCode},
+    response::{IntoResponse, Response},
     Json,
 };
 use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -9,13 +9,15 @@ use chrono::{Duration, Utc};
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use sha2::Sha256;
 use sqlx::{FromRow, QueryBuilder, Row, Sqlite, SqlitePool};
 use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
 
+use crate::companion_autonomy::policy::{BudgetConfig, PolicyConfig};
 use crate::routes::auth::{extract_claims_from_header, Claims};
+use crate::routes::request_ids::resolve_request_id;
 use crate::AppState;
 
 const APPROVAL_DEFAULT_EXPIRY_HOURS: i64 = 24;
@@ -98,6 +100,10 @@ pub struct AuditLogQuery {
     pub page_size: Option<i64>,
     pub action: Option<String>,
     pub actor_user_id: Option<i64>,
+    pub admin_user: Option<String>,
+    pub start: Option<String>,
+    pub level: Option<String>,
+    pub category: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -294,6 +300,227 @@ struct AuditEventRow {
     user_agent: Option<String>,
     details_json: String,
     created_at: String,
+}
+
+#[derive(Debug, Clone)]
+struct AuditLogFilters {
+    search_term: Option<String>,
+    search_like: Option<String>,
+    actor_user_id: Option<i64>,
+    admin_user: Option<String>,
+    start: Option<String>,
+    level: Option<String>,
+    category: Option<String>,
+}
+
+fn normalized_query_value(value: Option<&String>) -> Option<String> {
+    value
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn audit_log_filters(params: &AuditLogQuery) -> AuditLogFilters {
+    let search_term = normalized_query_value(params.action.as_ref());
+    AuditLogFilters {
+        search_like: search_term.as_ref().map(|value| format!("%{}%", value)),
+        search_term,
+        actor_user_id: params.actor_user_id,
+        admin_user: normalized_query_value(params.admin_user.as_ref()),
+        start: normalized_query_value(params.start.as_ref()),
+        level: normalized_query_value(params.level.as_ref()).map(|value| value.to_uppercase()),
+        category: normalized_query_value(params.category.as_ref()).map(|value| value.to_lowercase()),
+    }
+}
+
+fn audit_level_for_row(action: &str, outcome: &str) -> &'static str {
+    if outcome.starts_with("denied") || outcome.starts_with("rejected") || outcome.contains("failed")
+    {
+        "ERROR"
+    } else if action.contains("break_glass") || outcome.contains("expired") {
+        "WARNING"
+    } else {
+        "INFO"
+    }
+}
+
+fn audit_category_for_action(action: &str) -> String {
+    action
+        .split('.')
+        .next()
+        .unwrap_or("admin")
+        .trim()
+        .to_lowercase()
+}
+
+fn audit_level_sql() -> &'static str {
+    "CASE
+        WHEN outcome LIKE 'denied%' OR outcome LIKE 'rejected%' OR outcome LIKE '%failed%' THEN 'ERROR'
+        WHEN action LIKE '%break_glass%' OR outcome LIKE '%expired%' THEN 'WARNING'
+        ELSE 'INFO'
+     END"
+}
+
+fn audit_category_sql() -> &'static str {
+    "CASE
+        WHEN instr(action, '.') > 0 THEN lower(substr(action, 1, instr(action, '.') - 1))
+        ELSE 'admin'
+     END"
+}
+
+fn apply_audit_log_filters(
+    builder: &mut QueryBuilder<'_, Sqlite>,
+    filters: &AuditLogFilters,
+) {
+    builder.push(" WHERE 1=1");
+
+    if let Some(search_like) = &filters.search_like {
+        builder
+            .push(" AND (action LIKE ")
+            .push_bind(search_like.clone())
+            .push(" OR COALESCE(actor_email, '') LIKE ")
+            .push_bind(search_like.clone())
+            .push(" OR COALESCE(ip_address, '') LIKE ")
+            .push_bind(search_like.clone())
+            .push(" OR COALESCE(target_type, '') LIKE ")
+            .push_bind(search_like.clone())
+            .push(" OR COALESCE(target_id, '') LIKE ")
+            .push_bind(search_like.clone())
+            .push(" OR COALESCE(reason, '') LIKE ")
+            .push_bind(search_like.clone())
+            .push(")");
+    }
+
+    if let Some(actor_user_id) = filters.actor_user_id {
+        builder.push(" AND actor_user_id = ").push_bind(actor_user_id);
+    }
+
+    if let Some(admin_user) = &filters.admin_user {
+        builder
+            .push(" AND lower(COALESCE(actor_email, '')) = ")
+            .push_bind(admin_user.to_lowercase());
+    }
+
+    if let Some(start) = &filters.start {
+        builder
+            .push(" AND datetime(created_at) >= datetime(")
+            .push_bind(start.clone())
+            .push(")");
+    }
+
+    if let Some(level) = &filters.level {
+        builder
+            .push(" AND ")
+            .push(audit_level_sql())
+            .push(" = ")
+            .push_bind(level.clone());
+    }
+
+    if let Some(category) = &filters.category {
+        builder
+            .push(" AND ")
+            .push(audit_category_sql())
+            .push(" = ")
+            .push_bind(category.clone());
+    }
+}
+
+async fn fetch_audit_event_rows(
+    pool: &SqlitePool,
+    filters: &AuditLogFilters,
+    page: Option<i64>,
+    page_size: Option<i64>,
+) -> Result<(i64, Vec<AuditEventRow>), sqlx::Error> {
+    let mut count_query = QueryBuilder::<Sqlite>::new("SELECT COUNT(*) FROM admin_audit_events");
+    apply_audit_log_filters(&mut count_query, filters);
+    let total = count_query.build_query_scalar::<i64>().fetch_one(pool).await?;
+
+    let mut rows_query = QueryBuilder::<Sqlite>::new(
+        "SELECT
+            id,
+            request_id,
+            action,
+            outcome,
+            actor_user_id,
+            actor_email,
+            actor_role,
+            target_type,
+            target_id,
+            reason,
+            ip_address,
+            user_agent,
+            details_json,
+            created_at
+         FROM admin_audit_events",
+    );
+    apply_audit_log_filters(&mut rows_query, filters);
+    rows_query.push(" ORDER BY id DESC");
+
+    if let (Some(page), Some(page_size)) = (page, page_size) {
+        let offset = (page - 1) * page_size;
+        rows_query
+            .push(" LIMIT ")
+            .push_bind(page_size)
+            .push(" OFFSET ")
+            .push_bind(offset);
+    }
+
+    let rows = rows_query.build_query_as::<AuditEventRow>().fetch_all(pool).await?;
+    Ok((total, rows))
+}
+
+fn audit_event_row_to_value(row: AuditEventRow) -> Value {
+    let level = audit_level_for_row(&row.action, &row.outcome);
+    let category = audit_category_for_action(&row.action);
+    json!({
+        "id": row.id,
+        "timestamp": row.created_at,
+        "admin_email": row.actor_email,
+        "actor_role": row.actor_role,
+        "action": row.action,
+        "object_type": row.target_type.unwrap_or_else(|| "unknown".to_string()),
+        "object_id": row.target_id.unwrap_or_default(),
+        "extra": parse_payload_value(&row.details_json),
+        "remote_ip": row.ip_address,
+        "user_agent": row.user_agent,
+        "request_id": row.request_id,
+        "level": level,
+        "category": category,
+        "actor_user_id": row.actor_user_id,
+        "reason": row.reason
+    })
+}
+
+fn audit_log_pagination_params(filters: &AuditLogFilters) -> Vec<(&'static str, String)> {
+    let mut extra = Vec::new();
+    if let Some(search_term) = &filters.search_term {
+        extra.push(("action", search_term.clone()));
+    }
+    if let Some(actor_user_id) = filters.actor_user_id {
+        extra.push(("actor_user_id", actor_user_id.to_string()));
+    }
+    if let Some(admin_user) = &filters.admin_user {
+        extra.push(("admin_user", admin_user.clone()));
+    }
+    if let Some(start) = &filters.start {
+        extra.push(("start", start.clone()));
+    }
+    if let Some(level) = &filters.level {
+        extra.push(("level", level.clone()));
+    }
+    if let Some(category) = &filters.category {
+        extra.push(("category", category.clone()));
+    }
+    extra
+}
+
+fn csv_escape(value: &str) -> String {
+    if value.contains(',') || value.contains('"') || value.contains('\n') || value.contains('\r') {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
+    }
 }
 
 #[derive(Debug, FromRow)]
@@ -622,7 +849,7 @@ pub async fn contract(
         StatusCode::OK,
         Json(json!({
             "ok": true,
-            "contract_version": "2026-03-04",
+            "contract_version": "2026-03-06",
             "owner": "rust-api",
             "admin_model": {
                 "canonical_namespace": "/api/admin/*",
@@ -641,6 +868,8 @@ pub async fn contract(
                 "authz_me": "/api/admin/authz/me",
                 "overview_metrics": "/api/admin/overview-metrics/",
                 "operations_overview": "/api/admin/operations-overview/",
+                "runtime_settings": "/api/admin/runtime-settings/",
+                "ai_ops": "/api/admin/ai-ops/",
                 "users": "/api/admin/users/",
                 "user_patch": "/api/admin/users/:id/",
                 "user_reset_password": "/api/admin/users/:id/reset-password/",
@@ -664,7 +893,8 @@ pub async fn contract(
                 "approval_break_glass": "/api/admin/approvals/:id/break-glass/",
                 "impersonations": "/api/admin/impersonations/",
                 "impersonation_stop": "/api/admin/impersonations/:id/stop/",
-                "audit_log": "/api/admin/audit-log/"
+                "audit_log": "/api/admin/audit-log/",
+                "audit_log_export": "/api/admin/audit-log/export/"
             }
         })),
     )
@@ -993,13 +1223,16 @@ pub async fn create_approval(
         );
     }
 
-    (
+    mutation_response(
         StatusCode::OK,
-        Json(json!({
+        "created",
+        "Approval request created.",
+        &req.request_id,
+        json!({
             "id": approval_id,
             "status": "PENDING",
             "created_at": created_at
-        })),
+        }),
     )
 }
 
@@ -1168,14 +1401,17 @@ pub async fn approve_approval(
         );
     }
 
-    (
+    mutation_response(
         StatusCode::OK,
-        Json(json!({
+        "approved",
+        "Approval request approved.",
+        &req.request_id,
+        json!({
             "id": approval_id,
             "status": "APPROVED",
             "resolved_at": now_sqlite(),
             "execution_error": Value::Null
-        })),
+        }),
     )
 }
 
@@ -1327,13 +1563,16 @@ pub async fn reject_approval(
         );
     }
 
-    (
+    mutation_response(
         StatusCode::OK,
-        Json(json!({
+        "rejected",
+        "Approval request rejected.",
+        &req.request_id,
+        json!({
             "id": approval_id,
             "status": "REJECTED",
             "resolved_at": now_sqlite()
-        })),
+        }),
     )
 }
 
@@ -1490,12 +1729,15 @@ pub async fn break_glass_approval(
         );
     }
 
-    (
+    mutation_response(
         StatusCode::OK,
-        Json(json!({
+        "granted",
+        "Break-glass access granted.",
+        &req.request_id,
+        json!({
             "success": true,
             "expires_at": expires_at
-        })),
+        }),
     )
 }
 
@@ -1645,11 +1887,14 @@ pub async fn start_impersonation(
     }
 
     let redirect_url = format!("/?impersonation_session={}", session_id);
-    (
+    mutation_response(
         StatusCode::OK,
-        Json(json!({
+        "started",
+        "Impersonation session started.",
+        &req.request_id,
+        json!({
             "redirect_url": redirect_url
-        })),
+        }),
     )
 }
 
@@ -1707,13 +1952,15 @@ pub async fn stop_impersonation(
     }
 
     if session.status != "ACTIVE" {
-        return (
+        return mutation_response(
             StatusCode::OK,
-            Json(json!({
-                "ok": true,
+            "noop",
+            "Impersonation session already inactive.",
+            &req.request_id,
+            json!({
                 "id": session.id,
                 "status": session.status
-            })),
+            }),
         );
     }
 
@@ -1779,14 +2026,16 @@ pub async fn stop_impersonation(
         );
     }
 
-    (
+    mutation_response(
         StatusCode::OK,
-        Json(json!({
-            "ok": true,
+        "stopped",
+        "Impersonation session stopped.",
+        &req.request_id,
+        json!({
             "id": session.id,
             "status": "STOPPED",
             "stopped_at": now_sqlite()
-        })),
+        }),
     )
 }
 
@@ -1802,54 +2051,9 @@ pub async fn list_audit_events(
 
     let page = params.page.unwrap_or(1).max(1);
     let page_size = params.page_size.unwrap_or(50).clamp(1, 200);
-    let offset = (page - 1) * page_size;
-    let action_filter = params
-        .action
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string);
+    let filters = audit_log_filters(&params);
 
-    let total = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*)
-         FROM admin_audit_events
-         WHERE (?1 IS NULL OR action = ?1)
-           AND (?2 IS NULL OR actor_user_id = ?2)",
-    )
-    .bind(action_filter.as_deref())
-    .bind(params.actor_user_id)
-    .fetch_one(&state.db)
-    .await
-    .unwrap_or(0);
-
-    let rows = match sqlx::query_as::<_, AuditEventRow>(
-        "SELECT
-            id,
-            request_id,
-            action,
-            outcome,
-            actor_user_id,
-            actor_email,
-            actor_role,
-            target_type,
-            target_id,
-            reason,
-            ip_address,
-            user_agent,
-            details_json,
-            created_at
-         FROM admin_audit_events
-         WHERE (?1 IS NULL OR action = ?1)
-           AND (?2 IS NULL OR actor_user_id = ?2)
-         ORDER BY id DESC
-         LIMIT ?3 OFFSET ?4",
-    )
-    .bind(action_filter.as_deref())
-    .bind(params.actor_user_id)
-    .bind(page_size)
-    .bind(offset)
-    .fetch_all(&state.db)
-    .await
+    let (total, rows) = match fetch_audit_event_rows(&state.db, &filters, Some(page), Some(page_size)).await
     {
         Ok(value) => value,
         Err(error) => {
@@ -1862,43 +2066,17 @@ pub async fn list_audit_events(
         }
     };
 
-    let results: Vec<Value> = rows
-        .into_iter()
-        .map(|row| {
-            let level = if row.outcome.starts_with("denied") || row.outcome.contains("failed") {
-                "WARNING"
-            } else {
-                "INFO"
-            };
-            let category = row.action.split('.').next().unwrap_or("admin");
-            json!({
-                "id": row.id,
-                "timestamp": row.created_at,
-                "admin_email": row.actor_email,
-                "actor_role": row.actor_role,
-                "action": row.action,
-                "object_type": row.target_type.unwrap_or_else(|| "unknown".to_string()),
-                "object_id": row.target_id.unwrap_or_else(|| "".to_string()),
-                "extra": parse_payload_value(&row.details_json),
-                "remote_ip": row.ip_address,
-                "user_agent": row.user_agent,
-                "request_id": row.request_id,
-                "level": level,
-                "category": category,
-                "actor_user_id": row.actor_user_id,
-                "reason": row.reason
-            })
-        })
-        .collect();
+    let results: Vec<Value> = rows.into_iter().map(audit_event_row_to_value).collect();
+    let extra_params = audit_log_pagination_params(&filters);
 
     let has_next = page * page_size < total;
     let next = if has_next {
-        Some(pagination_link(page + 1, page_size, action_filter.as_deref(), params.actor_user_id))
+        Some(pagination_link_generic(page + 1, page_size, &extra_params))
     } else {
         None
     };
     let previous = if page > 1 {
-        Some(pagination_link(page - 1, page_size, action_filter.as_deref(), params.actor_user_id))
+        Some(pagination_link_generic(page - 1, page_size, &extra_params))
     } else {
         None
     };
@@ -1912,6 +2090,83 @@ pub async fn list_audit_events(
             "count": total
         })),
     )
+}
+
+pub async fn export_audit_events_csv(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(params): Query<AuditLogQuery>,
+) -> Response {
+    let req = request_context(&headers);
+    if let Err(response) = require_admin_level(&state, &headers, 1, &req.request_id).await {
+        return response.into_response();
+    }
+
+    let filters = audit_log_filters(&params);
+    let rows = match fetch_audit_event_rows(&state.db, &filters, None, None).await {
+        Ok((_, rows)) => rows,
+        Err(error) => {
+            tracing::error!("Failed to export admin_audit_events: {}", error);
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to export audit events",
+                &req.request_id,
+            )
+            .into_response();
+        }
+    };
+
+    let mut csv = String::from(
+        "id,timestamp,admin_email,actor_role,action,object_type,object_id,category,level,request_id,remote_ip,user_agent,reason,extra\n",
+    );
+
+    for row in rows {
+        let level = audit_level_for_row(&row.action, &row.outcome);
+        let category = audit_category_for_action(&row.action);
+        let extra = parse_payload_value(&row.details_json).to_string();
+        let values = [
+            row.id.to_string(),
+            row.created_at,
+            row.actor_email.unwrap_or_default(),
+            row.actor_role.unwrap_or_default(),
+            row.action,
+            row.target_type.unwrap_or_else(|| "unknown".to_string()),
+            row.target_id.unwrap_or_default(),
+            category,
+            level.to_string(),
+            row.request_id,
+            row.ip_address.unwrap_or_default(),
+            row.user_agent.unwrap_or_default(),
+            row.reason.unwrap_or_default(),
+            extra,
+        ];
+        csv.push_str(
+            &values
+                .iter()
+                .map(|value| csv_escape(value))
+                .collect::<Vec<_>>()
+                .join(","),
+        );
+        csv.push('\n');
+    }
+
+    let mut response_headers = HeaderMap::new();
+    response_headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/csv; charset=utf-8"),
+    );
+    let filename = format!(
+        "attachment; filename=\"admin-audit-log-{}.csv\"",
+        Utc::now().format("%Y-%m-%d")
+    );
+    response_headers.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&filename).unwrap_or_else(|_| {
+            HeaderValue::from_static("attachment; filename=\"admin-audit-log.csv\"")
+        }),
+    );
+
+    (StatusCode::OK, response_headers, csv).into_response()
 }
 
 pub async fn overview_metrics(
@@ -2077,6 +2332,143 @@ pub async fn operations_overview(
             "buckets": buckets,
             "systems": systems,
             "activity": activity
+        })),
+    )
+}
+
+pub async fn runtime_settings(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let req = request_context(&headers);
+    if let Err(response) = require_admin_level(&state, &headers, 1, &req.request_id).await {
+        return response;
+    }
+
+    let budget = BudgetConfig::from_env();
+    let policy = PolicyConfig::from_env();
+    let allowed_domains = admin_env_list("ENGINE_ALLOWLIST_DOMAINS");
+    let allowed_models = admin_env_list("ENGINE_LLM_ALLOWED_MODELS");
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "generated_at": Utc::now().to_rfc3339(),
+            "environment": {
+                "name": admin_env_first(&["APP_ENV", "ENVIRONMENT", "RUST_ENV"]).unwrap_or_else(|| "local".to_string()),
+                "cors_allowed_origins": admin_env_list("CORS_ALLOWED_ORIGINS"),
+                "admin_password_reset_base_url": admin_env_first(&["ADMIN_PASSWORD_RESET_BASE_URL"]),
+                "google_oauth_enabled": admin_env_configured("GOOGLE_CLIENT_ID") && admin_env_configured("GOOGLE_CLIENT_SECRET"),
+                "google_redirect_uri": admin_env_first(&["GOOGLE_REDIRECT_URI"]),
+                "jwt_secret_configured": admin_env_configured("JWT_SECRET")
+            },
+            "autonomy": {
+                "llm_mode": admin_env_first(&["LLM_MODE"]).unwrap_or_else(|| "live".to_string()),
+                "tool_mode": admin_env_first(&["TOOL_MODE"]).unwrap_or_else(|| "live".to_string()),
+                "approval_amount_threshold": policy.approval_amount_threshold,
+                "velocity_threshold": policy.velocity_threshold,
+                "snapshot_stale_minutes": policy.snapshot_stale_minutes,
+                "budgets": {
+                    "tokens_per_day": budget.tokens_per_day,
+                    "tool_calls_per_day": budget.tool_calls_per_day,
+                    "runs_per_day": budget.runs_per_day
+                },
+                "allowlists": {
+                    "domains": allowed_domains,
+                    "models": allowed_models
+                }
+            },
+            "build": {
+                "service": "rust-api",
+                "rust_env": admin_env_first(&["RUST_ENV", "APP_ENV", "ENVIRONMENT"]),
+                "git_sha": admin_env_first(&["GIT_SHA", "COMMIT_SHA", "VERCEL_GIT_COMMIT_SHA", "RAILWAY_GIT_COMMIT_SHA"])
+            }
+        })),
+    )
+}
+
+pub async fn ai_ops(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let req = request_context(&headers);
+    if let Err(response) = require_admin_level(&state, &headers, 1, &req.request_id).await {
+        return response;
+    }
+
+    let budget = BudgetConfig::from_env();
+    let policy = PolicyConfig::from_env();
+    let allowed_domains = admin_env_list("ENGINE_ALLOWLIST_DOMAINS");
+    let allowed_models = admin_env_list("ENGINE_LLM_ALLOWED_MODELS");
+    let (api_error_rate_1h_pct, api_p95_response_ms_1h) = api_health_stats(&state.db).await;
+    let open_ai_flags = count_open_ai_flags(&state.db).await;
+    let breaker_events_last_day = autonomy_breaker_events_last_day_total(&state.db).await;
+    let tool_calls_last_day = autonomy_tool_calls_last_day_total(&state.db).await;
+    let agent_runs_last_day = autonomy_agent_runs_last_day_total(&state.db).await;
+    let policy_tenant_count = autonomy_policy_tenant_count(&state.db).await;
+    let modes = autonomy_policy_mode_counts(&state.db).await;
+    let last_tick_at = latest_autonomy_action_global(&state.db, "engine_tick").await;
+    let last_materialized_at =
+        latest_autonomy_action_global(&state.db, "engine_materialize").await;
+
+    let systems = vec![
+        json!({
+            "id": "admin_api",
+            "name": "Admin API",
+            "status": if api_error_rate_1h_pct > 3.0 { "degraded" } else { "healthy" },
+            "detail": format!("p95 {} ms · {:.2}% errors in the last hour", api_p95_response_ms_1h, api_error_rate_1h_pct)
+        }),
+        json!({
+            "id": "companion_autonomy",
+            "name": "Companion autonomy",
+            "status": if breaker_events_last_day > 0 || open_ai_flags > 20 { "degraded" } else { "healthy" },
+            "detail": format!(
+                "{} open AI issues · {} breaker events · {} agent runs in the last day",
+                open_ai_flags, breaker_events_last_day, agent_runs_last_day
+            )
+        }),
+        json!({
+            "id": "tool_gateway",
+            "name": "Tool Gateway",
+            "status": if allowed_models.is_empty() && allowed_domains.is_empty() { "degraded" } else { "healthy" },
+            "detail": format!("{} allowlisted models · {} allowlisted domains", allowed_models.len(), allowed_domains.len())
+        }),
+    ];
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "generated_at": Utc::now().to_rfc3339(),
+            "health": {
+                "open_ai_flags": open_ai_flags,
+                "breaker_events_last_day": breaker_events_last_day,
+                "tool_calls_last_day": tool_calls_last_day,
+                "agent_runs_last_day": agent_runs_last_day,
+                "policy_tenant_count": policy_tenant_count,
+                "last_tick_at": last_tick_at,
+                "last_materialized_at": last_materialized_at,
+                "api_error_rate_1h_pct": api_error_rate_1h_pct,
+                "api_p95_response_ms_1h": api_p95_response_ms_1h
+            },
+            "policy": {
+                "llm_mode": admin_env_first(&["LLM_MODE"]).unwrap_or_else(|| "live".to_string()),
+                "tool_mode": admin_env_first(&["TOOL_MODE"]).unwrap_or_else(|| "live".to_string()),
+                "approval_amount_threshold": policy.approval_amount_threshold,
+                "velocity_threshold": policy.velocity_threshold,
+                "snapshot_stale_minutes": policy.snapshot_stale_minutes,
+                "budgets": {
+                    "tokens_per_day": budget.tokens_per_day,
+                    "tool_calls_per_day": budget.tool_calls_per_day,
+                    "runs_per_day": budget.runs_per_day
+                },
+                "allowlists": {
+                    "domains": allowed_domains,
+                    "models": allowed_models
+                }
+            },
+            "modes": modes,
+            "systems": systems,
+            "recent_activity": fetch_recent_ai_ops_activity(&state.db, 10).await
         })),
     )
 }
@@ -2457,14 +2849,17 @@ pub async fn patch_user(
         };
 
         let user_payload = build_user_payload(&state.db, &existing).await;
-        return (
+        return mutation_response(
             StatusCode::OK,
-            Json(json!({
+            "approval_required",
+            "Privileged user change queued for approval.",
+            &req.request_id,
+            json!({
                 "approval_required": true,
                 "approval_request_id": approval,
                 "approval_status": "PENDING",
                 "user": user_payload
-            })),
+            }),
         );
     }
 
@@ -2497,9 +2892,12 @@ pub async fn patch_user(
     }
 
     if set_clauses.is_empty() {
-        return (
+        return mutation_response(
             StatusCode::OK,
-            Json(build_user_payload(&state.db, &existing).await),
+            "noop",
+            "No user changes applied.",
+            &req.request_id,
+            build_user_payload(&state.db, &existing).await,
         );
     }
 
@@ -2542,7 +2940,13 @@ pub async fn patch_user(
     }
 
     match load_basic_user_by_id(&state.db, user_id).await {
-        Ok(Some(updated)) => (StatusCode::OK, Json(build_user_payload(&state.db, &updated).await)),
+        Ok(Some(updated)) => mutation_response(
+            StatusCode::OK,
+            "updated",
+            "User updated.",
+            &req.request_id,
+            build_user_payload(&state.db, &updated).await,
+        ),
         _ => api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "failed to load updated user",
@@ -2603,13 +3007,16 @@ pub async fn reset_user_password(
         }
     };
 
-    (
+    mutation_response(
         StatusCode::OK,
-        Json(json!({
+        "approval_required",
+        "Password reset request queued for approval.",
+        &req.request_id,
+        json!({
             "approval_required": true,
             "approval_request_id": approval,
             "approval_status": "PENDING"
-        })),
+        }),
     )
 }
 
@@ -2759,14 +3166,17 @@ pub async fn patch_workspace(
                 );
             }
         };
-        return (
+        return mutation_response(
             StatusCode::OK,
-            Json(json!({
+            "approval_required",
+            "Workspace delete queued for approval.",
+            &req.request_id,
+            json!({
                 "approval_required": true,
                 "approval_request_id": approval,
                 "approval_status": "PENDING",
                 "workspace": workspace_payload(&state.db, &current).await
-            })),
+            }),
         );
     }
 
@@ -2806,7 +3216,13 @@ pub async fn patch_workspace(
         tracing::error!("Failed to write workspace.update audit event: {}", error);
     }
 
-    (StatusCode::OK, Json(workspace_payload(&state.db, &updated).await))
+    mutation_response(
+        StatusCode::OK,
+        "updated",
+        "Workspace updated.",
+        &req.request_id,
+        workspace_payload(&state.db, &updated).await,
+    )
 }
 
 pub async fn workspace_overview(
@@ -3109,7 +3525,13 @@ pub async fn create_support_ticket(
     }
 
     match fetch_support_ticket_by_id(&state.db, ticket_id).await {
-        Ok(Some(ticket)) => (StatusCode::OK, Json(ticket)),
+        Ok(Some(ticket)) => mutation_response(
+            StatusCode::OK,
+            "created",
+            "Support ticket created.",
+            &req.request_id,
+            ticket,
+        ),
         _ => api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "failed to load created support ticket",
@@ -3139,7 +3561,13 @@ pub async fn patch_support_ticket(
     }
     if set_clauses.is_empty() {
         return match fetch_support_ticket_by_id(&state.db, ticket_id).await {
-            Ok(Some(ticket)) => (StatusCode::OK, Json(ticket)),
+            Ok(Some(ticket)) => mutation_response(
+                StatusCode::OK,
+                "noop",
+                "No support ticket changes applied.",
+                &req.request_id,
+                ticket,
+            ),
             Ok(None) => api_error(StatusCode::NOT_FOUND, "support ticket not found", &req.request_id),
             Err(error) => {
                 tracing::error!("Failed to fetch support ticket {}: {}", ticket_id, error);
@@ -3207,7 +3635,13 @@ pub async fn patch_support_ticket(
     }
 
     match fetch_support_ticket_by_id(&state.db, ticket_id).await {
-        Ok(Some(ticket)) => (StatusCode::OK, Json(ticket)),
+        Ok(Some(ticket)) => mutation_response(
+            StatusCode::OK,
+            "updated",
+            "Support ticket updated.",
+            &req.request_id,
+            ticket,
+        ),
         _ => api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "failed to load updated support ticket",
@@ -3295,7 +3729,13 @@ pub async fn add_support_ticket_note(
     }
 
     match fetch_support_ticket_by_id(&state.db, ticket_id).await {
-        Ok(Some(ticket)) => (StatusCode::OK, Json(ticket)),
+        Ok(Some(ticket)) => mutation_response(
+            StatusCode::OK,
+            "updated",
+            "Support ticket note added.",
+            &req.request_id,
+            ticket,
+        ),
         _ => api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "failed to load updated support ticket",
@@ -3379,7 +3819,13 @@ pub async fn patch_feature_flag(
     let changed = next_is_enabled != (current.is_enabled > 0)
         || next_rollout_percent != current.rollout_percent;
     if !changed {
-        return (StatusCode::OK, Json(feature_flag_to_json(&current)));
+        return mutation_response(
+            StatusCode::OK,
+            "noop",
+            "No feature flag changes applied.",
+            &req.request_id,
+            feature_flag_to_json(&current),
+        );
     }
 
     let reason = body
@@ -3430,13 +3876,16 @@ pub async fn patch_feature_flag(
                 );
             }
         };
-        return (
+        return mutation_response(
             StatusCode::OK,
-            Json(json!({
+            "approval_required",
+            "Critical feature flag change queued for approval.",
+            &req.request_id,
+            json!({
                 "approval_required": true,
                 "approval_request_id": approval,
                 "approval_status": "PENDING"
-            })),
+            }),
         );
     }
 
@@ -3491,7 +3940,13 @@ pub async fn patch_feature_flag(
     .fetch_optional(&state.db)
     .await
     {
-        Ok(Some(updated)) => (StatusCode::OK, Json(feature_flag_to_json(&updated))),
+        Ok(Some(updated)) => mutation_response(
+            StatusCode::OK,
+            "updated",
+            "Feature flag updated.",
+            &req.request_id,
+            feature_flag_to_json(&updated),
+        ),
         _ => api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "failed to load updated feature flag",
@@ -3563,7 +4018,13 @@ pub async fn get_employee(
     }
 
     match fetch_employee_by_id(&state.db, employee_id).await {
-        Ok(Some(employee)) => (StatusCode::OK, Json(employee_row_to_json(&employee))),
+        Ok(Some(employee)) => mutation_response(
+            StatusCode::OK,
+            "created",
+            "Employee created.",
+            &req.request_id,
+            employee_row_to_json(&employee),
+        ),
         Ok(None) => api_error(StatusCode::NOT_FOUND, "employee not found", &req.request_id),
         Err(error) => {
             tracing::error!("Failed to load employee {}: {}", employee_id, error);
@@ -3682,7 +4143,13 @@ pub async fn create_employee(
     }
 
     match fetch_employee_by_id(&state.db, employee_id).await {
-        Ok(Some(employee)) => (StatusCode::OK, Json(employee_row_to_json(&employee))),
+        Ok(Some(employee)) => mutation_response(
+            StatusCode::OK,
+            "created",
+            "Employee created.",
+            &req.request_id,
+            employee_row_to_json(&employee),
+        ),
         _ => api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "failed to load created employee",
@@ -3750,7 +4217,13 @@ pub async fn patch_employee(
         tracing::error!("Failed to write employee.update audit event: {}", error);
     }
 
-    (StatusCode::OK, Json(employee_row_to_json(&updated)))
+    mutation_response(
+        StatusCode::OK,
+        "updated",
+        "Employee updated.",
+        &req.request_id,
+        employee_row_to_json(&updated),
+    )
 }
 
 pub async fn suspend_employee(
@@ -3810,7 +4283,13 @@ pub async fn delete_employee(
             {
                 tracing::error!("Failed to write employee.delete audit event: {}", error);
             }
-            (StatusCode::OK, Json(json!({ "success": true })))
+            mutation_response(
+                StatusCode::OK,
+                "deleted",
+                "Employee deleted.",
+                &req.request_id,
+                json!({ "success": true }),
+            )
         }
         Ok(_) => api_error(StatusCode::NOT_FOUND, "employee not found", &req.request_id),
         Err(error) => {
@@ -3962,7 +4441,13 @@ pub async fn invite_employee(
     }
 
     match fetch_employee_by_id(&state.db, employee_id).await {
-        Ok(Some(employee)) => (StatusCode::OK, Json(employee_row_to_json(&employee))),
+        Ok(Some(employee)) => mutation_response(
+            StatusCode::OK,
+            "created",
+            "Employee invite issued.",
+            &req.request_id,
+            employee_row_to_json(&employee),
+        ),
         _ => api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "failed to load invited employee",
@@ -3989,46 +4474,106 @@ pub async fn revoke_employee_invite(
 
 pub async fn get_invite(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(token): Path<String>,
 ) -> impl IntoResponse {
+    let req = request_context(&headers);
     match fetch_employee_by_invite_token(&state.db, &token).await {
         Ok(Some(employee)) => {
             if employee.invite_status.as_deref() != Some("pending")
                 || is_expired_timestamp(employee.invite_expires_at.as_deref())
             {
-                return (
+                record_invite_failure(
+                    &state.db,
+                    &req,
+                    "employee.invite.validate",
+                    "invalid",
+                    &token,
+                    Some(employee.id),
+                    Some(employee.email.as_str()),
+                    "invite_invalid_or_expired",
+                    json!({
+                        "invite_status": employee.invite_status,
+                        "expires_at": employee.invite_expires_at
+                    }),
+                )
+                .await;
+                return mutation_response(
                     StatusCode::OK,
-                    Json(json!({
+                    "invalid",
+                    "This invite link is invalid or has expired.",
+                    &req.request_id,
+                    json!({
+                        "ok": false,
                         "valid": false,
                         "error": "This invite link is invalid or has expired."
-                    })),
+                    }),
                 );
             }
-            (
+            mutation_response(
                 StatusCode::OK,
-                Json(json!({
+                "validated",
+                "Invite is valid.",
+                &req.request_id,
+                json!({
                     "valid": true,
                     "role": employee.primary_admin_role,
                     "email": employee.email,
                     "email_locked": true
-                })),
+                }),
             )
         }
-        Ok(None) => (
-            StatusCode::OK,
-            Json(json!({
-                "valid": false,
-                "error": "This invite link is invalid or has expired."
-            })),
-        ),
+        Ok(None) => {
+            record_invite_failure(
+                &state.db,
+                &req,
+                "employee.invite.validate",
+                "invalid",
+                &token,
+                None,
+                None,
+                "invite_not_found",
+                json!({}),
+            )
+            .await;
+            mutation_response(
+                StatusCode::OK,
+                "invalid",
+                "This invite link is invalid or has expired.",
+                &req.request_id,
+                json!({
+                    "ok": false,
+                    "valid": false,
+                    "error": "This invite link is invalid or has expired."
+                }),
+            )
+        }
         Err(error) => {
             tracing::error!("Failed to validate invite token: {}", error);
-            (
+            record_invite_failure(
+                &state.db,
+                &req,
+                "employee.invite.validate",
+                "error",
+                &token,
+                None,
+                None,
+                "invite_validation_error",
+                json!({
+                    "error": error.to_string()
+                }),
+            )
+            .await;
+            mutation_response(
                 StatusCode::OK,
-                Json(json!({
+                "invalid",
+                "Could not validate invite.",
+                &req.request_id,
+                json!({
+                    "ok": false,
                     "valid": false,
                     "error": "Could not validate invite."
-                })),
+                }),
             )
         }
     }
@@ -4036,32 +4581,72 @@ pub async fn get_invite(
 
 pub async fn redeem_invite(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(token): Path<String>,
     Json(body): Json<InviteRedeemBody>,
 ) -> impl IntoResponse {
+    let req = request_context(&headers);
     let employee = match fetch_employee_by_invite_token(&state.db, &token).await {
         Ok(Some(value)) => value,
         Ok(None) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": "Invite is invalid or expired." })),
+            record_invite_failure(
+                &state.db,
+                &req,
+                "employee.invite.redeem",
+                "failed_validation",
+                &token,
+                None,
+                body.email.as_deref().map(str::trim),
+                "invite_not_found",
+                json!({
+                    "username": body.username.as_deref().map(str::trim)
+                }),
             )
+            .await;
+            return api_error(StatusCode::BAD_REQUEST, "Invite is invalid or expired.", &req.request_id);
         }
         Err(error) => {
             tracing::error!("Failed to fetch invite by token: {}", error);
-            return (
+            record_invite_failure(
+                &state.db,
+                &req,
+                "employee.invite.redeem",
+                "error",
+                &token,
+                None,
+                body.email.as_deref().map(str::trim),
+                "invite_lookup_error",
+                json!({
+                    "error": error.to_string()
+                }),
+            )
+            .await;
+            return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Could not validate invite." })),
+                "Could not validate invite.",
+                &req.request_id,
             );
         }
     };
     if employee.invite_status.as_deref() != Some("pending")
         || is_expired_timestamp(employee.invite_expires_at.as_deref())
     {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "Invite is invalid or expired." })),
-        );
+        record_invite_failure(
+            &state.db,
+            &req,
+            "employee.invite.redeem",
+            "failed_validation",
+            &token,
+            Some(employee.id),
+            Some(employee.email.as_str()),
+            "invite_invalid_or_expired",
+            json!({
+                "invite_status": employee.invite_status,
+                "expires_at": employee.invite_expires_at
+            }),
+        )
+        .await;
+        return api_error(StatusCode::BAD_REQUEST, "Invite is invalid or expired.", &req.request_id);
     }
 
     let username = body
@@ -4089,18 +4674,39 @@ pub async fn redeem_invite(
         .filter(|value| !value.is_empty())
         .unwrap_or(employee.email.as_str());
     if !email.eq_ignore_ascii_case(employee.email.as_str()) {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "Invite email does not match." })),
-        );
+        record_invite_failure(
+            &state.db,
+            &req,
+            "employee.invite.redeem",
+            "failed_validation",
+            &token,
+            Some(employee.id),
+            Some(email),
+            "invite_email_mismatch",
+            json!({
+                "expected_email": employee.email,
+                "provided_email": email
+            }),
+        )
+        .await;
+        return api_error(StatusCode::BAD_REQUEST, "Invite email does not match.", &req.request_id);
     }
     let password = match body.password.as_deref() {
         Some(value) if value.len() >= 8 => value,
         _ => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": "Password must be at least 8 characters." })),
+            record_invite_failure(
+                &state.db,
+                &req,
+                "employee.invite.redeem",
+                "failed_validation",
+                &token,
+                Some(employee.id),
+                Some(email),
+                "password_too_short",
+                json!({}),
             )
+            .await;
+            return api_error(StatusCode::BAD_REQUEST, "Password must be at least 8 characters.", &req.request_id);
         }
     };
 
@@ -4113,14 +4719,29 @@ pub async fn redeem_invite(
         email,
         password,
     )
-    .await
+        .await
     {
         Ok(value) => value,
         Err(error) => {
             tracing::error!("Failed to create invite user: {}", error);
-            return (
+            record_invite_failure(
+                &state.db,
+                &req,
+                "employee.invite.redeem",
+                "error",
+                &token,
+                Some(employee.id),
+                Some(email),
+                "invite_account_provisioning_failed",
+                json!({
+                    "error": error.to_string()
+                }),
+            )
+            .await;
+            return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Failed to create account." })),
+                "Failed to create account.",
+                &req.request_id,
             );
         }
     };
@@ -4140,12 +4761,47 @@ pub async fn redeem_invite(
         tracing::error!("Failed to mark invite as accepted: {}", error);
     }
 
-    (
+    let is_superadmin = employee.primary_admin_role == "superadmin";
+    let (role, level) = infer_role_and_level(true, is_superadmin, Some(employee.primary_admin_role.as_str()));
+    let invite_principal = AdminPrincipal {
+        user_id,
+        email: email.to_string(),
+        role: role.to_string(),
+        level,
+        is_staff: true,
+        is_superuser: is_superadmin,
+    };
+    let details = json!({
+        "employee_id": employee.id,
+        "redeemed_user_id": user_id,
+        "invite_role": employee.primary_admin_role
+    });
+    if let Err(error) = insert_audit_event(
+        &state.db,
+        &req.request_id,
+        "employee.invite.redeem",
+        "accepted",
+        &invite_principal,
+        "employee",
+        &employee.id.to_string(),
+        None,
+        req.ip_address.as_deref(),
+        req.user_agent.as_deref(),
+        &details,
+    )
+    .await
+    {
+        tracing::error!("Failed to write employee.invite.redeem audit event: {}", error);
+    }
+
+    mutation_response(
         StatusCode::OK,
-        Json(json!({
-            "message": "Account created successfully.",
+        "completed",
+        "Account created successfully.",
+        &req.request_id,
+        json!({
             "redirect": "/login"
-        })),
+        }),
     )
 }
 
@@ -4343,6 +4999,38 @@ async fn detect_business_plan_column(pool: &SqlitePool) -> Option<String> {
     None
 }
 
+fn admin_env_first(keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        std::env::var(key).ok().and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
+    })
+}
+
+fn admin_env_configured(key: &str) -> bool {
+    admin_env_first(&[key]).is_some()
+}
+
+fn admin_env_list(key: &str) -> Vec<String> {
+    std::env::var(key)
+        .unwrap_or_default()
+        .split(',')
+        .filter_map(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
+        .collect()
+}
+
 async fn count_active_users_window(pool: &SqlitePool, total_days: i64, offset_days: i64) -> i64 {
     if !table_exists(pool, "auth_user").await {
         return 0;
@@ -4445,6 +5133,126 @@ async fn count_open_ai_flags(pool: &SqlitePool) -> i64 {
         }
     }
     0
+}
+
+async fn autonomy_policy_tenant_count(pool: &SqlitePool) -> i64 {
+    if !table_exists(pool, "companion_autonomy_policy").await {
+        return 0;
+    }
+    sqlx::query_scalar::<_, i64>("SELECT COUNT(DISTINCT tenant_id) FROM companion_autonomy_policy")
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0)
+}
+
+async fn autonomy_policy_mode_counts(pool: &SqlitePool) -> Vec<Value> {
+    if !table_exists(pool, "companion_autonomy_policy").await {
+        return Vec::new();
+    }
+    let rows = sqlx::query_as::<_, (Option<String>, i64)>(
+        "SELECT mode, COUNT(*) as tenant_count
+         FROM companion_autonomy_policy
+         GROUP BY mode
+         ORDER BY tenant_count DESC, mode ASC",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    rows.into_iter()
+        .map(|(mode, tenant_count)| {
+            json!({
+                "mode": mode.unwrap_or_else(|| "unknown".to_string()),
+                "tenant_count": tenant_count
+            })
+        })
+        .collect()
+}
+
+async fn autonomy_breaker_events_last_day_total(pool: &SqlitePool) -> i64 {
+    if !table_exists(pool, "companion_autonomy_circuit_breaker_events").await {
+        return 0;
+    }
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM companion_autonomy_circuit_breaker_events
+         WHERE created_at >= datetime('now', '-1 day')",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0)
+}
+
+async fn autonomy_tool_calls_last_day_total(pool: &SqlitePool) -> i64 {
+    if !table_exists(pool, "companion_autonomy_tool_calls").await {
+        return 0;
+    }
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM companion_autonomy_tool_calls
+         WHERE created_at >= datetime('now', '-1 day')",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0)
+}
+
+async fn autonomy_agent_runs_last_day_total(pool: &SqlitePool) -> i64 {
+    if !table_exists(pool, "companion_autonomy_agent_runs").await {
+        return 0;
+    }
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM companion_autonomy_agent_runs
+         WHERE created_at >= datetime('now', '-1 day')",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0)
+}
+
+async fn latest_autonomy_action_global(pool: &SqlitePool, action: &str) -> Option<String> {
+    if !table_exists(pool, "companion_autonomy_audit_log").await {
+        return None;
+    }
+    sqlx::query_scalar::<_, String>(
+        "SELECT created_at
+         FROM companion_autonomy_audit_log
+         WHERE action = ?
+         ORDER BY created_at DESC
+         LIMIT 1",
+    )
+    .bind(action)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+}
+
+async fn fetch_recent_ai_ops_activity(pool: &SqlitePool, limit: i64) -> Vec<Value> {
+    if !table_exists(pool, "companion_autonomy_audit_log").await {
+        return Vec::new();
+    }
+
+    let rows = sqlx::query_as::<_, (String, i64, String, String, String, String)>(
+        "SELECT created_at, tenant_id, actor_label, action, target_type, target_id
+         FROM companion_autonomy_audit_log
+         ORDER BY created_at DESC
+         LIMIT ?",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    rows.into_iter()
+        .map(|(time, tenant_id, actor_label, action, target_type, target_id)| {
+            json!({
+                "time": time,
+                "tenant_id": tenant_id,
+                "actor": actor_label,
+                "action": action,
+                "target": format!("{}:{}", target_type, target_id)
+            })
+        })
+        .collect()
 }
 
 async fn api_health_stats(pool: &SqlitePool) -> (f64, i64) {
@@ -6652,7 +7460,17 @@ async fn mutate_employee_active_status(
             }
 
             match fetch_employee_by_id(&state.db, employee_id).await {
-                Ok(Some(updated)) => (StatusCode::OK, Json(employee_row_to_json(&updated))),
+                Ok(Some(updated)) => mutation_response(
+                    StatusCode::OK,
+                    "updated",
+                    if is_active {
+                        "Employee reactivated."
+                    } else {
+                        "Employee suspended."
+                    },
+                    &req.request_id,
+                    employee_row_to_json(&updated),
+                ),
                 _ => api_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "failed to load updated employee",
@@ -6811,7 +7629,17 @@ async fn mutate_employee_invite(
     }
 
     match fetch_employee_by_id(&state.db, employee_id).await {
-        Ok(Some(updated)) => (StatusCode::OK, Json(employee_row_to_json(&updated))),
+        Ok(Some(updated)) => mutation_response(
+            StatusCode::OK,
+            "updated",
+            if revoke {
+                "Employee invite revoked."
+            } else {
+                "Employee invite reissued."
+            },
+            &req.request_id,
+            employee_row_to_json(&updated),
+        ),
         _ => api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "failed to load updated employee",
@@ -7062,13 +7890,7 @@ fn minutes_since(raw: &str) -> i64 {
 }
 
 fn request_context(headers: &HeaderMap) -> RequestContext {
-    let request_id = headers
-        .get("x-request-id")
-        .and_then(|value| value.to_str().ok())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let request_id = resolve_request_id(headers);
 
     let ip_address = headers
         .get("x-forwarded-for")
@@ -7099,13 +7921,95 @@ fn api_error(
     message: &str,
     request_id: &str,
 ) -> (StatusCode, Json<Value>) {
+    let error_type = normalize_admin_error_type(message);
+    let error_code = request_scoped_error_code(&error_type, request_id);
     (
         status,
         Json(json!({
             "ok": false,
+            "result_state": "failed",
+            "message": message,
+            "detail": message,
             "error": message,
+            "error_type": error_type,
+            "error_code": error_code,
+            "http_status": status.as_u16(),
             "request_id": request_id
         })),
+    )
+}
+
+fn mutation_response(
+    status: StatusCode,
+    result_state: &str,
+    message: &str,
+    request_id: &str,
+    payload: Value,
+) -> (StatusCode, Json<Value>) {
+    let mut object = match payload {
+        Value::Object(map) => map,
+        Value::Null => Map::new(),
+        value => {
+            let mut map = Map::new();
+            map.insert("data".to_string(), value);
+            map
+        }
+    };
+
+    if !object.contains_key("ok") {
+        object.insert("ok".to_string(), json!(true));
+    }
+    if !object.contains_key("result_state") {
+        object.insert("result_state".to_string(), json!(result_state));
+    }
+    if !object.contains_key("message") {
+        object.insert("message".to_string(), json!(message));
+    }
+    if !object.contains_key("request_id") {
+        object.insert("request_id".to_string(), json!(request_id));
+    }
+
+    (status, Json(Value::Object(object)))
+}
+
+fn normalize_admin_error_type(message: &str) -> String {
+    let mut token = String::new();
+    let mut previous_was_separator = false;
+
+    for ch in message.chars() {
+        if ch.is_ascii_alphanumeric() {
+            token.push(ch.to_ascii_lowercase());
+            previous_was_separator = false;
+        } else if !previous_was_separator && !token.is_empty() {
+            token.push('_');
+            previous_was_separator = true;
+        }
+    }
+
+    let normalized = token.trim_matches('_').to_string();
+    if normalized.is_empty() {
+        "request_failed".to_string()
+    } else {
+        normalized
+    }
+}
+
+fn request_scoped_error_code(error_type: &str, request_id: &str) -> String {
+    let request_fragment: String = request_id
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .take(12)
+        .collect();
+    let request_fragment = if request_fragment.is_empty() {
+        "UNKNOWN".to_string()
+    } else {
+        request_fragment.to_ascii_uppercase()
+    };
+
+    format!(
+        "ADMIN_{}_{}",
+        error_type.to_ascii_uppercase(),
+        request_fragment
     )
 }
 
@@ -7335,22 +8239,6 @@ fn build_password_reset_url(target_user_id: i64) -> String {
     )
 }
 
-fn pagination_link(
-    page: i64,
-    page_size: i64,
-    action: Option<&str>,
-    actor_user_id: Option<i64>,
-) -> String {
-    let mut query = format!("?page={}&page_size={}", page, page_size);
-    if let Some(action) = action {
-        query.push_str(&format!("&action={}", urlencoding::encode(action)));
-    }
-    if let Some(actor_user_id) = actor_user_id {
-        query.push_str(&format!("&actor_user_id={}", actor_user_id));
-    }
-    query
-}
-
 async fn expire_stale_pending_approvals(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query(
         "UPDATE admin_approval_requests
@@ -7439,6 +8327,119 @@ where
     .await?;
 
     Ok(())
+}
+
+async fn insert_actorless_audit_event<'e, E>(
+    executor: E,
+    request_id: &str,
+    action: &str,
+    outcome: &str,
+    actor_email: Option<&str>,
+    actor_role: Option<&str>,
+    target_type: &str,
+    target_id: &str,
+    reason: Option<&str>,
+    ip_address: Option<&str>,
+    user_agent: Option<&str>,
+    details: &Value,
+) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
+    sqlx::query(
+        "INSERT INTO admin_audit_events (
+            request_id,
+            action,
+            outcome,
+            actor_user_id,
+            actor_email,
+            actor_role,
+            target_type,
+            target_id,
+            reason,
+            ip_address,
+            user_agent,
+            details_json,
+            created_at
+         ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+    )
+    .bind(request_id)
+    .bind(action)
+    .bind(outcome)
+    .bind(actor_email)
+    .bind(actor_role)
+    .bind(target_type)
+    .bind(target_id)
+    .bind(reason)
+    .bind(ip_address)
+    .bind(user_agent)
+    .bind(details.to_string())
+    .execute(executor)
+    .await?;
+
+    Ok(())
+}
+
+fn invite_token_ref(token: &str) -> String {
+    let fragment: String = token
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .take(8)
+        .collect();
+    if fragment.is_empty() {
+        "unknown".to_string()
+    } else {
+        fragment.to_ascii_lowercase()
+    }
+}
+
+async fn record_invite_failure(
+    pool: &SqlitePool,
+    req: &RequestContext,
+    action: &str,
+    outcome: &str,
+    token: &str,
+    employee_id: Option<i64>,
+    actor_email: Option<&str>,
+    reason: &str,
+    details: Value,
+) {
+    let target_type = if employee_id.is_some() {
+        "employee"
+    } else {
+        "invite_token"
+    };
+    let target_id = employee_id
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| invite_token_ref(token));
+
+    let mut merged_details = match details {
+        Value::Object(map) => map,
+        _ => Map::new(),
+    };
+    merged_details.insert("invite_token_ref".to_string(), json!(invite_token_ref(token)));
+    if let Some(value) = employee_id {
+        merged_details.insert("employee_id".to_string(), json!(value));
+    }
+
+    if let Err(error) = insert_actorless_audit_event(
+        pool,
+        &req.request_id,
+        action,
+        outcome,
+        actor_email,
+        Some("invitee"),
+        target_type,
+        &target_id,
+        Some(reason),
+        req.ip_address.as_deref(),
+        req.user_agent.as_deref(),
+        &Value::Object(merged_details),
+    )
+    .await
+    {
+        tracing::error!("Failed to write {} forensic audit event: {}", action, error);
+    }
 }
 
 #[cfg(test)]
@@ -7610,6 +8611,8 @@ mod tests {
             .route("/api/admin/authz/me", get(authz_me))
             .route("/api/admin/overview-metrics/", get(overview_metrics))
             .route("/api/admin/operations-overview/", get(operations_overview))
+            .route("/api/admin/runtime-settings/", get(runtime_settings))
+            .route("/api/admin/ai-ops/", get(ai_ops))
             .route("/api/admin/users/", get(list_users))
             .route("/api/admin/users/:id/", patch(patch_user))
             .route("/api/admin/users/:id/reset-password/", post(reset_user_password))
@@ -7624,6 +8627,7 @@ mod tests {
             .route("/api/admin/impersonations/", post(start_impersonation))
             .route("/api/admin/impersonations/:id/stop/", post(stop_impersonation))
             .route("/api/admin/audit-log/", get(list_audit_events))
+            .route("/api/admin/audit-log/export/", get(export_audit_events_csv))
             .route("/api/admin/support-tickets/", get(list_support_tickets).post(create_support_ticket))
             .route("/api/admin/support-tickets/:id/", patch(patch_support_ticket))
             .route("/api/admin/support-tickets/:id/add_note/", post(add_support_ticket_note))
@@ -7642,7 +8646,10 @@ mod tests {
             .route("/api/admin/employees/:id/resend-invite/", post(resend_employee_invite))
             .route("/api/admin/employees/:id/revoke-invite/", post(revoke_employee_invite))
             .route("/api/admin/invite/:token/", get(get_invite).post(redeem_invite))
-            .with_state(state);
+            .with_state(state)
+            .layer(axum::middleware::from_fn(
+                crate::routes::request_ids::control_plane_request_id_middleware,
+            ));
 
         (TestServer::new(app).unwrap(), pool)
     }
@@ -7683,6 +8690,55 @@ mod tests {
             }))
             .await;
         response.assert_status(StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn admin_errors_include_request_scoped_codes() {
+        let (server, _pool) = setup().await;
+        let token = make_token(4);
+        let response = server
+            .post("/api/admin/approvals/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "admin-error-01")
+            .json(&json!({
+                "action_type": "LEDGER_ADJUST",
+                "reason": "   "
+            }))
+            .await;
+        response.assert_status(StatusCode::BAD_REQUEST);
+        assert_eq!(response.header("x-request-id").to_str().unwrap(), "admin-error-01");
+
+        let body: Value = response.json();
+        assert_eq!(body["ok"], false);
+        assert_eq!(body["result_state"], "failed");
+        assert_eq!(body["message"], "reason is required");
+        assert_eq!(body["detail"], "reason is required");
+        assert_eq!(body["error_type"], "reason_is_required");
+        assert_eq!(body["error_code"], "ADMIN_REASON_IS_REQUIRED_ADMINERROR01");
+        assert_eq!(body["request_id"], "admin-error-01");
+        assert_eq!(body["http_status"], 400);
+    }
+
+    #[tokio::test]
+    async fn admin_routes_emit_response_request_ids() {
+        let (server, _pool) = setup().await;
+        let token = make_token(4);
+
+        let explicit = server
+            .get("/api/admin/contract")
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "admin-header-01")
+            .await;
+        explicit.assert_status_ok();
+        assert_eq!(explicit.header("x-request-id").to_str().unwrap(), "admin-header-01");
+
+        let generated = server
+            .get("/api/admin/contract")
+            .add_header("authorization", format!("Bearer {}", token))
+            .await;
+        generated.assert_status_ok();
+        let generated_header = generated.header("x-request-id");
+        assert!(!generated_header.to_str().unwrap().trim().is_empty());
     }
 
     #[tokio::test]
@@ -7864,6 +8920,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn audit_log_filters_and_export_follow_backend_contract() {
+        let (server, _pool) = setup().await;
+        let token = make_token(4);
+        let _ = server
+            .post("/api/admin/approvals/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .json(&json!({
+                "action_type": "LEDGER_ADJUST",
+                "reason": "Export parity check"
+            }))
+            .await;
+
+        let filtered = server
+            .get("/api/admin/audit-log/?category=approval&admin_user=superadmin@example.com&action=approval.request.create")
+            .add_header("authorization", format!("Bearer {}", token))
+            .await;
+        filtered.assert_status_ok();
+        let filtered_body: Value = filtered.json();
+        assert!(filtered_body["count"].as_i64().unwrap_or(0) >= 1);
+        assert_eq!(filtered_body["results"][0]["category"], "approval");
+        assert_eq!(filtered_body["results"][0]["admin_email"], "superadmin@example.com");
+        assert_eq!(filtered_body["results"][0]["level"], "INFO");
+
+        let export = server
+            .get("/api/admin/audit-log/export/?category=approval&admin_user=superadmin@example.com")
+            .add_header("authorization", format!("Bearer {}", token))
+            .await;
+        export.assert_status_ok();
+        let csv = export.text();
+        assert!(csv.contains("id,timestamp,admin_email,actor_role,action"));
+        assert!(csv.contains("approval.request.create"));
+        assert!(csv.contains("superadmin@example.com"));
+    }
+
+    #[tokio::test]
     async fn contract_reports_phase_two_admin_surface() {
         let (server, _pool) = setup().await;
         let token = make_token(4);
@@ -7875,12 +8966,15 @@ mod tests {
         response.assert_status_ok();
         let body: Value = response.json();
 
-        assert_eq!(body["contract_version"], "2026-03-04");
+        assert_eq!(body["contract_version"], "2026-03-06");
         assert_eq!(body["endpoints"]["overview_metrics"], "/api/admin/overview-metrics/");
+        assert_eq!(body["endpoints"]["runtime_settings"], "/api/admin/runtime-settings/");
+        assert_eq!(body["endpoints"]["ai_ops"], "/api/admin/ai-ops/");
         assert_eq!(body["endpoints"]["workspaces"], "/api/admin/workspaces/");
         assert_eq!(body["endpoints"]["employees"], "/api/admin/employees/");
         assert_eq!(body["endpoints"]["support_tickets"], "/api/admin/support-tickets/");
         assert_eq!(body["endpoints"]["feature_flags"], "/api/admin/feature-flags/");
+        assert_eq!(body["endpoints"]["audit_log_export"], "/api/admin/audit-log/export/");
     }
 
     #[tokio::test]
@@ -7905,6 +8999,25 @@ mod tests {
         let ops_body: Value = ops.json();
         assert_eq!(ops_body["env"], "prod");
         assert!(ops_body["queues"].is_array());
+
+        let runtime_settings = server
+            .get("/api/admin/runtime-settings/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .await;
+        runtime_settings.assert_status_ok();
+        let runtime_settings_body: Value = runtime_settings.json();
+        assert!(runtime_settings_body["environment"]["cors_allowed_origins"].is_array());
+        assert!(runtime_settings_body["autonomy"]["budgets"]["tokens_per_day"].is_number());
+
+        let ai_ops = server
+            .get("/api/admin/ai-ops/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .await;
+        ai_ops.assert_status_ok();
+        let ai_ops_body: Value = ai_ops.json();
+        assert!(ai_ops_body["health"]["open_ai_flags"].is_number());
+        assert!(ai_ops_body["policy"]["allowlists"]["models"].is_array());
+        assert!(ai_ops_body["systems"].is_array());
 
         let users = server
             .get("/api/admin/users/")
@@ -7969,6 +9082,7 @@ mod tests {
         let user_patch = server
             .patch("/api/admin/users/5/")
             .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "admin-approval-01")
             .json(&json!({
                 "is_active": false,
                 "reason": "Fraud review"
@@ -7976,12 +9090,16 @@ mod tests {
             .await;
         user_patch.assert_status_ok();
         let user_patch_body: Value = user_patch.json();
+        assert_eq!(user_patch_body["ok"], true);
+        assert_eq!(user_patch_body["result_state"], "approval_required");
+        assert_eq!(user_patch_body["request_id"], "admin-approval-01");
         assert_eq!(user_patch_body["approval_required"], true);
         assert_eq!(user_patch_body["approval_status"], "PENDING");
 
         let workspace_patch = server
             .patch("/api/admin/workspaces/10/")
             .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "admin-approval-02")
             .json(&json!({
                 "is_deleted": true,
                 "reason": "Workspace shutdown"
@@ -7989,6 +9107,8 @@ mod tests {
             .await;
         workspace_patch.assert_status_ok();
         let workspace_patch_body: Value = workspace_patch.json();
+        assert_eq!(workspace_patch_body["result_state"], "approval_required");
+        assert_eq!(workspace_patch_body["request_id"], "admin-approval-02");
         assert_eq!(workspace_patch_body["approval_required"], true);
 
         let flags = server
@@ -8008,6 +9128,7 @@ mod tests {
         let flag_patch = server
             .patch(&format!("/api/admin/feature-flags/{}/", critical_flag_id))
             .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "admin-approval-03")
             .json(&json!({
                 "is_enabled": false,
                 "rollout_percent": 0,
@@ -8016,7 +9137,48 @@ mod tests {
             .await;
         flag_patch.assert_status_ok();
         let flag_patch_body: Value = flag_patch.json();
+        assert_eq!(flag_patch_body["result_state"], "approval_required");
+        assert_eq!(flag_patch_body["request_id"], "admin-approval-03");
         assert_eq!(flag_patch_body["approval_required"], true);
+    }
+
+    #[tokio::test]
+    async fn admin_mutation_responses_include_result_state_and_request_id() {
+        let (server, _pool) = setup().await;
+        let token = make_token(4);
+
+        let created_employee = server
+            .post("/api/admin/employees/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "admin-mutation-01")
+            .json(&json!({
+                "email": "envelope@example.com",
+                "display_name": "Envelope Operator",
+                "primary_admin_role": "support",
+                "admin_panel_access": true,
+                "is_active_employee": true
+            }))
+            .await;
+        created_employee.assert_status_ok();
+        let created_body: Value = created_employee.json();
+        assert_eq!(created_body["ok"], true);
+        assert_eq!(created_body["result_state"], "created");
+        assert_eq!(created_body["message"], "Employee created.");
+        assert_eq!(created_body["request_id"], "admin-mutation-01");
+        let employee_id = created_body["id"].as_i64().unwrap();
+
+        let suspended = server
+            .post(&format!("/api/admin/employees/{}/suspend/", employee_id))
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "admin-mutation-02")
+            .json(&json!({}))
+            .await;
+        suspended.assert_status_ok();
+        let suspended_body: Value = suspended.json();
+        assert_eq!(suspended_body["ok"], true);
+        assert_eq!(suspended_body["result_state"], "updated");
+        assert_eq!(suspended_body["message"], "Employee suspended.");
+        assert_eq!(suspended_body["request_id"], "admin-mutation-02");
     }
 
     #[tokio::test]
@@ -8165,13 +9327,17 @@ mod tests {
 
         let invite_lookup = server
             .get(&format!("/api/admin/invite/{}/", invite_token))
+            .add_header("x-request-id", "invite-lookup-01")
             .await;
         invite_lookup.assert_status_ok();
         let invite_lookup_body: Value = invite_lookup.json();
+        assert_eq!(invite_lookup_body["result_state"], "validated");
+        assert_eq!(invite_lookup_body["request_id"], "invite-lookup-01");
         assert_eq!(invite_lookup_body["valid"], true);
 
         let redeem = server
             .post(&format!("/api/admin/invite/{}/", invite_token))
+            .add_header("x-request-id", "invite-redeem-01")
             .json(&json!({
                 "username": "invitee",
                 "email": "invitee@example.com",
@@ -8182,6 +9348,8 @@ mod tests {
             .await;
         redeem.assert_status_ok();
         let redeem_body: Value = redeem.json();
+        assert_eq!(redeem_body["result_state"], "completed");
+        assert_eq!(redeem_body["request_id"], "invite-redeem-01");
         assert_eq!(redeem_body["redirect"], "/login");
     }
 
@@ -8225,5 +9393,80 @@ mod tests {
         assert_eq!(updated_user.0, "customer-admin");
         assert_eq!(updated_user.1, 1);
         assert_eq!(updated_user.2, 1);
+    }
+
+    #[tokio::test]
+    async fn invalid_invite_routes_return_traced_envelopes() {
+        let (server, _pool) = setup().await;
+
+        let invite_lookup = server
+            .get("/api/admin/invite/missing-token/")
+            .add_header("x-request-id", "invite-invalid-01")
+            .await;
+        invite_lookup.assert_status_ok();
+        let invite_lookup_body: Value = invite_lookup.json();
+        assert_eq!(invite_lookup_body["ok"], false);
+        assert_eq!(invite_lookup_body["result_state"], "invalid");
+        assert_eq!(invite_lookup_body["request_id"], "invite-invalid-01");
+        assert_eq!(invite_lookup_body["valid"], false);
+
+        let redeem = server
+            .post("/api/admin/invite/missing-token/")
+            .add_header("x-request-id", "invite-invalid-02")
+            .json(&json!({
+                "username": "ghost-user",
+                "email": "ghost@example.com",
+                "password": "secure-pass-999"
+            }))
+            .await;
+        redeem.assert_status(StatusCode::BAD_REQUEST);
+        let redeem_body: Value = redeem.json();
+        assert_eq!(redeem_body["ok"], false);
+        assert_eq!(redeem_body["result_state"], "failed");
+        assert_eq!(redeem_body["error_type"], "invite_is_invalid_or_expired");
+        assert_eq!(redeem_body["error_code"], "ADMIN_INVITE_IS_INVALID_OR_EXPIRED_INVITEINVALI");
+        assert_eq!(redeem_body["request_id"], "invite-invalid-02");
+    }
+
+    #[tokio::test]
+    async fn invalid_invite_failures_are_audited() {
+        let (server, _pool) = setup().await;
+
+        server
+            .get("/api/admin/invite/missing-token/")
+            .add_header("x-request-id", "invite-audit-01")
+            .await
+            .assert_status_ok();
+
+        server
+            .post("/api/admin/invite/missing-token/")
+            .add_header("x-request-id", "invite-audit-02")
+            .json(&json!({
+                "username": "audit-user",
+                "email": "audit@example.com",
+                "password": "secure-pass-777"
+            }))
+            .await
+            .assert_status(StatusCode::BAD_REQUEST);
+
+        let token = make_token(4);
+        let audit = server
+            .get("/api/admin/audit-log/?action=employee.invite")
+            .add_header("authorization", format!("Bearer {}", token))
+            .await;
+        audit.assert_status_ok();
+        let body: Value = audit.json();
+        let results = body["results"].as_array().unwrap();
+
+        assert!(results.iter().any(|entry| {
+            entry["action"] == "employee.invite.validate"
+                && entry["request_id"] == "invite-audit-01"
+                && entry["object_type"] == "invite_token"
+        }));
+        assert!(results.iter().any(|entry| {
+            entry["action"] == "employee.invite.redeem"
+                && entry["request_id"] == "invite-audit-02"
+                && entry["extra"]["invite_token_ref"].is_string()
+        }));
     }
 }

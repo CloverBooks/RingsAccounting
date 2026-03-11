@@ -1,6 +1,7 @@
 import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 
 import CloverBooksDashboard from "./CloverBooksDashboard";
 import { allowConsole } from "../test/strictConsole";
@@ -72,12 +73,14 @@ describe("CloverBooksDashboard Tax Guardian card", () => {
   });
 
   it("renders tax guardian summary and link", async () => {
-    render(<CloverBooksDashboard metrics={{}} />);
+    render(
+      <MemoryRouter>
+        <CloverBooksDashboard metrics={{}} />
+      </MemoryRouter>,
+    );
 
     expect(screen.getByText(/Tax Guardian/i)).toBeInTheDocument();
-    expect(await screen.findByText(/Period/i, {}, { timeout: 8000 })).toBeInTheDocument();
-
-    expect(screen.getByText("Attention")).toBeInTheDocument();
+    expect(await screen.findByText("Attention", {}, { timeout: 8000 })).toBeInTheDocument();
     expect(screen.getByText(/2 anomalies need review/i)).toBeInTheDocument();
     expect(screen.getByText(/Due Jan 30/i)).toBeInTheDocument();
 
@@ -109,11 +112,46 @@ describe("CloverBooksDashboard Tax Guardian card", () => {
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    render(<CloverBooksDashboard metrics={{}} />);
+    render(
+      <MemoryRouter>
+        <CloverBooksDashboard metrics={{}} />
+      </MemoryRouter>,
+    );
 
     await waitFor(() => expect(screen.getByText(/Unable to load tax status/i)).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: /Try again/i }));
     await waitFor(() => expect(screen.getByText(/Due Jan 30/i)).toBeInTheDocument());
     expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it("skips secondary tax requests when bootstrap data is present", async () => {
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    render(
+      <MemoryRouter>
+        <CloverBooksDashboard
+          metrics={{}}
+          bootstrapPending={false}
+          taxGuardianCard={{
+            periodKey: "2026-03",
+            netTaxDue: 0,
+            dueDate: null,
+            status: "all_clear",
+            openAnomalies: 0,
+            dueLabel: "Unknown",
+          }}
+          onboardingReadiness={{
+            status: "in_progress",
+            score: 55,
+            unknowns: ["industry"],
+            hasProfile: true,
+          }}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText(/Tax Guardian/i)).toBeInTheDocument();
+    await waitFor(() => expect(fetchMock).not.toHaveBeenCalled());
   });
 });

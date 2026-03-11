@@ -183,8 +183,15 @@ type RequestOptions = {
 type ApiError = {
   status: number;
   message: string;
+  requestId?: string;
   data?: any;
 };
+
+const responseRequestId = (res: Response, data: any) =>
+  res.headers.get("x-request-id") || data?.request_id || undefined;
+
+const formatApiErrorMessage = (message: string, requestId?: string) =>
+  requestId ? `${message} (Request ID: ${requestId})` : message;
 
 const buildUrl = (path: string, params?: RequestOptions["params"]) => {
   const base = buildApiUrl(path);
@@ -223,15 +230,52 @@ const apiFetch = async <T>(path: string, options: RequestOptions = {}): Promise<
   const data = isJson ? await res.json().catch(() => ({})) : {};
 
   if (!res.ok) {
+    const requestId = responseRequestId(res, data);
     const error: ApiError = {
       status: res.status,
-      message: data?.detail || data?.message || "Request failed",
+      message: formatApiErrorMessage(data?.detail || data?.message || "Request failed", requestId),
+      requestId,
       data,
     };
     throw error;
   }
 
   return data as T;
+};
+
+const apiFetchBlob = async (path: string, options: RequestOptions = {}): Promise<Blob> => {
+  const { method = "GET", body, params } = options;
+  const url = buildUrl(`${BASE}${path}`, params);
+  const headers: Record<string, string> = {
+    Accept: "text/csv",
+  };
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+  const token = getAccessToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(url, {
+    method,
+    headers,
+    credentials: "include",
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+
+  if (!res.ok) {
+    const isJson = res.headers.get("content-type")?.includes("application/json");
+    const data = isJson ? await res.json().catch(() => ({})) : {};
+    const requestId = responseRequestId(res, data);
+    const error: ApiError = {
+      status: res.status,
+      message: formatApiErrorMessage(data?.detail || data?.message || "Request failed", requestId),
+      requestId,
+      data,
+    };
+    throw error;
+  }
+
+  return res.blob();
 };
 
 const autonomyFetch = async <T>(path: string, options: RequestOptions = {}): Promise<T> => {
@@ -257,9 +301,11 @@ const autonomyFetch = async <T>(path: string, options: RequestOptions = {}): Pro
   const data = isJson ? await res.json().catch(() => ({})) : {};
 
   if (!res.ok) {
+    const requestId = responseRequestId(res, data);
     const error: ApiError = {
       status: res.status,
-      message: data?.detail || data?.message || "Request failed",
+      message: formatApiErrorMessage(data?.detail || data?.message || "Request failed", requestId),
+      requestId,
       data,
     };
     throw error;
@@ -329,6 +375,92 @@ export type AutonomyQueuesResponse = {
 };
 
 export const fetchOverviewMetrics = () => apiFetch<OverviewMetrics>("overview-metrics/");
+
+export type RuntimeSettingsSnapshot = {
+  generated_at: string;
+  environment: {
+    name: string;
+    cors_allowed_origins: string[];
+    admin_password_reset_base_url: string | null;
+    google_oauth_enabled: boolean;
+    google_redirect_uri: string | null;
+    jwt_secret_configured: boolean;
+  };
+  autonomy: {
+    llm_mode: string;
+    tool_mode: string;
+    approval_amount_threshold: number;
+    velocity_threshold: number;
+    snapshot_stale_minutes: number;
+    budgets: {
+      tokens_per_day: number;
+      tool_calls_per_day: number;
+      runs_per_day: number;
+    };
+    allowlists: {
+      domains: string[];
+      models: string[];
+    };
+  };
+  build: {
+    service: string;
+    rust_env: string | null;
+    git_sha: string | null;
+  };
+};
+
+export const fetchRuntimeSettings = () =>
+  apiFetch<RuntimeSettingsSnapshot>("runtime-settings/");
+
+export type AiOpsSnapshot = {
+  generated_at: string;
+  health: {
+    open_ai_flags: number;
+    breaker_events_last_day: number;
+    tool_calls_last_day: number;
+    agent_runs_last_day: number;
+    policy_tenant_count: number;
+    last_tick_at: string | null;
+    last_materialized_at: string | null;
+    api_error_rate_1h_pct: number;
+    api_p95_response_ms_1h: number;
+  };
+  policy: {
+    llm_mode: string;
+    tool_mode: string;
+    approval_amount_threshold: number;
+    velocity_threshold: number;
+    snapshot_stale_minutes: number;
+    budgets: {
+      tokens_per_day: number;
+      tool_calls_per_day: number;
+      runs_per_day: number;
+    };
+    allowlists: {
+      domains: string[];
+      models: string[];
+    };
+  };
+  modes: Array<{
+    mode: string;
+    tenant_count: number;
+  }>;
+  systems: Array<{
+    id: string;
+    name: string;
+    status: string;
+    detail: string;
+  }>;
+  recent_activity: Array<{
+    time: string;
+    tenant_id: number;
+    actor: string;
+    action: string;
+    target: string;
+  }>;
+};
+
+export const fetchAiOps = () => apiFetch<AiOpsSnapshot>("ai-ops/");
 
 export const fetchUsers = (params?: Record<string, string | number | undefined | null>) =>
   apiFetch<Paginated<User>>("users/", { params });
@@ -429,6 +561,9 @@ export const fetchBankAccounts = (params?: Record<string, string | number | unde
 
 export const fetchAuditLog = (params?: Record<string, string | number | undefined | null>) =>
   apiFetch<Paginated<AuditEntry>>("audit-log/", { params });
+
+export const downloadAuditLogCsv = (params?: Record<string, string | number | undefined | null>) =>
+  apiFetchBlob("audit-log/export/", { params });
 
 export const fetchSupportTickets = (params?: Record<string, string | number | undefined | null>) =>
   apiFetch<Paginated<SupportTicket>>("support-tickets/", { params });

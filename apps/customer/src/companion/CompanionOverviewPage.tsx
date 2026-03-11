@@ -357,15 +357,15 @@ const CompanionOverviewPage: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-3">
-            <a
-              href="/settings/account"
+            <Link
+              to="/settings"
               className="h-9 px-4 rounded-lg bg-white border border-slate-200 text-slate-600 text-sm font-medium shadow-sm hover:bg-slate-50 hover:border-slate-300 transition-all flex items-center gap-2"
             >
               <Settings className="w-4 h-4" />
               Configure
-            </a>
+            </Link>
             <Link
-              to="/proposals"
+              to="/companion/proposals"
               className="h-9 px-4 rounded-lg bg-white border border-slate-200 text-slate-600 text-sm font-medium shadow-sm hover:bg-slate-50 hover:border-slate-300 transition-all flex items-center gap-2"
             >
               <FileText className="w-4 h-4" />
@@ -385,7 +385,7 @@ const CompanionOverviewPage: React.FC = () => {
 	        {summary && !summary.ai_companion_enabled && (
 	          <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 px-4 py-3 text-sm">
 	            AI Companion is disabled in Settings.{" "}
-	            <a className="underline font-semibold" href="/settings/account">Go to settings</a>
+	            <Link className="underline font-semibold" to="/settings">Go to settings</Link>
 	          </div>
 	        )}
 
@@ -835,12 +835,12 @@ const CompanionOverviewPage: React.FC = () => {
                           <p className="text-xs text-slate-500 mt-0.5">{issue.description}</p>
                         </div>
                       </div>
-                      <a
-                        href="/receipts"
+                      <Link
+                        to="/expenses"
                         className="px-4 py-2 bg-white border border-slate-200 text-slate-700 text-xs font-semibold rounded-lg hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 transition-all shadow-sm"
                       >
                         Review Now
-                      </a>
+                      </Link>
                     </div>
                   </motion.div>
                 ))}

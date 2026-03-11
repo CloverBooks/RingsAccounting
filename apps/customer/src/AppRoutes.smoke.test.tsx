@@ -17,7 +17,7 @@ const mockCoaApiPayload = {
   totalsByType: { ASSET: 1 },
 };
 
-vi.mock("./dashboard/CloverBooksDashboard", () => ({
+vi.mock("./routes/DashboardRoute", () => ({
   default: () => <div data-testid="dashboard-page">Dashboard Page</div>,
 }));
 vi.mock("./auth/LoginPage", () => ({
@@ -65,9 +65,6 @@ vi.mock("./companion/TaxProductRulesPage", () => ({
 vi.mock("./companion/TaxSettingsPage", () => ({
   default: () => <div data-testid="tax-settings-page">Tax Settings Page</div>,
 }));
-vi.mock("./invoices/InvoicesPage", () => ({
-  default: () => <div data-testid="invoices-page">Invoices Page</div>,
-}));
 vi.mock("./invoices/InvoicesListPage", () => ({
   default: () => <div data-testid="invoices-list-page">Invoices List Page</div>,
 }));
@@ -89,11 +86,11 @@ vi.mock("./categories/CategoriesPage", () => ({
 vi.mock("./inventory/InventoryOverviewPage", () => ({
   default: () => <div data-testid="inventory-page">Inventory Page</div>,
 }));
-vi.mock("./BankingAccountsAndFeedPage", () => ({
-  default: () => <div data-testid="banking-page">Banking Page</div>,
-}));
 vi.mock("./banking/BankSetupPage", () => ({
   default: () => <div data-testid="bank-setup-page">Bank Setup Page</div>,
+}));
+vi.mock("./transactions/LedgerTransactionsPage", () => ({
+  default: () => <div data-testid="banking-page">Banking Page</div>,
 }));
 vi.mock("./reconciliation/ReconciliationPage", () => ({
   default: () => <div data-testid="reconciliation-page">Reconciliation Page</div>,
@@ -110,7 +107,7 @@ vi.mock("./reports/CashflowReportPage", () => ({
 vi.mock("./reports/CashflowReportPrintPage", () => ({
   CashflowReportPrintPage: () => <div data-testid="cashflow-print-page">Cashflow Print Page</div>,
 }));
-vi.mock("./ChartOfAccountsPage", () => ({
+vi.mock("./routes/ChartOfAccountsRoute", () => ({
   default: () => <div data-testid="coa-page">Chart Of Accounts Page</div>,
 }));
 vi.mock("./journal/JournalEntriesPage", () => ({
@@ -119,7 +116,7 @@ vi.mock("./journal/JournalEntriesPage", () => ({
 vi.mock("./transactions/TransactionsPage", () => ({
   default: () => <div data-testid="transactions-page">Transactions Page</div>,
 }));
-vi.mock("./settings/AccountSettingsPage", () => ({
+vi.mock("./routes/AccountSettingsRoute", () => ({
   default: () => <div data-testid="settings-page">Settings Page</div>,
 }));
 vi.mock("./settings/RolesSettingsPage", () => ({
@@ -147,6 +144,13 @@ vi.mock("./contexts/AuthContext", () => ({
 vi.mock("./layouts/CustomerLayout", () => ({
   CustomerLayout: () => (
     <div data-testid="customer-layout">
+      <Outlet />
+    </div>
+  ),
+}));
+vi.mock("./layouts/DarkSidebarLayout", () => ({
+  DarkSidebarLayout: () => (
+    <div data-testid="dark-sidebar-layout">
       <Outlet />
     </div>
   ),
@@ -214,7 +218,7 @@ describe("AppRoutes smoke coverage", () => {
     { path: "/companion/tax/product-rules", testId: "tax-product-rules-page" },
     { path: "/companion/tax/settings", testId: "tax-settings-page" },
     { path: "/ai-companion/issues", testId: "companion-issues-page" },
-    { path: "/invoices", testId: "invoices-page" },
+    { path: "/invoices", testId: "invoices-list-page" },
     { path: "/invoices/list", testId: "invoices-list-page" },
     { path: "/expenses", testId: "expenses-page" },
     { path: "/receipts", testId: "expenses-page" },

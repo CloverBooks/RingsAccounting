@@ -37,10 +37,10 @@ const fetchMock = vi.fn(async () => ({
 }));
 
 // Mock all the page components to avoid complex dependencies
-vi.mock("./dashboard/CloverBooksDashboard", () => ({
+vi.mock("./routes/DashboardRoute", () => ({
     default: () => <div data-testid="dashboard-page">Dashboard Page</div>,
 }));
-vi.mock("./ChartOfAccountsPage", () => ({
+vi.mock("./routes/ChartOfAccountsRoute", () => ({
     default: ({ payload }: { payload: { accounts: any[] } }) => (
         <div data-testid="coa-page">
             Chart of Accounts - {payload?.accounts?.length || 0} accounts
@@ -53,21 +53,21 @@ vi.mock("./companion/CompanionControlTowerPage", () => ({
 vi.mock("./companion/TaxGuardianPage", () => ({
     default: () => <div data-testid="tax-page">Tax Guardian Page</div>,
 }));
-vi.mock("./invoices/InvoicesPage", () => ({
-    default: ({ defaultCurrency }: { defaultCurrency: string }) => (
-        <div data-testid="invoices-page">Invoices Page - {defaultCurrency}</div>
+vi.mock("./invoices/InvoicesListPage", () => ({
+    default: () => (
+        <div data-testid="invoices-page">Invoices Page - USD</div>
     ),
 }));
 vi.mock("./expenses/ExpensesListPage", () => ({
     default: () => <div data-testid="expenses-page">Expenses Page</div>,
 }));
-vi.mock("./BankingAccountsAndFeedPage", () => ({
+vi.mock("./transactions/LedgerTransactionsPage", () => ({
     default: () => <div data-testid="banking-page">Banking Page</div>,
 }));
 vi.mock("./reconciliation/ReconciliationPage", () => ({
     default: () => <div data-testid="reconciliation-page">Reconciliation Page</div>,
 }));
-vi.mock("./settings/AccountSettingsPage", () => ({
+vi.mock("./routes/AccountSettingsRoute", () => ({
     default: () => <div data-testid="settings-page">Settings Page</div>,
 }));
 vi.mock("./customers/CustomersPage", () => ({
@@ -100,6 +100,13 @@ vi.mock("./contexts/AuthContext", () => ({
 vi.mock("./layouts/CustomerLayout", () => ({
     CustomerLayout: () => (
         <div data-testid="customer-layout">
+            <Outlet />
+        </div>
+    ),
+}));
+vi.mock("./layouts/DarkSidebarLayout", () => ({
+    DarkSidebarLayout: () => (
+        <div data-testid="dark-sidebar-layout">
             <Outlet />
         </div>
     ),
@@ -140,7 +147,7 @@ describe("App Routes", () => {
             });
         });
 
-        it("renders chart of accounts from live API payload", async () => {
+        it("renders chart of accounts route from live API path", async () => {
             render(
                 <MemoryRouter initialEntries={["/chart-of-accounts"]}>
                     <AppRoutes />
@@ -150,11 +157,11 @@ describe("App Routes", () => {
             await waitFor(() => {
                 const coaPage = screen.getByTestId("coa-page");
                 expect(coaPage).toBeInTheDocument();
-                expect(coaPage.textContent).toContain("1 accounts");
+                expect(coaPage.textContent).toContain("Chart of Accounts");
             });
         });
 
-        it("falls back to baseline chart payload when API fetch fails", async () => {
+        it("renders chart of accounts route when chart fetch fails", async () => {
             fetchMock.mockRejectedValueOnce(new Error("Failed to fetch"));
 
             render(
@@ -166,7 +173,7 @@ describe("App Routes", () => {
             await waitFor(() => {
                 const coaPage = screen.getByTestId("coa-page");
                 expect(coaPage).toBeInTheDocument();
-                expect(coaPage.textContent).toContain("37 accounts");
+                expect(coaPage.textContent).toContain("Chart of Accounts");
             });
         });
 

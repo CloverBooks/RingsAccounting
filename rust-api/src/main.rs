@@ -4,6 +4,7 @@
 //! All endpoints read directly from the SQLite database.
 
 use axum::{
+    middleware::from_fn,
     routing::{delete, get, post},
     Router,
 };
@@ -89,6 +90,7 @@ async fn main() {
             .allow_origin("http://localhost:5173".parse::<HeaderValue>().unwrap())
             .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::PATCH])
             .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::ACCEPT])
+            .expose_headers([header::HeaderName::from_static("x-request-id")])
             .allow_credentials(true)
     } else {
         tracing::info!("✅ CORS configured for {} origin(s)", allowed_origins.len());
@@ -96,6 +98,7 @@ async fn main() {
             .allow_origin(AllowOrigin::list(allowed_origins))
             .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::PATCH])
             .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::ACCEPT])
+            .expose_headers([header::HeaderName::from_static("x-request-id")])
             .allow_credentials(true)
     };
 
@@ -124,6 +127,11 @@ async fn main() {
             "/api/admin/operations-overview/",
             get(routes::admin::operations_overview),
         )
+        .route(
+            "/api/admin/runtime-settings/",
+            get(routes::admin::runtime_settings),
+        )
+        .route("/api/admin/ai-ops/", get(routes::admin::ai_ops))
         .route("/api/admin/users/", get(routes::admin::list_users))
         .route(
             "/api/admin/users/:id/",
@@ -218,6 +226,10 @@ async fn main() {
             post(routes::admin::stop_impersonation),
         )
         .route("/api/admin/audit-log/", get(routes::admin::list_audit_events))
+        .route(
+            "/api/admin/audit-log/export/",
+            get(routes::admin::export_audit_events_csv),
+        )
         // Banking routes (native matching engine)
         .route("/api/banking/health", get(routes::matching::health))
         .route("/api/banking/find-matches", post(routes::matching::find_matches))
@@ -350,6 +362,7 @@ async fn main() {
         .with_state(app_state)
 
         // Add middleware
+        .layer(from_fn(routes::request_ids::control_plane_request_id_middleware))
         .layer(cors)
         .layer(TraceLayer::new_for_http());
 

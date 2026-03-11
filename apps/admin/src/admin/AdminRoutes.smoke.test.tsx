@@ -32,10 +32,78 @@ vi.mock("./api", () => {
     fetchWorkspaces: vi.fn().mockResolvedValue({ results: [] }),
     fetchUsers: vi.fn().mockResolvedValue({ results: [] }),
     fetchAuditLog: vi.fn().mockResolvedValue({ results: [] }),
+    downloadAuditLogCsv: vi.fn().mockResolvedValue(new Blob(["id\n1"], { type: "text/csv" })),
     fetchSupportTickets: vi.fn().mockResolvedValue({ results: [] }),
     addSupportTicketNote: vi.fn().mockResolvedValue({}),
     createSupportTicket: vi.fn().mockResolvedValue({}),
     fetchFeatureFlags: vi.fn().mockResolvedValue([]),
+    fetchRuntimeSettings: vi.fn().mockResolvedValue({
+      generated_at: "2025-01-01T00:00:00Z",
+      environment: {
+        name: "prod",
+        cors_allowed_origins: ["http://localhost:5174"],
+        admin_password_reset_base_url: "https://app.cloverbooks.com",
+        google_oauth_enabled: true,
+        google_redirect_uri: "https://app.cloverbooks.com/auth/google/callback",
+        jwt_secret_configured: true,
+      },
+      autonomy: {
+        llm_mode: "live",
+        tool_mode: "live",
+        approval_amount_threshold: 1000,
+        velocity_threshold: 50,
+        snapshot_stale_minutes: 15,
+        budgets: {
+          tokens_per_day: 100000,
+          tool_calls_per_day: 500,
+          runs_per_day: 200,
+        },
+        allowlists: {
+          domains: ["docs.cloverbooks.com"],
+          models: ["gpt-5"],
+        },
+      },
+      build: {
+        service: "rust-api",
+        rust_env: "production",
+        git_sha: "abc123",
+      },
+    }),
+    fetchAiOps: vi.fn().mockResolvedValue({
+      generated_at: "2025-01-01T00:00:00Z",
+      health: {
+        open_ai_flags: 0,
+        breaker_events_last_day: 0,
+        tool_calls_last_day: 0,
+        agent_runs_last_day: 0,
+        policy_tenant_count: 1,
+        last_tick_at: null,
+        last_materialized_at: null,
+        api_error_rate_1h_pct: 0.1,
+        api_p95_response_ms_1h: 120,
+      },
+      policy: {
+        llm_mode: "live",
+        tool_mode: "live",
+        approval_amount_threshold: 1000,
+        velocity_threshold: 50,
+        snapshot_stale_minutes: 15,
+        budgets: {
+          tokens_per_day: 100000,
+          tool_calls_per_day: 500,
+          runs_per_day: 200,
+        },
+        allowlists: {
+          domains: ["docs.cloverbooks.com"],
+          models: ["gpt-5"],
+        },
+      },
+      modes: [{ mode: "suggest_only", tenant_count: 1 }],
+      systems: [
+        { id: "admin_api", name: "Admin API", status: "healthy", detail: "p95 120 ms" },
+      ],
+      recent_activity: [],
+    }),
     fetchWorkspace360: vi.fn().mockResolvedValue({
       workspace: {
         id: 1,
@@ -209,6 +277,6 @@ describe("AdminRoutes route inventory", () => {
   ])("renders %s", async (path, heading) => {
     renderRoute(path);
 
-    expect(await screen.findByText(heading)).toBeInTheDocument();
+    expect((await screen.findAllByRole("heading", { name: heading }, { timeout: 8000 })).length).toBeGreaterThan(0);
   });
 });

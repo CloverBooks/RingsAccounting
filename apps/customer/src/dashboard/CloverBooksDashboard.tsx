@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { buildApiUrl, getAccessToken } from "../api/client";
 import { DashboardCompanionPanel, CompanionBreakdown, CompanionInsight, CompanionTask } from "./DashboardCompanionPanel";
 import { useAuth } from "../contexts/AuthContext";
@@ -6,6 +7,9 @@ import { AICommandStrip } from "./AICommandStrip";
 import { SuppliersDonutCard } from "./SuppliersDonutCard";
 import { PLSnapshotCard } from "./PLSnapshotCard";
 import { SetupCards } from "./SetupCards";
+import AppLink from "../routing/AppLink";
+import { navigateToCustomerHref } from "../routing/customerNavigation";
+import type { OnboardingReadinessSeed } from "../onboarding/useOnboardingReadiness";
 
 type PLMonthOption = {
   value: string;
@@ -94,7 +98,7 @@ type CashflowSeries = {
   expenses?: number[];
 };
 
-type TaxGuardianStatus = "all_clear" | "attention" | "high_risk";
+export type TaxGuardianStatus = "all_clear" | "attention" | "high_risk";
 
 type CompanionSummaryTax = {
   tax?: {
@@ -113,7 +117,7 @@ type TaxPeriodsResponse = {
   }>;
 };
 
-type TaxGuardianCardData = {
+export type TaxGuardianCardData = {
   periodKey: string;
   netTaxDue: number | null;
   dueDate: string | null;
@@ -121,6 +125,8 @@ type TaxGuardianCardData = {
   openAnomalies: number;
   dueLabel: "On track" | "At risk" | "Unknown";
 };
+
+export type DashboardOnboardingReadiness = OnboardingReadinessSeed;
 
 function sumSeverityCounts(counts?: { low?: number; medium?: number; high?: number }): number {
   return (counts?.low ?? 0) + (counts?.medium ?? 0) + (counts?.high ?? 0);
@@ -185,6 +191,9 @@ export interface CloverBooksDashboardProps {
     cashflowReport?: string;
   };
   is_empty_workspace?: boolean;
+  taxGuardianCard?: TaxGuardianCardData | null;
+  onboardingReadiness?: DashboardOnboardingReadiness | null;
+  bootstrapPending?: boolean;
 }
 
 const CloverBooksDashboard: React.FC<CloverBooksDashboardProps> = ({
@@ -197,10 +206,18 @@ const CloverBooksDashboard: React.FC<CloverBooksDashboardProps> = ({
   topSuppliers = [],
   cashflow,
   urls,
+  taxGuardianCard: initialTaxGuardianCard = null,
+  onboardingReadiness = null,
+  bootstrapPending = false,
 }) => {
   const { logout } = useAuth();
+  const navigate = useNavigate();
   const greetingName = username && username.trim().length ? username : "there";
   const safeUrl = (value?: string) => value || "#";
+  const goToHref = useCallback(
+    (href: string) => navigateToCustomerHref(navigate, href),
+    [navigate],
+  );
 
   const formatter = useMemo(() => {
     try {
@@ -234,8 +251,8 @@ const CloverBooksDashboard: React.FC<CloverBooksDashboardProps> = ({
   const plPeriodLabel = metrics?.pl_period_label || "This month";
   const plPrevPeriodLabel = metrics?.pl_prev_period_label || "last month";
 
-  const [taxGuardianCard, setTaxGuardianCard] = useState<TaxGuardianCardData | null>(null);
-  const [taxGuardianLoading, setTaxGuardianLoading] = useState(true);
+  const [taxGuardianCard, setTaxGuardianCard] = useState<TaxGuardianCardData | null>(initialTaxGuardianCard);
+  const [taxGuardianLoading, setTaxGuardianLoading] = useState(!initialTaxGuardianCard && !bootstrapPending);
   const [taxGuardianError, setTaxGuardianError] = useState<string | null>(null);
 
   const loadTaxGuardianCard = useCallback(async () => {
@@ -285,8 +302,18 @@ const CloverBooksDashboard: React.FC<CloverBooksDashboardProps> = ({
   }, []);
 
   useEffect(() => {
+    if (initialTaxGuardianCard) {
+      setTaxGuardianCard(initialTaxGuardianCard);
+      setTaxGuardianError(null);
+      setTaxGuardianLoading(false);
+      return;
+    }
+    if (bootstrapPending) {
+      setTaxGuardianLoading(true);
+      return;
+    }
     void loadTaxGuardianCard();
-  }, [loadTaxGuardianCard]);
+  }, [bootstrapPending, initialTaxGuardianCard, loadTaxGuardianCard]);
 
   const cashflowBars = useMemo(() => {
     const labels = cashflow?.labels || [];
@@ -408,11 +435,11 @@ const CloverBooksDashboard: React.FC<CloverBooksDashboardProps> = ({
 
   const handleCompanionTaskPrimary = (id: string) => {
     // Navigate to appropriate page based on task
-    const task = companionTasks.find(t => t.id === id);
+    const task = companionTasks.find((entry) => entry.id === id);
     if (task?.categoryLabel === "Ledger") {
-      window.location.href = urls?.banking || "/banking";
+      goToHref(urls?.banking || "/banking");
     } else if (task?.categoryLabel === "Invoices") {
-      window.location.href = urls?.invoices || "/invoices";
+      goToHref(urls?.invoices || "/invoices");
     }
   };
 
@@ -437,19 +464,19 @@ const CloverBooksDashboard: React.FC<CloverBooksDashboardProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-            <a
+            <AppLink
               href={safeUrl(urls?.banking)}
               className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50"
             >
               <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-emerald-500" />
               Go to banking
-            </a>
-            <a
+            </AppLink>
+            <AppLink
               href={safeUrl(urls?.profitAndLoss)}
               className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50"
             >
               View P&amp;L
-            </a>
+            </AppLink>
             <button
               type="button"
               onClick={logout}
@@ -461,7 +488,7 @@ const CloverBooksDashboard: React.FC<CloverBooksDashboardProps> = ({
         </header>
 
         {/* Onboarding Setup Cards - gentle nudge for incomplete setup */}
-        <SetupCards />
+        <SetupCards initialReadiness={onboardingReadiness} bootstrapPending={bootstrapPending} />
 
         <section className="grid gap-4 lg:grid-cols-[1.15fr,1.1fr]">
           <div className="grid gap-3 sm:grid-cols-3">
@@ -488,12 +515,12 @@ const CloverBooksDashboard: React.FC<CloverBooksDashboardProps> = ({
             <div className="rounded-3xl border border-slate-100 bg-white/90 px-4 py-4 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <p className="text-xs font-medium text-slate-500">Tax Guardian</p>
-                <a
+                <AppLink
                   href={`/companion/tax${taxGuardianCard?.periodKey ? `?period=${encodeURIComponent(taxGuardianCard.periodKey)}` : ""}`}
                   className="text-[11px] font-semibold text-sky-700 hover:text-sky-900"
                 >
                   View
-                </a>
+                </AppLink>
               </div>
 
               {taxGuardianLoading ? (
@@ -567,12 +594,12 @@ const CloverBooksDashboard: React.FC<CloverBooksDashboardProps> = ({
                 </p>
               </div>
               <div className="flex flex-col items-end gap-2">
-                <a
+                <AppLink
                   href={safeUrl(urls?.cashflowReport)}
                   className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium hover:bg-slate-50"
                 >
                   View cashflow report
-                </a>
+                </AppLink>
                 <div className="flex items-center gap-2 text-[11px] text-slate-500">
                   <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 whitespace-nowrap">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
@@ -623,7 +650,7 @@ const CloverBooksDashboard: React.FC<CloverBooksDashboardProps> = ({
             tasks={companionTasks}
             onTaskPrimary={handleCompanionTaskPrimary}
             onTaskSecondary={handleCompanionTaskSecondary}
-            onOpenFullCompanion={() => window.location.href = "/companion/"}
+            onOpenFullCompanion={() => goToHref("/companion/")}
           />
         </section>
 
@@ -637,12 +664,12 @@ const CloverBooksDashboard: React.FC<CloverBooksDashboardProps> = ({
                 </p>
               </div>
               <div className="flex items-center gap-2 text-xs">
-                <a
+                <AppLink
                   href={safeUrl(urls?.newInvoice)}
                   className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-700 hover:bg-white"
                 >
                   New invoice
-                </a>
+                </AppLink>
               </div>
             </div>
 
@@ -672,7 +699,7 @@ const CloverBooksDashboard: React.FC<CloverBooksDashboardProps> = ({
               <div className="space-y-1.5 text-xs">
                 {recentInvoices.length ? (
                   recentInvoices.slice(0, 3).map((inv) => (
-                    <a
+                    <AppLink
                       key={inv.number}
                       href={safeUrl(inv.url || urls?.invoices)}
                       className="flex items-center justify-between rounded-xl bg-white px-3 py-2 hover:bg-slate-50 transition"
@@ -680,7 +707,7 @@ const CloverBooksDashboard: React.FC<CloverBooksDashboardProps> = ({
                       <span className="flex-1 truncate">#{inv.number} · {inv.customer}</span>
                       <span className="w-24 text-right text-slate-500">{inv.due_label}</span>
                       <span className="w-20 text-right font-medium text-slate-900 font-mono-soft">{formatMoney(inv.amount)}</span>
-                    </a>
+                    </AppLink>
                   ))
                 ) : (
                   <div className="text-slate-500 text-sm px-2 py-3">No invoices yet.</div>
@@ -700,12 +727,12 @@ const CloverBooksDashboard: React.FC<CloverBooksDashboardProps> = ({
                       : "Connect a bank feed to see activity here."}
                   </p>
                 </div>
-                <a
+                <AppLink
                   href={safeUrl(urls?.banking)}
                   className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-white"
                 >
                   Go to banking
-                </a>
+                </AppLink>
               </div>
 
               <div className="space-y-1.5 text-xs">
@@ -735,12 +762,12 @@ const CloverBooksDashboard: React.FC<CloverBooksDashboardProps> = ({
                     Where your money is going this month.
                   </p>
                 </div>
-                <a
+                <AppLink
                   href={safeUrl(urls?.expenses)}
                   className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-white"
                 >
                   View expenses
-                </a>
+                </AppLink>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-3 text-xs">

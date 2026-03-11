@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowRight,
@@ -19,6 +20,7 @@ import {
   HelpCircle,
   Mail,
 } from "lucide-react";
+import { navigateToCustomerHref } from "../routing/customerNavigation";
 
 // ------------------------------------------------------------
 // Clover Books — Reception / Welcome Website (WHITE)
@@ -267,6 +269,48 @@ function BinaryWarpSphere({
       aria-hidden="true"
     />
   );
+}
+
+function DeferredBinaryWarpSphere() {
+  const [shouldRender, setShouldRender] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    let rafId = 0;
+    let timeoutId = 0;
+    let idleId: number | null = null;
+
+    const mount = () => setShouldRender(true);
+
+    rafId = window.requestAnimationFrame(() => {
+      if (typeof idleWindow.requestIdleCallback === "function") {
+        idleId = idleWindow.requestIdleCallback(mount, { timeout: 800 });
+      } else {
+        timeoutId = window.setTimeout(mount, 180);
+      }
+    });
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.clearTimeout(timeoutId);
+      if (idleId !== null && typeof idleWindow.cancelIdleCallback === "function") {
+        idleWindow.cancelIdleCallback(idleId);
+      }
+    };
+  }, []);
+
+  if (!shouldRender) {
+    return null;
+  }
+
+  return <BinaryWarpSphere />;
 }
 
 function classNames(...xs: Array<string | false | null | undefined>) {
@@ -738,11 +782,11 @@ function PricingCard({
 }
 
 export default function CloverBooksWelcomePage() {
+  const navigate = useNavigate();
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
-  // If you're using react-router, swap these for `useNavigate()`.
   const go = (path: string) => {
-    if (typeof window !== "undefined") window.location.href = path;
+    navigateToCustomerHref(navigate, path);
   };
 
   const sections = useMemo(
@@ -771,7 +815,7 @@ export default function CloverBooksWelcomePage() {
       </div>
 
       {/* Binary anti-gravity sphere */}
-      <BinaryWarpSphere />
+      <DeferredBinaryWarpSphere />
 
       {/* Better Navigator */}
       <TopNav

@@ -1,9 +1,11 @@
 import React from "react";
+import { useNavigate } from "react-router-dom";
 import { Banknote, ChevronRight, FileText, Layers, ListChecks, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { navigateToCustomerHref } from "../routing/customerNavigation";
 import { Separator } from "@/components/ui/separator";
 
 type SurfaceKey = "receipts" | "invoices" | "books" | "banking";
@@ -42,6 +44,7 @@ function surfaceMeta(key: SurfaceKey) {
 }
 
 export default function CloseAssistantDrawer({ summary, loading = false }: CloseAssistantDrawerProps) {
+  const navigate = useNavigate();
   if (loading) {
     return <PanelLoading label="Loading close assistant..." />;
   }
@@ -100,7 +103,7 @@ export default function CloseAssistantDrawer({ summary, loading = false }: Close
                 <div className="mt-4 flex gap-2">
                   <Button
                     className="rounded-2xl bg-zinc-950 text-white hover:bg-zinc-900"
-                    onClick={() => (window.location.href = b.url || "#")}
+                    onClick={() => b.url && navigateToCustomerHref(navigate, b.url)}
                     disabled={!b.url}
                   >
                     Open review

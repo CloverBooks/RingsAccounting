@@ -1,9 +1,15 @@
 import React, { useState } from "react";
 import { ArrowRight, Sparkles, X } from "lucide-react";
-import { useOnboardingReadiness } from "../onboarding/useOnboardingReadiness";
+import AppLink from "../routing/AppLink";
+import {
+  useOnboardingReadiness,
+  type OnboardingReadinessSeed,
+} from "../onboarding/useOnboardingReadiness";
 
 interface SetupCardsProps {
   onDismiss?: () => void;
+  initialReadiness?: OnboardingReadinessSeed | null;
+  bootstrapPending?: boolean;
 }
 
 function headline(status: string): string {
@@ -30,10 +36,17 @@ function getStorage(): Storage | null {
   return storage;
 }
 
-export const SetupCards: React.FC<SetupCardsProps> = ({ onDismiss }) => {
+export const SetupCards: React.FC<SetupCardsProps> = ({
+  onDismiss,
+  initialReadiness = null,
+  bootstrapPending = false,
+}) => {
   const storage = getStorage();
   const [dismissed, setDismissed] = useState(Boolean(storage?.getItem("setup_cards_dismissed")));
-  const { loading, readiness, unknowns } = useOnboardingReadiness();
+  const { loading, readiness, unknowns } = useOnboardingReadiness({
+    enabled: !initialReadiness && !bootstrapPending,
+    initialSnapshot: initialReadiness,
+  });
 
   const status = readiness.status;
   const shouldHide = loading || dismissed || status === "completed";
@@ -56,13 +69,13 @@ export const SetupCards: React.FC<SetupCardsProps> = ({ onDismiss }) => {
             <h3 className="text-sm font-semibold text-slate-900">{headline(status)}</h3>
             <p className="text-sm text-slate-600">{body(status, unknowns.length)}</p>
             <div className="mt-2 flex items-center gap-3">
-              <a
+              <AppLink
                 href="/onboarding"
                 className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700 hover:text-emerald-800"
               >
                 {status === "ready_for_companion" ? "Finish setup" : "Continue"}
                 <ArrowRight className="w-4 h-4" />
-              </a>
+              </AppLink>
               <span className="text-xs text-slate-500">
                 Readiness: <span className="font-semibold">{readiness.score}%</span>
               </span>

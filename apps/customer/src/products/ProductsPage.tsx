@@ -135,10 +135,10 @@ export default function ProductsPage() {
 
   if (loading && items.length === 0) {
     return (
-      <div className="min-h-screen w-full bg-slate-50/80 px-4 pb-12 pt-20 flex items-center justify-center">
+      <div className="min-h-screen bg-[#09090B] flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-900 border-t-transparent" />
-          <p className="text-sm text-slate-500">Loading products &amp; services...</p>
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#A3E635] border-t-transparent" />
+          <p className="text-sm text-gray-500">Loading catalog…</p>
         </div>
       </div>
     );
@@ -146,13 +146,11 @@ export default function ProductsPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen w-full bg-slate-50/80 px-4 pb-12 pt-20 flex items-center justify-center">
-        <div className="rounded-2xl border border-red-100 bg-red-50 p-6 text-center max-w-md">
-          <p className="text-sm font-medium text-red-700">{error}</p>
-          <button
-            onClick={() => { setError(null); fetchData(); }}
-            className="mt-4 rounded-lg bg-red-600 px-4 py-2 text-xs font-medium text-white hover:bg-red-700"
-          >
+      <div className="min-h-screen bg-[#09090B] flex items-center justify-center">
+        <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-6 text-center max-w-md">
+          <p className="text-sm font-medium text-red-400">{error}</p>
+          <button onClick={() => { setError(null); fetchData(); }}
+            className="mt-4 rounded-lg bg-red-600 px-4 py-2 text-xs font-medium text-white hover:bg-red-500">
             Retry
           </button>
         </div>
@@ -161,410 +159,176 @@ export default function ProductsPage() {
   }
 
   return (
-    <div className="min-h-screen w-full bg-slate-50/80 px-4 pb-12 pt-6 sm:px-6 lg:px-8 font-sans">
+    <div className="min-h-screen bg-[#09090B] px-4 pb-12 pt-6 sm:px-6 lg:px-8" style={{ fontFamily: "'Inter', sans-serif" }}>
       <div className="mx-auto max-w-7xl space-y-8">
         {/* Header */}
         <header className="flex flex-wrap items-center justify-between gap-6">
-          <div className="space-y-1">
-            <div className="text-[10px] font-bold tracking-widest text-slate-400 uppercase">
-              Catalog
-            </div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-3xl font-bold tracking-tight text-slate-900">Products &amp; Services</h1>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-900 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-sm">
-                <Sparkles className="h-2.5 w-2.5" />
-                Live
-              </span>
-            </div>
-            <p className="text-sm text-slate-500 max-w-xl leading-relaxed">
-              Central place to manage what you sell, how you price it, and how it flows into your
-              ledger and tax engine.
-            </p>
+          <div>
+            <p className="text-[10px] font-bold tracking-widest text-gray-500 uppercase mb-1">Catalog</p>
+            <h1 className="text-3xl font-bold tracking-tight text-white">Products &amp; Services</h1>
+            <p className="text-sm text-gray-500 mt-1">Manage what you sell, price it, and map it to your ledger.</p>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={() => {
-                setNewItemKind("service");
-                setShowNewItemSheet(true);
-              }}
-              className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-5 py-2.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 transition-all hover:scale-[1.02] active:scale-[0.98]"
-            >
-              <Wrench className="mr-2 h-3.5 w-3.5" />
-              New Service
+          <div className="flex gap-2">
+            <button type="button" onClick={() => { setNewItemKind("service"); setShowNewItemSheet(true); }}
+              className="flex items-center gap-2 border border-white/10 bg-[#18181B] text-gray-300 rounded-xl px-4 py-2 text-xs font-semibold hover:bg-[#27272A] transition-all">
+              <Wrench className="h-3.5 w-3.5" /> New Service
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                setNewItemKind("product");
-                setShowNewItemSheet(true);
-              }}
-              className="inline-flex items-center justify-center rounded-full bg-slate-900 px-5 py-2.5 text-xs font-semibold text-white shadow-lg shadow-slate-900/10 hover:bg-slate-800 transition-all hover:scale-[1.02] active:scale-[0.98]"
-            >
-              <Plus className="mr-2 h-3.5 w-3.5" />
-              New Product
+            <button type="button" onClick={() => { setNewItemKind("product"); setShowNewItemSheet(true); }}
+              className="flex items-center gap-2 bg-[#A3E635] text-black rounded-xl px-4 py-2 text-xs font-semibold hover:bg-[#bef264] transition-all shadow-sm">
+              <Plus className="h-3.5 w-3.5" /> New Product
             </button>
           </div>
         </header>
 
-        {/* Metrics Cards */}
-        <section className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="flex flex-col gap-2 rounded-[1.5rem] border border-slate-100 bg-white p-6 shadow-sm hover:shadow-md transition-shadow">
-            <div className="text-[10px] font-bold tracking-widest text-slate-400 uppercase">
-              Active Items
+        {/* Metric Cards */}
+        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            { label: "Active Items", value: String(stats.activeCount), sub: `${stats.productCount} products · ${stats.serviceCount} services`, color: "text-white" },
+            { label: "Avg. Price", value: formatMoney(stats.avgPrice, currency), sub: "Across all active items", color: "text-[#A3E635]" },
+            { label: "Services", value: String(stats.serviceCount), sub: "Subscriptions or retainers", color: "text-[#8B5CF6]" },
+            { label: "Catalog Health", value: "Ready", sub: "Accounts & pricing set", color: "text-[#A3E635]" },
+          ].map(c => (
+            <div key={c.label} className="bg-[#131316] border border-white/5 rounded-2xl p-5">
+              <p className="text-[10px] font-bold tracking-widest text-gray-500 uppercase mb-3">{c.label}</p>
+              <p className={`text-2xl font-bold font-mono tracking-tight ${c.color}`}>{c.value}</p>
+              <p className="text-xs text-gray-600 mt-1">{c.sub}</p>
             </div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-bold text-slate-900 font-mono-soft tracking-tight">
-                {stats.activeCount}
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 font-medium">
-              {stats.productCount} products · {stats.serviceCount} services
-            </p>
-          </div>
-          <div className="flex flex-col gap-2 rounded-[1.5rem] border border-slate-100 bg-white p-6 shadow-sm hover:shadow-md transition-shadow">
-            <div className="text-[10px] font-bold tracking-widest text-slate-400 uppercase">
-              Avg. Price
-            </div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-bold text-slate-900 font-mono-soft tracking-tight">
-                {formatMoney(stats.avgPrice, currency)}
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 font-medium">Across all active items</p>
-          </div>
-          <div className="flex flex-col gap-2 rounded-[1.5rem] border border-slate-100 bg-white p-6 shadow-sm hover:shadow-md transition-shadow">
-            <div className="text-[10px] font-bold tracking-widest text-slate-400 uppercase">
-              Services
-            </div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-bold text-slate-900 font-mono-soft tracking-tight">
-                {stats.serviceCount}
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 font-medium">Subscriptions or retainers</p>
-          </div>
-          <div className="flex flex-col gap-2 rounded-[1.5rem] border border-slate-100 bg-white p-6 shadow-sm hover:shadow-md transition-shadow">
-            <div className="text-[10px] font-bold tracking-widest text-slate-400 uppercase">
-              Catalog Health
-            </div>
-            <div className="mt-1 flex items-center gap-2">
-              <span className="inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-emerald-100" />
-              <span className="text-sm font-semibold text-emerald-700">Ready for invoicing</span>
-            </div>
-            <p className="text-xs text-slate-500 font-medium mt-0.5">
-              Accounts &amp; pricing set.
-            </p>
-          </div>
+          ))}
         </section>
 
         {/* Main Content */}
-        <section className="grid gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)] xl:grid-cols-[minmax(0,2.5fr)_minmax(0,1.2fr)]">
-          {/* Items List */}
-          <div className="flex flex-col gap-5 rounded-[2rem] border border-slate-100 bg-white p-6 shadow-sm">
+        <section className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1.1fr)]">
+          {/* Items Table */}
+          <div className="bg-[#131316] border border-white/5 rounded-2xl overflow-hidden">
             {/* Filters */}
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="flex items-center gap-2 rounded-xl bg-slate-50/50 p-1.5 ring-1 ring-slate-100">
-                {(["all", "product", "service"] as const).map((kind) => (
-                  <button
-                    key={kind}
-                    type="button"
-                    onClick={() => setActiveKind(kind)}
-                    className={`rounded-lg px-4 py-1.5 text-xs font-semibold capitalize transition-all ${activeKind === kind
-                      ? "bg-white text-slate-900 shadow-sm ring-1 ring-black/5"
-                      : "text-slate-500 hover:text-slate-700 hover:bg-slate-100/50"
-                      }`}
-                  >
-                    {kind === "all" ? "All Items" : `${kind}s`}
+            <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-white/5">
+              <div className="flex items-center gap-1 bg-[#09090B] rounded-lg p-1">
+                {(["all", "product", "service"] as const).map(kind => (
+                  <button key={kind} onClick={() => setActiveKind(kind)}
+                    className={`rounded-md px-3 py-1.5 text-xs font-semibold capitalize transition-all ${activeKind === kind ? "bg-[#27272A] text-white" : "text-gray-500 hover:text-gray-300"}`}>
+                    {kind === "all" ? "All" : `${kind}s`}
                   </button>
                 ))}
               </div>
-
-              <div className="flex flex-1 items-center justify-end gap-3">
-                <div className="flex items-center rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600 shadow-sm">
-                  <Filter className="mr-2 h-3.5 w-3.5 text-slate-400" />
-                  <div className="flex gap-1">
-                    {(["active", "archived"] as const).map((s) => (
-                      <button
-                        key={s}
-                        onClick={() => setStatusFilter(s === statusFilter ? "all" : s)}
-                        className={`rounded-lg px-2.5 py-1 capitalize transition-colors ${statusFilter === s
-                          ? "bg-slate-100 text-slate-900 font-medium"
-                          : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
-                          }`}
-                      >
-                        {s}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="relative w-full max-w-[260px]">
-                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5">
-                    <Search className="h-4 w-4 text-slate-400" />
-                  </div>
-                  <input
-                    type="text"
-                    className="block w-full rounded-xl border border-slate-200 bg-white py-2 pl-10 pr-3 text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-100 transition-shadow"
-                    placeholder="Search name, SKU, category..."
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                  />
+              <div className="flex gap-2">
+                {(["active", "archived"] as const).map(s => (
+                  <button key={s} onClick={() => setStatusFilter(s === statusFilter ? "all" : s)}
+                    className={`px-3 py-1.5 rounded-lg text-xs capitalize transition-all border ${statusFilter === s ? "bg-[#27272A] text-white border-white/10" : "text-gray-500 border-transparent hover:border-white/5"}`}>
+                    {s}
+                  </button>
+                ))}
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500" size={12} />
+                  <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
+                    className="bg-[#09090B] border border-white/10 rounded-lg pl-7 pr-3 py-1.5 text-xs text-white placeholder:text-gray-600 outline-none focus:border-[#8B5CF6] w-48" />
                 </div>
               </div>
             </div>
 
-            {/* Table */}
-            <div className="overflow-hidden rounded-2xl border border-slate-100">
-              <div className="hidden grid-cols-[minmax(0,2.5fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,0.8fr)] bg-slate-50/80 px-6 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 md:grid border-b border-slate-100">
-                <div>Item Details</div>
-                <div>Ledger Account</div>
-                <div className="text-right">Price</div>
-                <div className="text-right pr-2">Usage</div>
-              </div>
-              <div className="divide-y divide-slate-100 bg-white">
-                {items.length === 0 ? (
-                  <div className="px-6 py-16 text-center">
-                    <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-slate-50 text-slate-400">
-                      <Search className="h-6 w-6" />
+            {/* Column headers */}
+            <div className="hidden grid-cols-[minmax(0,2.5fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,0.8fr)] px-5 py-2.5 text-[10px] font-bold uppercase tracking-wider text-gray-600 md:grid border-b border-white/5">
+              <div>Item</div><div>Ledger</div><div className="text-right">Price</div><div className="text-right">Uses</div>
+            </div>
+            <div className="divide-y divide-white/5">
+              {items.length === 0 ? (
+                <div className="px-5 py-12 text-center">
+                  <Package className="h-8 w-8 text-gray-700 mx-auto mb-2" />
+                  <p className="text-sm text-gray-500">No items found. Try adjusting filters.</p>
+                </div>
+              ) : items.map(item => {
+                const isSel = selected?.id === item.id;
+                return (
+                  <button key={item.id} onClick={() => setSelectedId(item.id)}
+                    className={`flex w-full flex-col gap-4 px-5 py-4 text-left transition-all md:grid md:grid-cols-[minmax(0,2.5fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,0.8fr)] md:items-center md:gap-6 ${isSel ? "bg-[#1C1C20]" : "hover:bg-[#18181B]"}`}>
+                    <div className="flex items-start gap-3">
+                      <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${isSel ? "bg-[#27272A] border-white/10 text-[#A3E635]" : "bg-[#18181B] border-white/5 text-gray-400"}`}>
+                        {kindIcon(item.kind)}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-white truncate">{item.name}</span>
+                          {item.status === "archived" && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 border border-white/5">Archived</span>}
+                        </div>
+                        <div className="flex gap-2 mt-0.5 text-[11px] text-gray-500">
+                          <span className="font-mono">{item.code}</span>
+                          {item.category && <><span>·</span><span>{item.category}</span></>}
+                        </div>
+                      </div>
                     </div>
-                    <h3 className="text-sm font-semibold text-slate-900">No items found</h3>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Try adjusting your filters or search query to find what you're looking for.
-                    </p>
-                    <a
-                      href="/items/new/"
-                      className="mt-4 inline-flex items-center rounded-lg bg-slate-900 px-4 py-2 text-xs font-medium text-white hover:bg-slate-800"
-                    >
-                      <Plus className="mr-1.5 h-3.5 w-3.5" />
-                      Add your first item
-                    </a>
-                  </div>
-                ) : null}
-                {items.map((item) => {
-                  const isSelected = selected?.id === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => setSelectedId(item.id)}
-                      className={`flex w-full flex-col gap-4 px-6 py-5 text-left transition-all md:grid md:grid-cols-[minmax(0,2.5fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,0.8fr)] md:items-center md:gap-6 ${isSelected
-                        ? "bg-slate-50 relative z-10 ring-1 ring-inset ring-slate-200"
-                        : "hover:bg-slate-50/60"
-                        }`}
-                    >
-                      {/* Item Details */}
-                      <div className="flex items-start gap-4">
-                        <div className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border text-slate-500 shadow-sm transition-colors ${isSelected ? "bg-white border-slate-200" : "bg-slate-50 border-slate-100"
-                          }`}>
-                          {kindIcon(item.kind)}
-                        </div>
-                        <div className="min-w-0 space-y-1.5">
-                          <div className="flex items-center gap-2">
-                            <span className="truncate text-sm font-bold text-slate-900 leading-none">
-                              {item.name}
-                            </span>
-                            {item.status === "archived" && (
-                              <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-500 border border-slate-200">
-                                Archived
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium text-slate-500">
-                            <span className="flex items-center gap-1 rounded-md bg-slate-100/80 px-2 py-0.5 font-mono text-slate-600 border border-slate-200/50">
-                              {item.code}
-                            </span>
-                            {item.category && (
-                              <span className="flex items-center gap-1 text-slate-400">
-                                <span className="h-0.5 w-0.5 rounded-full bg-slate-300" />
-                                {item.category}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Ledger Account */}
-                      <div className="flex flex-col gap-1.5">
-                        <div className="text-[11px] font-medium text-slate-600 truncate flex items-center gap-1.5" title={item.incomeAccountLabel}>
-                          <div className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
-                          {item.incomeAccountLabel || <span className="text-slate-400 italic">No account map</span>}
-                        </div>
-                      </div>
-
-                      {/* Price */}
-                      <div className="flex items-center justify-end md:block md:text-right">
-                        <div className="text-sm font-bold text-slate-900 font-mono-soft">
-                          {formatMoney(item.price, currency)}
-                        </div>
-                        {item.unitLabel && (
-                          <div className="text-[10px] font-medium text-slate-400">
-                            per {item.unitLabel}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Usage */}
-                      <div className="flex items-center justify-end pr-2 md:block md:text-right">
-                        <span className="text-xs font-semibold text-slate-700 font-mono-soft">
-                          {item.usageCount || 0}
-                        </span>
-                        <div className="text-[10px] font-medium text-slate-400">uses</div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
+                    <div className="flex items-center gap-1.5 text-[11px] text-gray-400 truncate">
+                      <div className="h-1.5 w-1.5 rounded-full bg-[#8B5CF6] shrink-0" />
+                      {item.incomeAccountLabel || <span className="italic text-gray-600">No account</span>}
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-bold text-white font-mono">{formatMoney(item.price, currency)}</p>
+                      {item.unitLabel && <p className="text-[10px] text-gray-600">per {item.unitLabel}</p>}
+                    </div>
+                    <div className="text-right pr-2">
+                      <span className="text-xs font-semibold text-gray-300 font-mono">{item.usageCount || 0}</span>
+                      <p className="text-[10px] text-gray-600">uses</p>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          {/* Right Sidebar */}
-          <aside className="flex flex-col gap-6">
-            {/* Companion Panel */}
-            <div className="relative rounded-[2rem] bg-white p-1.5 ring-1 ring-slate-200 shadow-[0_0_60px_-15px_rgba(99,102,241,0.15)]">
-              <div className="relative z-10 flex flex-col gap-5 rounded-[1.7rem] border border-white/60 bg-white p-6">
-                <div className="flex items-center justify-between gap-2">
+          {/* Right: selected item detail */}
+          <aside>
+            {selected ? (
+              <div className="bg-[#131316] border border-white/5 rounded-2xl p-5 space-y-5">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#8B5CF6] to-[#4F46E5] text-white text-sm font-bold shadow-md">
+                    {selected.name.slice(0, 2).toUpperCase()}
+                  </div>
                   <div>
-                    <div className="text-[10px] font-bold tracking-[0.2em] text-slate-400 uppercase">
-                      Catalog Companion
-                    </div>
-                    <p className="mt-1 text-xs font-medium text-slate-600">
-                      Pricing &amp; account signals.
-                    </p>
+                    <h3 className="text-sm font-bold text-white">{selected.name}</h3>
+                    <p className="text-[11px] text-gray-500 capitalize">{selected.kind} · {selected.code}</p>
                   </div>
-                  <button
-                    type="button"
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900 transition-colors"
-                  >
-                    <ArrowUpRight className="h-4 w-4" />
-                  </button>
                 </div>
-
-                {selected ? (
-                  <div className="flex flex-col gap-5 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-                    <div className="flex items-start gap-4">
-                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-900 text-sm font-bold text-white shadow-md">
-                        {selected.name.slice(0, 2).toUpperCase()}
-                      </div>
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <div className="flex items-center gap-2">
-                          <h3 className="truncate text-sm font-bold text-slate-900">
-                            {selected.name}
-                          </h3>
-                        </div>
-                        <div className="flex items-center gap-2 text-[10px] font-medium text-slate-500">
-                          <span className="capitalize">{selected.kind}</span>
-                          <span className="h-0.5 w-0.5 rounded-full bg-slate-300" />
-                          <span>{selected.code}</span>
-                        </div>
+                <div className="grid grid-cols-2 gap-3 py-4 border-y border-white/5">
+                  <div><p className="text-[10px] text-gray-500 uppercase tracking-wider">Price</p><p className="mt-1 text-sm font-bold text-[#A3E635] font-mono">{formatMoney(selected.price, currency)}</p></div>
+                  <div><p className="text-[10px] text-gray-500 uppercase tracking-wider">Usage</p><p className="mt-1 text-sm font-semibold text-white">{selected.usageCount || 0} inv.</p></div>
+                </div>
+                <div className="space-y-3">
+                  {[
+                    { label: "Income Account", value: selected.incomeAccountLabel, dot: "bg-[#8B5CF6]" },
+                    { label: "Expense Account", value: selected.expenseAccountLabel, dot: "bg-amber-400" },
+                    { label: "Category", value: selected.category, dot: "bg-[#A3E635]" },
+                  ].filter(r => r.value).map(r => (
+                    <div key={r.label}>
+                      <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">{r.label}</p>
+                      <div className="flex items-center gap-2 bg-[#09090B] rounded-xl px-3 py-2 text-xs text-gray-300 truncate">
+                        <div className={`h-1.5 w-1.5 rounded-full shrink-0 ${r.dot}`} />{r.value}
                       </div>
                     </div>
-
-                    <div className="grid grid-cols-2 gap-4 py-4 border-y border-slate-50">
-                      <div>
-                        <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Pricing</div>
-                        <div className="mt-1 text-base font-bold text-slate-900 font-mono-soft">
-                          {formatMoney(selected.price, currency)}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Uses</div>
-                        <div className="mt-1 text-sm font-medium text-slate-600">
-                          {selected.usageCount || 0} invoices
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-4">
-                      <div>
-                        <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
-                          <span>Ledger Account</span>
-                        </div>
-                        <div className="text-xs font-medium text-slate-700 bg-slate-50 px-3 py-2 rounded-xl border border-slate-100 truncate flex items-center gap-2">
-                          <div className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
-                          {selected.incomeAccountLabel || "Unmapped"}
-                        </div>
-                      </div>
-                      {selected.expenseAccountLabel && (
-                        <div>
-                          <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
-                            <span>Expense Account</span>
-                          </div>
-                          <div className="text-xs font-medium text-slate-700 bg-slate-50 px-3 py-2 rounded-xl border border-slate-100 truncate flex items-center gap-2">
-                            <div className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-                            {selected.expenseAccountLabel}
-                          </div>
-                        </div>
-                      )}
-                      {selected.category && (
-                        <div>
-                          <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
-                            <span>Category</span>
-                          </div>
-                          <div className="inline-flex items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 border border-emerald-100 w-full">
-                            <Check className="h-3.5 w-3.5" />
-                            {selected.category}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="pt-2">
-                      <a
-                        href={`/items/${selected.id}/edit/`}
-                        className="block w-full rounded-xl bg-slate-900 py-3 text-center text-xs font-bold text-white hover:bg-slate-800 transition-colors shadow-lg shadow-slate-900/10"
-                      >
-                        Edit Item Details
-                      </a>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center">
-                    <Tag className="mb-3 h-6 w-6 text-slate-300" />
-                    <p className="text-xs font-medium text-slate-500">
-                      Select an item to see details.
-                    </p>
-                  </div>
-                )}
+                  ))}
+                </div>
+                <a href={`/items/${selected.id}/edit/`}
+                  className="block w-full rounded-xl bg-[#A3E635] py-2.5 text-center text-xs font-bold text-black hover:bg-[#bef264] transition-all">
+                  Edit Item Details
+                </a>
               </div>
-            </div>
-
-            {/* Quick Tips */}
-            <div className="rounded-[2rem] border border-slate-100 bg-white p-6 text-[11px] text-slate-600 shadow-sm">
-              <div className="flex items-center justify-between mb-4">
-                <span className="font-bold uppercase tracking-[0.15em] text-slate-400 text-[10px]">
-                  Quick Tips
-                </span>
-                <Sparkles className="h-4 w-4 text-amber-400" />
+            ) : (
+              <div className="bg-[#131316] border border-white/5 rounded-2xl p-8 text-center">
+                <Tag className="h-8 w-8 text-gray-700 mx-auto mb-2" />
+                <p className="text-sm text-gray-500">Select an item to see details.</p>
               </div>
-              <ul className="space-y-3">
-                <li className="flex gap-3 items-start">
-                  <div className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-400" />
-                  <span className="leading-relaxed">Link each item to an <strong>income account</strong> for accurate P&L tracking.</span>
-                </li>
-                <li className="flex gap-3 items-start">
-                  <div className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-400" />
-                  <span className="leading-relaxed">Use clear SKUs to align invoices with inventory.</span>
-                </li>
-                <li className="flex gap-3 items-start">
-                  <div className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-400" />
-                  <span className="leading-relaxed">Archive old items instead of deleting to preserve historical data.</span>
-                </li>
+            )}
+
+            <div className="mt-4 bg-[#131316] border border-white/5 rounded-2xl p-5">
+              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3">Tips</p>
+              <ul className="space-y-2 text-[11px] text-gray-500">
+                <li>Link each item to an <span className="text-white font-medium">income account</span> for accurate P&L.</li>
+                <li>Use clear SKUs to align invoices with inventory.</li>
+                <li>Archive old items to preserve historical data.</li>
               </ul>
             </div>
           </aside>
         </section>
       </div>
 
-      {/* New Product/Service Sheet */}
-      <NewProductSheet
-        open={showNewItemSheet}
-        onOpenChange={setShowNewItemSheet}
-        defaultKind={newItemKind}
-        onCompleted={() => {
-          fetchData();
-        }}
-      />
+      <NewProductSheet open={showNewItemSheet} onOpenChange={setShowNewItemSheet} defaultKind={newItemKind} onCompleted={() => { fetchData(); }} />
     </div>
   );
 }

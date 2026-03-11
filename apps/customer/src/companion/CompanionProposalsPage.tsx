@@ -6,6 +6,7 @@ import { useCompanionProposals } from "./useCompanionProposals";
 import type { ShadowEvent } from "./apiV2";
 import { usePermissions } from "../hooks/usePermissions";
 import { useOnboardingReadiness } from "../onboarding/useOnboardingReadiness";
+import AppLink from "../routing/AppLink";
 
 type Cluster = {
   key: string;
@@ -195,9 +196,9 @@ const CompanionProposalsPage: React.FC = () => {
               Missing setup: {unknowns.slice(0, 5).join(", ")}
               {unknowns.length > 5 ? ` (+${unknowns.length - 5} more)` : ""}
             </div>
-            <a href="/onboarding" className="inline-flex items-center mt-2 text-amber-900 font-semibold hover:underline">
+            <AppLink href="/onboarding" className="inline-flex items-center mt-2 text-amber-900 font-semibold hover:underline">
               Finish onboarding
-            </a>
+            </AppLink>
           </div>
         )}
 

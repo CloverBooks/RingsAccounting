@@ -15,37 +15,48 @@ use crate::AppState;
 use crate::companion_autonomy::store as autonomy_store;
 use crate::companion_autonomy::models::{ActionRecommendation, AiSettingsRow, BusinessPolicyRow, WorkItem};
 use crate::routes::auth::extract_claims_from_header;
+use crate::routes::control_plane_errors::{
+    control_plane_error_from_headers, control_plane_success_from_headers,
+};
+
+const COMPANION_DOMAIN: &str = "COMPANION";
 
 // ============================================================================
 // Security Helper
 // ============================================================================
 
+fn companion_error_from_headers(
+    status: StatusCode,
+    headers: &HeaderMap,
+    message: &str,
+) -> (StatusCode, Json<Value>) {
+    control_plane_error_from_headers(status, COMPANION_DOMAIN, headers, message)
+}
+
 fn require_business_id(headers: &HeaderMap) -> Result<i64, (StatusCode, Json<Value>)> {
     extract_claims_from_header(headers)
         .ok()
         .and_then(|claims| claims.business_id)
-        .ok_or_else(|| (StatusCode::UNAUTHORIZED, Json(json!({ "ok": false, "error": "unauthorized" }))))
+        .ok_or_else(|| companion_error_from_headers(StatusCode::UNAUTHORIZED, headers, "unauthorized"))
 }
 
 fn require_user_id(headers: &HeaderMap) -> Result<i64, (StatusCode, Json<Value>)> {
     extract_claims_from_header(headers)
         .ok()
         .and_then(|claims| claims.sub.parse::<i64>().ok())
-        .ok_or_else(|| (StatusCode::UNAUTHORIZED, Json(json!({ "ok": false, "error": "unauthorized" }))))
+        .ok_or_else(|| companion_error_from_headers(StatusCode::UNAUTHORIZED, headers, "unauthorized"))
 }
 
-fn require_workspace_id(workspace_id: Option<i64>) -> Result<i64, (StatusCode, Json<Value>)> {
+fn require_workspace_id(headers: &HeaderMap, workspace_id: Option<i64>) -> Result<i64, (StatusCode, Json<Value>)> {
     workspace_id.ok_or_else(|| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "ok": false, "error": "workspace_id required" })),
-        )
+        companion_error_from_headers(StatusCode::BAD_REQUEST, headers, "workspace_id required")
     })
 }
 
 async fn ensure_apply_enabled(
     pool: &sqlx::SqlitePool,
     business_id: i64,
+    headers: &HeaderMap,
 ) -> Result<(), (StatusCode, Json<Value>)> {
     let global_enabled = autonomy_store::business_ai_enabled(pool, business_id)
         .await
@@ -53,9 +64,10 @@ async fn ensure_apply_enabled(
         .flatten()
         .unwrap_or(false);
     if !global_enabled {
-        return Err((
+        return Err(companion_error_from_headers(
             StatusCode::FORBIDDEN,
-            Json(json!({ "ok": false, "error": "ai companion disabled" })),
+            headers,
+            "ai companion disabled",
         ));
     }
 
@@ -66,17 +78,19 @@ async fn ensure_apply_enabled(
     let settings = match settings {
         Some(settings) => settings,
         None => {
-            return Err((
+            return Err(companion_error_from_headers(
                 StatusCode::FORBIDDEN,
-                Json(json!({ "ok": false, "error": "ai settings not configured" })),
+                headers,
+                "ai settings not configured",
             ));
         }
     };
 
     if !settings.ai_enabled || settings.kill_switch || settings.ai_mode == "shadow_only" {
-        return Err((
+        return Err(companion_error_from_headers(
             StatusCode::FORBIDDEN,
-            Json(json!({ "ok": false, "error": "ai apply disabled" })),
+            headers,
+            "ai apply disabled",
         ));
     }
 
@@ -320,18 +334,14 @@ pub async fn dismiss_issue(
     .await;
     
     match result {
-        Ok(r) if r.rows_affected() > 0 => {
-            (StatusCode::OK, Json(serde_json::json!({
-                "ok": true,
-                "message": "Issue dismissed"
-            })))
-        }
-        _ => {
-            (StatusCode::NOT_FOUND, Json(serde_json::json!({
-                "ok": false,
-                "error": "Issue not found"
-            })))
-        }
+        Ok(r) if r.rows_affected() > 0 => control_plane_success_from_headers(
+            StatusCode::OK,
+            "updated",
+            &headers,
+            "Issue dismissed",
+            json!({}),
+        ),
+        _ => companion_error_from_headers(StatusCode::NOT_FOUND, &headers, "issue not found"),
     }
 }
 
@@ -364,18 +374,14 @@ pub async fn snooze_issue(
     .await;
     
     match result {
-        Ok(r) if r.rows_affected() > 0 => {
-            (StatusCode::OK, Json(serde_json::json!({
-                "ok": true,
-                "message": "Issue snoozed"
-            })))
-        }
-        _ => {
-            (StatusCode::NOT_FOUND, Json(serde_json::json!({
-                "ok": false,
-                "error": "Issue not found"
-            })))
-        }
+        Ok(r) if r.rows_affected() > 0 => control_plane_success_from_headers(
+            StatusCode::OK,
+            "updated",
+            &headers,
+            "Issue snoozed",
+            json!({}),
+        ),
+        _ => companion_error_from_headers(StatusCode::NOT_FOUND, &headers, "issue not found"),
     }
 }
 
@@ -408,18 +414,14 @@ pub async fn resolve_issue(
     .await;
     
     match result {
-        Ok(r) if r.rows_affected() > 0 => {
-            (StatusCode::OK, Json(serde_json::json!({
-                "ok": true,
-                "message": "Issue resolved"
-            })))
-        }
-        _ => {
-            (StatusCode::NOT_FOUND, Json(serde_json::json!({
-                "ok": false,
-                "error": "Issue not found"
-            })))
-        }
+        Ok(r) if r.rows_affected() > 0 => control_plane_success_from_headers(
+            StatusCode::OK,
+            "updated",
+            &headers,
+            "Issue resolved",
+            json!({}),
+        ),
+        _ => companion_error_from_headers(StatusCode::NOT_FOUND, &headers, "issue not found"),
     }
 }
 
@@ -533,18 +535,14 @@ pub async fn approve_audit(
     .await;
     
     match result {
-        Ok(r) if r.rows_affected() > 0 => {
-            (StatusCode::OK, Json(serde_json::json!({
-                "ok": true,
-                "message": "Audit approved"
-            })))
-        }
-        _ => {
-            (StatusCode::NOT_FOUND, Json(serde_json::json!({
-                "ok": false,
-                "error": "Audit not found"
-            })))
-        }
+        Ok(r) if r.rows_affected() > 0 => control_plane_success_from_headers(
+            StatusCode::OK,
+            "updated",
+            &headers,
+            "Audit approved",
+            json!({}),
+        ),
+        _ => companion_error_from_headers(StatusCode::NOT_FOUND, &headers, "audit not found"),
     }
 }
 
@@ -577,18 +575,14 @@ pub async fn reject_audit(
     .await;
     
     match result {
-        Ok(r) if r.rows_affected() > 0 => {
-            (StatusCode::OK, Json(serde_json::json!({
-                "ok": true,
-                "message": "Audit rejected"
-            })))
-        }
-        _ => {
-            (StatusCode::NOT_FOUND, Json(serde_json::json!({
-                "ok": false,
-                "error": "Audit not found"
-            })))
-        }
+        Ok(r) if r.rows_affected() > 0 => control_plane_success_from_headers(
+            StatusCode::OK,
+            "updated",
+            &headers,
+            "Audit rejected",
+            json!({}),
+        ),
+        _ => companion_error_from_headers(StatusCode::NOT_FOUND, &headers, "audit not found"),
     }
 }
 
@@ -891,28 +885,13 @@ pub async fn get_ai_settings_v2(
 
     let global_enabled = match autonomy_store::business_ai_enabled(&state.db, business_id).await {
         Ok(Some(value)) => value,
-        Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({ "ok": false, "error": "business not found" })),
-            );
-        }
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "ok": false, "error": "failed to load business" })),
-            );
-        }
+        Ok(None) => return companion_error_from_headers(StatusCode::NOT_FOUND, &headers, "business not found"),
+        Err(_) => return companion_error_from_headers(StatusCode::INTERNAL_SERVER_ERROR, &headers, "failed to load business"),
     };
 
     let settings = match ensure_ai_settings(&state.db, business_id).await {
         Ok(settings) => settings,
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "ok": false, "error": "failed to load settings" })),
-            );
-        }
+        Err(_) => return companion_error_from_headers(StatusCode::INTERNAL_SERVER_ERROR, &headers, "failed to load settings"),
     };
 
     (StatusCode::OK, Json(ai_settings_payload(global_enabled, &settings)))
@@ -939,12 +918,7 @@ pub async fn patch_ai_settings_v2(
 
     let current = match ensure_ai_settings(&state.db, business_id).await {
         Ok(settings) => settings,
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "ok": false, "error": "failed to load settings" })),
-            );
-        }
+        Err(_) => return companion_error_from_headers(StatusCode::INTERNAL_SERVER_ERROR, &headers, "failed to load settings"),
     };
 
     let ai_enabled = patch.ai_enabled.unwrap_or(current.ai_enabled);
@@ -977,15 +951,16 @@ pub async fn patch_ai_settings_v2(
     .await
     {
         Ok(settings) => settings,
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "ok": false, "error": "failed to update settings" })),
-            );
-        }
+        Err(_) => return companion_error_from_headers(StatusCode::INTERNAL_SERVER_ERROR, &headers, "failed to update settings"),
     };
 
-    (StatusCode::OK, Json(ai_settings_payload(global_enabled, &updated)))
+    control_plane_success_from_headers(
+        StatusCode::OK,
+        "updated",
+        &headers,
+        "AI settings updated",
+        ai_settings_payload(global_enabled, &updated),
+    )
 }
 
 /// GET /api/companion/v2/policy/
@@ -1000,12 +975,7 @@ pub async fn get_business_policy_v2(
 
     let policy = match ensure_business_policy(&state.db, business_id).await {
         Ok(policy) => policy,
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "ok": false, "error": "failed to load policy" })),
-            );
-        }
+        Err(_) => return companion_error_from_headers(StatusCode::INTERNAL_SERVER_ERROR, &headers, "failed to load policy"),
     };
 
     (StatusCode::OK, Json(business_policy_payload(&policy)))
@@ -1024,12 +994,7 @@ pub async fn patch_business_policy_v2(
 
     let current = match ensure_business_policy(&state.db, business_id).await {
         Ok(policy) => policy,
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "ok": false, "error": "failed to load policy" })),
-            );
-        }
+        Err(_) => return companion_error_from_headers(StatusCode::INTERNAL_SERVER_ERROR, &headers, "failed to load policy"),
     };
 
     let materiality_threshold = patch
@@ -1061,15 +1026,16 @@ pub async fn patch_business_policy_v2(
     .await
     {
         Ok(policy) => policy,
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "ok": false, "error": "failed to update policy" })),
-            );
-        }
+        Err(_) => return companion_error_from_headers(StatusCode::INTERNAL_SERVER_ERROR, &headers, "failed to update policy"),
     };
 
-    (StatusCode::OK, Json(business_policy_payload(&updated)))
+    control_plane_success_from_headers(
+        StatusCode::OK,
+        "updated",
+        &headers,
+        "Business policy updated",
+        business_policy_payload(&updated),
+    )
 }
 
 // ========================================================================
@@ -1086,7 +1052,7 @@ pub async fn list_proposals(
         Ok(id) => id,
         Err(response) => return response,
     };
-    let tenant_id = match require_workspace_id(params.workspace_id) {
+    let tenant_id = match require_workspace_id(&headers, params.workspace_id) {
         Ok(id) => id,
         Err(response) => return response,
     };
@@ -1126,7 +1092,7 @@ pub async fn apply_proposal(
         Ok(id) => id,
         Err(response) => return response,
     };
-    let tenant_id = match require_workspace_id(payload.workspace_id) {
+    let tenant_id = match require_workspace_id(&headers, payload.workspace_id) {
         Ok(id) => id,
         Err(response) => return response,
     };
@@ -1138,7 +1104,7 @@ pub async fn apply_proposal(
         override_splits_count
     );
 
-    if let Err(response) = ensure_apply_enabled(&state.db, business_id).await {
+    if let Err(response) = ensure_apply_enabled(&state.db, business_id, &headers).await {
         return response;
     }
 
@@ -1148,22 +1114,14 @@ pub async fn apply_proposal(
         .flatten();
     let action_id = match action.as_ref().map(|a| a.id) {
         Some(id) => id,
-        None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({ "ok": false, "error": "proposal not found" })),
-            );
-        }
+        None => return companion_error_from_headers(StatusCode::NOT_FOUND, &headers, "proposal not found"),
     };
 
     let allowed = crate::routes::companion_autonomy::can_apply_action(&state.db, tenant_id, action_id)
         .await
         .unwrap_or(false);
     if !allowed {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(json!({ "ok": false, "error": "approval required" })),
-        );
+        return companion_error_from_headers(StatusCode::FORBIDDEN, &headers, "approval required");
     }
 
     let applied = autonomy_store::apply_action(&state.db, tenant_id, action_id)
@@ -1198,7 +1156,16 @@ pub async fn apply_proposal(
     )
     .await;
 
-    (StatusCode::OK, Json(json!({ "shadow_event": event, "result": { "applied": applied } })))
+    control_plane_success_from_headers(
+        StatusCode::OK,
+        "completed",
+        &headers,
+        "Proposal apply processed",
+        json!({
+            "shadow_event": event,
+            "result": { "applied": applied }
+        }),
+    )
 }
 
 /// POST /api/companion/v2/proposals/:id/reject/
@@ -1216,7 +1183,7 @@ pub async fn reject_proposal(
         Ok(id) => id,
         Err(response) => return response,
     };
-    let tenant_id = match require_workspace_id(payload.workspace_id) {
+    let tenant_id = match require_workspace_id(&headers, payload.workspace_id) {
         Ok(id) => id,
         Err(response) => return response,
     };
@@ -1227,10 +1194,7 @@ pub async fn reject_proposal(
         .flatten();
 
     if exists.is_none() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(json!({ "ok": false, "error": "proposal not found" })),
-        );
+        return companion_error_from_headers(StatusCode::NOT_FOUND, &headers, "proposal not found");
     }
 
     let dismissed = autonomy_store::dismiss_work_item(&state.db, tenant_id, event_id)
@@ -1266,7 +1230,13 @@ pub async fn reject_proposal(
     )
     .await;
 
-    (StatusCode::OK, Json(event))
+    control_plane_success_from_headers(
+        StatusCode::OK,
+        "updated",
+        &headers,
+        "Proposal rejected",
+        event,
+    )
 }
 
 /// GET /api/companion/v2/shadow-events/
@@ -1282,7 +1252,7 @@ pub async fn list_shadow_events(
         Ok(id) => id,
         Err(response) => return response,
     };
-    let tenant_id = match require_workspace_id(params.workspace_id) {
+    let tenant_id = match require_workspace_id(&headers, params.workspace_id) {
         Ok(id) => id,
         Err(response) => return response,
     };
@@ -1431,7 +1401,7 @@ pub async fn apply_shadow_event(
         Ok(id) => id,
         Err(response) => return response,
     };
-    let tenant_id = match require_workspace_id(payload.workspace_id) {
+    let tenant_id = match require_workspace_id(&headers, payload.workspace_id) {
         Ok(id) => id,
         Err(response) => return response,
     };
@@ -1442,7 +1412,7 @@ pub async fn apply_shadow_event(
         override_splits_count
     );
 
-    if let Err(response) = ensure_apply_enabled(&state.db, business_id).await {
+    if let Err(response) = ensure_apply_enabled(&state.db, business_id, &headers).await {
         return response;
     }
 
@@ -1452,28 +1422,14 @@ pub async fn apply_shadow_event(
         .flatten();
     let action_id = match action.as_ref().map(|a| a.id) {
         Some(id) => id,
-        None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({
-                    "ok": false,
-                    "error": "Shadow event not found"
-                })),
-            );
-        }
+        None => return companion_error_from_headers(StatusCode::NOT_FOUND, &headers, "shadow event not found"),
     };
 
     let allowed = crate::routes::companion_autonomy::can_apply_action(&state.db, tenant_id, action_id)
         .await
         .unwrap_or(false);
     if !allowed {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({
-                "ok": false,
-                "error": "approval required"
-            })),
-        );
+        return companion_error_from_headers(StatusCode::FORBIDDEN, &headers, "approval required");
     }
 
     let applied = autonomy_store::apply_action(&state.db, tenant_id, action_id)
@@ -1499,12 +1455,15 @@ pub async fn apply_shadow_event(
     )
     .await;
 
-    (
+    control_plane_success_from_headers(
         StatusCode::OK,
-        Json(serde_json::json!({
+        "completed",
+        &headers,
+        "Shadow event apply processed",
+        json!({
             "ok": true,
             "applied": applied
-        })),
+        }),
     )
 }
 
@@ -1525,7 +1484,7 @@ pub async fn reject_shadow_event(
         Ok(id) => id,
         Err(response) => return response,
     };
-    let tenant_id = match require_workspace_id(payload.workspace_id) {
+    let tenant_id = match require_workspace_id(&headers, payload.workspace_id) {
         Ok(id) => id,
         Err(response) => return response,
     };
@@ -1552,22 +1511,16 @@ pub async fn reject_shadow_event(
     .await;
 
     if dismissed {
-        return (
+        return control_plane_success_from_headers(
             StatusCode::OK,
-            Json(serde_json::json!({
-                "ok": true,
-                "message": "Suggestion rejected"
-            })),
+            "updated",
+            &headers,
+            "Suggestion rejected",
+            json!({}),
         );
     }
 
-    (
-        StatusCode::NOT_FOUND,
-        Json(serde_json::json!({
-            "ok": false,
-            "error": "Shadow event not found"
-        })),
-    )
+    companion_error_from_headers(StatusCode::NOT_FOUND, &headers, "shadow event not found")
 }
 
 fn work_item_statuses_for_shadow_status(status: &str) -> Vec<&'static str> {
@@ -1670,7 +1623,152 @@ mod tests {
     use super::*;
     use crate::companion_autonomy::models::{RecommendationSeed, WorkItemSeed};
     use crate::companion_autonomy::schema;
+    use axum::{routing::{get, patch, post}, Router};
+    use axum_test::TestServer;
+    use chrono::{Duration, Utc};
+    use jsonwebtoken::{EncodingKey, Header};
     use sqlx::SqlitePool;
+
+    async fn route_setup() -> TestServer {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let state = AppState { db: pool };
+        let app = Router::new()
+            .route("/api/companion/issues", get(list_issues))
+            .with_state(state)
+            .layer(axum::middleware::from_fn(
+                crate::routes::request_ids::control_plane_request_id_middleware,
+            ));
+
+        TestServer::new(app).unwrap()
+    }
+
+    async fn companion_mutation_setup(business_id: i64) -> (TestServer, SqlitePool) {
+        std::env::set_var("JWT_SECRET", "test-secret");
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        schema::run_migrations(&pool).await.unwrap();
+        sqlx::query(
+            "CREATE TABLE core_business (
+                id INTEGER PRIMARY KEY,
+                ai_companion_enabled INTEGER NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE TABLE core_companionissue (
+                id INTEGER PRIMARY KEY,
+                business_id INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                updated_at TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE TABLE core_highriskaudit (
+                id INTEGER PRIMARY KEY,
+                business_id INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                reviewed_at TEXT,
+                updated_at TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO core_business (id, ai_companion_enabled) VALUES (?, 1)",
+        )
+        .bind(business_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let state = AppState { db: pool.clone() };
+        let app = Router::new()
+            .route("/api/companion/issues/:id/dismiss", post(dismiss_issue))
+            .route("/api/companion/issues/:id/snooze", post(snooze_issue))
+            .route("/api/companion/issues/:id/resolve", post(resolve_issue))
+            .route("/api/companion/audits/:id/approve", post(approve_audit))
+            .route("/api/companion/audits/:id/reject", post(reject_audit))
+            .route("/api/companion/v2/settings/", patch(patch_ai_settings_v2))
+            .route("/api/companion/v2/policy/", patch(patch_business_policy_v2))
+            .route("/api/companion/v2/proposals/:id/apply/", post(apply_proposal))
+            .route("/api/companion/v2/proposals/:id/reject/", post(reject_proposal))
+            .route("/api/companion/v2/shadow-events/:id/apply/", post(apply_shadow_event))
+            .route("/api/companion/v2/shadow-events/:id/reject/", post(reject_shadow_event))
+            .with_state(state)
+            .layer(axum::middleware::from_fn(
+                crate::routes::request_ids::control_plane_request_id_middleware,
+            ));
+
+        (TestServer::new(app).unwrap(), pool)
+    }
+
+    async fn seed_companion_issue(pool: &SqlitePool, issue_id: i64, business_id: i64) {
+        sqlx::query(
+            "INSERT INTO core_companionissue (id, business_id, status, updated_at)
+             VALUES (?, ?, 'open', datetime('now'))",
+        )
+        .bind(issue_id)
+        .bind(business_id)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn seed_high_risk_audit(pool: &SqlitePool, audit_id: i64, business_id: i64) {
+        sqlx::query(
+            "INSERT INTO core_highriskaudit (id, business_id, status, reviewed_at, updated_at)
+             VALUES (?, ?, 'pending', NULL, datetime('now'))",
+        )
+        .bind(audit_id)
+        .bind(business_id)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn seed_active_ai_settings(pool: &SqlitePool, business_id: i64) {
+        autonomy_store::upsert_ai_settings(
+            pool,
+            business_id,
+            true,
+            false,
+            "drafts",
+            60,
+            "1000",
+            "2.5",
+            "0.25",
+        )
+        .await
+        .unwrap();
+    }
+
+    fn assert_success_metadata(body: &Value, result_state: &str, message: &str, request_id: &str) {
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["result_state"], result_state);
+        assert_eq!(body["message"], message);
+        assert_eq!(body["request_id"], request_id);
+    }
+
+    fn make_token(business_id: i64) -> String {
+        let exp = (Utc::now() + Duration::hours(1)).timestamp() as usize;
+        let claims = crate::routes::auth::Claims {
+            sub: "1".to_string(),
+            email: "user@example.com".to_string(),
+            business_id: Some(business_id),
+            exp,
+        };
+        jsonwebtoken::encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(b"test-secret"),
+        )
+        .unwrap()
+    }
 
     // =========================================================================
     // SeverityCounts Tests
@@ -1884,6 +1982,212 @@ mod tests {
         assert!(json.contains("\"pending_count\":5"));
         assert!(json.contains("\"approved_count\":10"));
         assert!(json.contains("\"rejected_count\":2"));
+    }
+
+    #[tokio::test]
+    async fn companion_errors_include_request_scoped_codes() {
+        let server = route_setup().await;
+        let response = server
+            .get("/api/companion/issues")
+            .add_header("x-request-id", "companion-error-01")
+            .await;
+
+        response.assert_status(StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            response.header("x-request-id").to_str().unwrap(),
+            "companion-error-01"
+        );
+        let body: Value = response.json();
+        assert_eq!(body["ok"], false);
+        assert_eq!(body["result_state"], "failed");
+        assert_eq!(body["error_type"], "unauthorized");
+        assert_eq!(
+            body["error_code"],
+            "COMPANION_UNAUTHORIZED_COMPANIONERR"
+        );
+        assert_eq!(body["request_id"], "companion-error-01");
+        assert_eq!(body["http_status"], 401);
+    }
+
+    #[tokio::test]
+    async fn companion_mutations_include_success_request_metadata() {
+        let (server, pool) = companion_mutation_setup(42).await;
+        seed_companion_issue(&pool, 1, 42).await;
+
+        let token = make_token(42);
+        let response = server
+            .post("/api/companion/issues/1/dismiss")
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "companion-success-01")
+            .await;
+
+        response.assert_status_ok();
+        assert_eq!(
+            response.header("x-request-id").to_str().unwrap(),
+            "companion-success-01"
+        );
+        let body: Value = response.json();
+        assert_success_metadata(&body, "updated", "Issue dismissed", "companion-success-01");
+    }
+
+    #[tokio::test]
+    async fn companion_issue_and_audit_mutation_routes_emit_parity_metadata() {
+        let (server, pool) = companion_mutation_setup(42).await;
+        seed_companion_issue(&pool, 10, 42).await;
+        seed_companion_issue(&pool, 11, 42).await;
+        seed_companion_issue(&pool, 12, 42).await;
+        seed_high_risk_audit(&pool, 20, 42).await;
+        seed_high_risk_audit(&pool, 21, 42).await;
+
+        let token = make_token(42);
+        let cases = [
+            ("/api/companion/issues/10/dismiss", "companion-issue-dismiss-01", "Issue dismissed"),
+            ("/api/companion/issues/11/snooze", "companion-issue-snooze-01", "Issue snoozed"),
+            ("/api/companion/issues/12/resolve", "companion-issue-resolve-01", "Issue resolved"),
+            ("/api/companion/audits/20/approve", "companion-audit-approve-01", "Audit approved"),
+            ("/api/companion/audits/21/reject", "companion-audit-reject-01", "Audit rejected"),
+        ];
+
+        for (path, request_id, message) in cases {
+            let response = server
+                .post(path)
+                .add_header("authorization", format!("Bearer {}", token))
+                .add_header("x-request-id", request_id)
+                .await;
+
+            response.assert_status_ok();
+            let body: Value = response.json();
+            assert_success_metadata(&body, "updated", message, request_id);
+        }
+    }
+
+    #[tokio::test]
+    async fn companion_settings_and_policy_mutation_routes_emit_parity_metadata() {
+        let (server, _pool) = companion_mutation_setup(42).await;
+
+        let token = make_token(42);
+        let settings_response = server
+            .patch("/api/companion/v2/settings/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "companion-settings-01")
+            .json(&json!({
+                "ai_mode": "drafts",
+                "velocity_limit_per_minute": 90
+            }))
+            .await;
+        settings_response.assert_status_ok();
+        let settings_body: Value = settings_response.json();
+        assert_success_metadata(
+            &settings_body,
+            "updated",
+            "AI settings updated",
+            "companion-settings-01",
+        );
+        assert_eq!(settings_body["settings"]["ai_mode"], "drafts");
+        assert_eq!(settings_body["settings"]["velocity_limit_per_minute"], 90);
+
+        let policy_response = server
+            .patch("/api/companion/v2/policy/")
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "companion-policy-01")
+            .json(&json!({
+                "materiality_threshold": "2500",
+                "risk_appetite": "conservative"
+            }))
+            .await;
+        policy_response.assert_status_ok();
+        let policy_body: Value = policy_response.json();
+        assert_success_metadata(
+            &policy_body,
+            "updated",
+            "Business policy updated",
+            "companion-policy-01",
+        );
+        assert_eq!(policy_body["materiality_threshold"], "2500");
+        assert_eq!(policy_body["risk_appetite"], "conservative");
+    }
+
+    #[tokio::test]
+    async fn companion_proposal_and_shadow_mutation_routes_emit_parity_metadata() {
+        let business_id = 42;
+        let workspace_id = 420;
+        let (server, pool) = companion_mutation_setup(business_id).await;
+        seed_active_ai_settings(&pool, business_id).await;
+
+        let proposal_apply_id = seed_work_item(&pool, workspace_id, business_id, "match_bank", 1001, 90).await;
+        let proposal_reject_id = seed_work_item(&pool, workspace_id, business_id, "categorize_tx", 1002, 80).await;
+        let shadow_apply_id = seed_work_item(&pool, workspace_id, business_id, "match_bank", 1003, 70).await;
+        let shadow_reject_id = seed_work_item(&pool, workspace_id, business_id, "categorize_tx", 1004, 60).await;
+
+        let token = make_token(business_id);
+        let proposal_apply = server
+            .post(&format!("/api/companion/v2/proposals/{}/apply/", proposal_apply_id))
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "proposal-apply-01")
+            .json(&json!({ "workspace_id": workspace_id }))
+            .await;
+        proposal_apply.assert_status_ok();
+        let proposal_apply_body: Value = proposal_apply.json();
+        assert_success_metadata(
+            &proposal_apply_body,
+            "completed",
+            "Proposal apply processed",
+            "proposal-apply-01",
+        );
+        assert_eq!(proposal_apply_body["result"]["applied"], true);
+
+        let proposal_reject = server
+            .post(&format!("/api/companion/v2/proposals/{}/reject/", proposal_reject_id))
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "proposal-reject-01")
+            .json(&json!({
+                "workspace_id": workspace_id,
+                "reason": "not needed"
+            }))
+            .await;
+        proposal_reject.assert_status_ok();
+        let proposal_reject_body: Value = proposal_reject.json();
+        assert_success_metadata(
+            &proposal_reject_body,
+            "updated",
+            "Proposal rejected",
+            "proposal-reject-01",
+        );
+        assert_eq!(proposal_reject_body["event_type"], "CategorizationProposed");
+
+        let shadow_apply = server
+            .post(&format!("/api/companion/v2/shadow-events/{}/apply/", shadow_apply_id))
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "shadow-apply-01")
+            .json(&json!({ "workspace_id": workspace_id }))
+            .await;
+        shadow_apply.assert_status_ok();
+        let shadow_apply_body: Value = shadow_apply.json();
+        assert_success_metadata(
+            &shadow_apply_body,
+            "completed",
+            "Shadow event apply processed",
+            "shadow-apply-01",
+        );
+        assert_eq!(shadow_apply_body["applied"], true);
+
+        let shadow_reject = server
+            .post(&format!("/api/companion/v2/shadow-events/{}/reject/", shadow_reject_id))
+            .add_header("authorization", format!("Bearer {}", token))
+            .add_header("x-request-id", "shadow-reject-01")
+            .json(&json!({
+                "workspace_id": workspace_id,
+                "reason": "handled manually"
+            }))
+            .await;
+        shadow_reject.assert_status_ok();
+        let shadow_reject_body: Value = shadow_reject.json();
+        assert_success_metadata(
+            &shadow_reject_body,
+            "updated",
+            "Suggestion rejected",
+            "shadow-reject-01",
+        );
     }
 
     async fn seed_work_item(

@@ -1,6 +1,8 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 import { WorkspacesSection } from "./WorkspacesSection";
+import * as api from "./api";
 
 vi.mock("./api", () => {
   const mockWorkspaces = {
@@ -93,6 +95,32 @@ describe("WorkspacesSection", () => {
     await waitFor(() => expect(screen.getAllByText(/Clover Books Labs Inc./i).length).toBeGreaterThan(0));
     expect(screen.getByText("Workspace")).toBeInTheDocument();
     expect(screen.getByText("Plan")).toBeInTheDocument();
-    expect(await screen.findByText(/Main Ops/i)).toBeInTheDocument();
+    expect(await screen.findByDisplayValue(/Clover Books Labs Inc./i)).toBeInTheDocument();
+    expect(screen.getByText(/Internal control plane/i)).toBeInTheDocument();
   });
+
+  it("collects a reason before soft-delete workspace updates", async () => {
+    const user = userEvent.setup();
+    render(<WorkspacesSection roleLevel={4} />);
+    await screen.findByDisplayValue(/Clover Books Labs Inc./i);
+
+    const softDeleteToggle = screen.getByRole("checkbox", { name: /soft delete tenant/i });
+    await user.click(softDeleteToggle);
+    expect(softDeleteToggle).toBeChecked();
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await screen.findByText(/reason required/i);
+    await user.type(screen.getByLabelText(/reason/i), "Fraud review closure.");
+    await user.click(screen.getByRole("button", { name: /submit deletion request/i }));
+
+    await waitFor(() =>
+      expect(api.updateWorkspace).toHaveBeenLastCalledWith(1, {
+        name: "Clover Books Labs Inc.",
+        plan: "Pro",
+        status: "active",
+        is_deleted: true,
+        reason: "Fraud review closure.",
+      }),
+    );
+  }, 10000);
 });

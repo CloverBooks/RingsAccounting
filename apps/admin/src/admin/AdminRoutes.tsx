@@ -19,7 +19,7 @@ const AdminGuard: React.FC<{ children: React.ReactElement }> = ({ children }) =>
   if (auth.loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-700">
-        Checking admin access…
+        Checking admin access...
       </div>
     );
   }
@@ -64,3 +64,4 @@ export const AdminMemoryRouter: React.FC<{ initialEntries?: string[] }> = ({
     </MemoryRouter>
   </AuthProvider>
 );
+

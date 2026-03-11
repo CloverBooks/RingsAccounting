@@ -13,6 +13,7 @@ import {
   CardTitle,
   CardDescription,
 } from "../components/ui";
+import { AdminReasonDialog } from "./AdminReasonDialog";
 import { Workspace360Section } from "./Workspace360Section";
 
 // ----------------------
@@ -20,7 +21,7 @@ import { Workspace360Section } from "./Workspace360Section";
 // ----------------------
 
 function formatDate(value: string | null | undefined): string {
-  if (!value) return "—";
+  if (!value) return "-";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" });
@@ -137,10 +138,10 @@ export const WorkspacesSection: React.FC<{ roleLevel?: number }> = ({ roleLevel 
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" className="h-8 rounded-full px-3 text-xs border-slate-200">
-            ⚙️ Admin policy ▾
+            Policy menu
           </Button>
           <Button size="sm" className="h-8 rounded-full bg-slate-900 px-3 text-xs text-slate-50 hover:bg-black">
-            🔄 Sync metrics
+            Sync metrics
           </Button>
         </div>
       </header>
@@ -159,7 +160,7 @@ export const WorkspacesSection: React.FC<{ roleLevel?: number }> = ({ roleLevel 
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && loadWorkspaces({ page: 1, search })}
-                placeholder="Search by workspace or owner…"
+                placeholder="Search by workspace or owner..."
                 className="h-8 w-full rounded-full border border-slate-200 bg-slate-50 pl-8 pr-3 text-xs text-slate-900 outline-none placeholder:text-slate-400 focus:border-sky-400 focus:bg-white focus:ring-2 focus:ring-sky-100"
               />
             </div>
@@ -183,7 +184,7 @@ export const WorkspacesSection: React.FC<{ roleLevel?: number }> = ({ roleLevel 
             <div className="h-full overflow-y-auto">
               {loading && (
                 <div className="flex h-32 items-center justify-center text-xs text-slate-500">
-                  ⏳ Loading workspaces…
+                  Loading workspaces...
                 </div>
               )}
               {!loading && error && (
@@ -220,7 +221,7 @@ export const WorkspacesSection: React.FC<{ roleLevel?: number }> = ({ roleLevel 
                       </div>
                       <div className="mt-1 flex items-center gap-3 text-[10px] text-slate-500">
                         <span className="inline-flex items-center gap-1">
-                          👥 — users
+                          Users - pending
                         </span>
                         <span>Last activity {formatDate(ws.created_at)}</span>
                       </div>
@@ -231,7 +232,7 @@ export const WorkspacesSection: React.FC<{ roleLevel?: number }> = ({ roleLevel 
                       <span className={`inline-flex min-w-[86px] justify-end rounded-full px-2 py-0.5 text-[10px] font-medium border ${ledgerStatusClasses(ws.ledger_status)}`}>
                         {ledgerStatusLabel(ws.ledger_status)}
                       </span>
-                      <span className="w-[72px] text-right">{ws.plan || "—"}</span>
+                      <span className="w-[72px] text-right">{ws.plan || "-"}</span>
                     </div>
                   </button>
                 );
@@ -269,7 +270,7 @@ export const WorkspacesSection: React.FC<{ roleLevel?: number }> = ({ roleLevel 
         ) : (
           <div className="flex h-full items-center justify-center rounded-3xl border border-slate-100 bg-gradient-to-br from-slate-50 via-slate-100 to-slate-50 p-10 text-center shadow-sm">
             <div className="flex flex-col items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-900 text-slate-50">🏢</div>
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-900 text-slate-50">WS</div>
               <p className="text-sm font-medium text-slate-900">Select a workspace</p>
               <p className="text-xs text-slate-500">Choose one from the list to inspect.</p>
             </div>
@@ -300,6 +301,9 @@ const WorkspaceDetailsPanel: React.FC<WorkspaceDetailsPanelProps> = ({ workspace
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [deleteReasonOpen, setDeleteReasonOpen] = useState(false);
+  const [deleteReason, setDeleteReason] = useState("");
+  const [deleteReasonError, setDeleteReasonError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("ai");
   const [show360, setShow360] = useState(true);
 
@@ -310,30 +314,19 @@ const WorkspaceDetailsPanel: React.FC<WorkspaceDetailsPanelProps> = ({ workspace
     setIsDeleted(workspace.is_deleted);
     setMessage(null);
     setError(null);
+    setDeleteReasonOpen(false);
+    setDeleteReason("");
+    setDeleteReasonError(null);
   }, [workspace.id]);
 
   const canEdit = roleLevel >= 2;
   const canDelete = roleLevel >= 4;
 
-  const handleSave = async () => {
-    if (!canEdit) {
-      setError("View-only: OPS or higher required to edit workspaces.");
-      return;
-    }
+  const saveWorkspace = async (reason?: string) => {
     const wantsDelete = Boolean(isDeleted) && !workspace.is_deleted;
-    if (wantsDelete && !canDelete) {
-      setError("Soft-delete requires superadmin approval rights.");
-      return;
-    }
     const payload: Record<string, unknown> = { name, plan: plan || null, status, is_deleted: isDeleted };
-    if (wantsDelete) {
-      const reason = window.prompt("Reason required: Soft-delete workspace (approval required)");
-      if (reason === null) return;
-      if (!reason.trim()) {
-        window.alert("Reason is required.");
-        return;
-      }
-      payload.reason = reason.trim();
+    if (wantsDelete && reason) {
+      payload.reason = reason;
     }
     setSaving(true);
     setMessage(null);
@@ -348,9 +341,50 @@ const WorkspaceDetailsPanel: React.FC<WorkspaceDetailsPanelProps> = ({ workspace
       }
       onUpdate();
     } catch (err: any) {
-      setError(err?.message || "Failed to update workspace");
+      const msg = err?.message || "Failed to update workspace";
+      setError(msg);
+      throw err;
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!canEdit) {
+      setError("View-only: OPS or higher required to edit workspaces.");
+      return;
+    }
+    const wantsDelete = Boolean(isDeleted) && !workspace.is_deleted;
+    if (wantsDelete && !canDelete) {
+      setError("Soft-delete requires superadmin approval rights.");
+      return;
+    }
+    if (wantsDelete) {
+      setDeleteReason("");
+      setDeleteReasonError(null);
+      setDeleteReasonOpen(true);
+      return;
+    }
+    try {
+      await saveWorkspace();
+    } catch {
+      return;
+    }
+  };
+
+  const confirmDeleteReason = async () => {
+    const trimmedReason = deleteReason.trim();
+    if (!trimmedReason) {
+      setDeleteReasonError("Reason is required.");
+      return;
+    }
+    setDeleteReasonError(null);
+    try {
+      await saveWorkspace(trimmedReason);
+      setDeleteReasonOpen(false);
+      setDeleteReason("");
+    } catch (err: any) {
+      setDeleteReasonError(err?.message || "Failed to update workspace");
     }
   };
 
@@ -368,7 +402,7 @@ const WorkspaceDetailsPanel: React.FC<WorkspaceDetailsPanelProps> = ({ workspace
                 className="min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-900 outline-none focus:border-sky-400 focus:bg-white focus:ring-2 focus:ring-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
               />
               <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium ${planBadgeClasses(plan)}`}>
-                ✨ {plan || "No"} plan
+                {plan || "No"} plan
               </span>
               <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium border ${statusColorClasses(status)}`}>
                 <span className={`h-1.5 w-1.5 rounded-full ${status === "active" ? "bg-emerald-500" : status === "suspended" ? "bg-amber-500" : "bg-rose-500"}`} />
@@ -376,15 +410,15 @@ const WorkspaceDetailsPanel: React.FC<WorkspaceDetailsPanelProps> = ({ workspace
               </span>
             </div>
             <p className="mt-1 text-[11px] text-slate-500">
-              Owner<span className="font-medium text-slate-800"> {workspace.owner_email?.split("@")[0] || "Unknown"}</span> · {workspace.owner_email}
+              Owner<span className="font-medium text-slate-800"> {workspace.owner_email?.split("@")[0] || "Unknown"}</span> / {workspace.owner_email}
             </p>
             <p className="mt-0.5 text-[11px] text-slate-400">
-              Created {formatDate(workspace.created_at)} · Last activity {formatDate(workspace.created_at)}
+              Created {formatDate(workspace.created_at)} / Last activity {formatDate(workspace.created_at)}
             </p>
           </div>
           <div className="flex flex-col items-end gap-2">
             <span className="inline-flex items-center gap-1 rounded-2xl bg-slate-900 px-2.5 py-1 text-[11px] font-medium text-slate-50">
-              ✨ Internal control plane
+              Internal control plane
             </span>
             <button
               type="button"
@@ -392,16 +426,16 @@ const WorkspaceDetailsPanel: React.FC<WorkspaceDetailsPanelProps> = ({ workspace
               disabled={saving || !canEdit}
               className="inline-flex items-center gap-1 rounded-2xl bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-slate-50 shadow-sm hover:bg-black disabled:opacity-50"
             >
-              {saving ? "⏳ Saving…" : "💾 Save changes"}
+              {saving ? "Saving..." : "Save changes"}
             </button>
           </div>
         </div>
 
-        {/* Stats Row – 4 columns */}
+        {/* Stats Row - 4 columns */}
         <div className="mt-4 grid gap-3 grid-cols-4">
           <div className="rounded-2xl bg-slate-900 text-slate-50 px-3.5 py-3">
             <p className="text-[11px] text-slate-300">Members</p>
-            <p className="mt-1 text-lg font-semibold">—</p>
+            <p className="mt-1 text-lg font-semibold">-</p>
             <p className="mt-0.5 text-[11px] text-slate-300">Across all roles</p>
           </div>
           <div className="rounded-2xl bg-slate-50 px-3.5 py-3 border border-slate-100">
@@ -420,13 +454,13 @@ const WorkspaceDetailsPanel: React.FC<WorkspaceDetailsPanelProps> = ({ workspace
           </div>
           <div className="rounded-2xl bg-slate-50 px-3.5 py-3 border border-slate-100">
             <p className="text-[11px] text-slate-500">Connections</p>
-            <p className="mt-1 text-lg font-semibold text-slate-900">— banks</p>
-            <p className="mt-0.5 text-[11px] text-slate-500">—</p>
+            <p className="mt-1 text-lg font-semibold text-slate-900">- banks</p>
+            <p className="mt-0.5 text-[11px] text-slate-500">-</p>
           </div>
         </div>
       </div>
 
-      {/* Tabs Row with Soft-delete + Hide 360° */}
+      {/* Tabs Row with Soft-delete + Hide 360 */}
       <div className="flex items-center justify-between gap-2">
         <div className="inline-flex rounded-full bg-slate-100 p-0.5 text-[11px] font-medium text-slate-600">
           {["Overview", "Security & limits", "Billing", "Activity & notes", "AI & automation"].map((tab) => (
@@ -460,12 +494,12 @@ const WorkspaceDetailsPanel: React.FC<WorkspaceDetailsPanelProps> = ({ workspace
             onClick={() => setShow360((v) => !v)}
             className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-slate-700"
           >
-            🌐 {show360 ? "Hide 360°" : "Show 360°"}
+            {show360 ? "Hide 360" : "Show 360"}
           </button>
         </div>
       </div>
 
-      {/* Main content: Left Tab + Right 360° */}
+      {/* Main content: Left Tab + Right 360 */}
       <div className="grid min-h-0 flex-1 gap-3 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1.2fr)]">
         {/* Left: Tab Content */}
         <div className="flex min-h-0 flex-col gap-3">
@@ -474,7 +508,7 @@ const WorkspaceDetailsPanel: React.FC<WorkspaceDetailsPanelProps> = ({ workspace
             <div className="flex min-h-0 flex-col gap-3 rounded-2xl border border-slate-700 bg-slate-950 p-3 text-slate-50">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
-                  <span>✨</span>
+                  <span>AI</span>
                   <span className="text-xs font-medium">AI & automation</span>
                 </div>
                 <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] text-slate-300">Disabled</span>
@@ -516,7 +550,7 @@ const WorkspaceDetailsPanel: React.FC<WorkspaceDetailsPanelProps> = ({ workspace
             <div className="flex min-h-0 flex-col gap-3 rounded-2xl border border-slate-100 bg-white/80 p-3 text-[11px] text-slate-700">
               <div className="flex items-center justify-between">
                 <span className="font-medium text-slate-900">Security & limits</span>
-                <span>🛡️</span>
+                <span>Security</span>
               </div>
               <div className="space-y-1">
                 <p className="text-[10px] uppercase tracking-wide text-slate-400">Status</p>
@@ -566,7 +600,7 @@ const WorkspaceDetailsPanel: React.FC<WorkspaceDetailsPanelProps> = ({ workspace
             <div className="flex min-h-0 flex-col gap-3 rounded-2xl border border-slate-100 bg-white/80 p-3 text-[11px] text-slate-700">
               <div className="flex items-center justify-between">
                 <span className="font-medium text-slate-900">Internal notes</span>
-                <span>ℹ️</span>
+                <span>Notes</span>
               </div>
               <textarea
                 value={notes}
@@ -578,7 +612,7 @@ const WorkspaceDetailsPanel: React.FC<WorkspaceDetailsPanelProps> = ({ workspace
           )}
         </div>
 
-        {/* Right: 360° view + Recent activity */}
+        {/* Right: 360 view + Recent activity */}
         <div className="flex min-h-0 flex-col gap-3">
           {show360 && (
             <div className="flex-1 overflow-y-auto rounded-2xl border border-slate-100 bg-white/90 p-3 text-[11px] text-slate-700">
@@ -588,7 +622,7 @@ const WorkspaceDetailsPanel: React.FC<WorkspaceDetailsPanelProps> = ({ workspace
           {/* Recent admin activity (dark) */}
           <div className="rounded-2xl border border-slate-100 bg-slate-900 px-3.5 py-3 text-[11px] text-slate-50">
             <div className="flex items-start gap-2">
-              <span className="text-sky-300">📊</span>
+              <span className="text-sky-300">Stats</span>
               <div className="flex-1">
                 <p className="text-xs font-semibold">Recent admin activity</p>
                 <p className="mt-0.5 text-[11px] text-slate-300">
@@ -602,6 +636,27 @@ const WorkspaceDetailsPanel: React.FC<WorkspaceDetailsPanelProps> = ({ workspace
 
       {message && <p className="text-xs text-emerald-700">{message}</p>}
       {error && <p className="text-xs text-rose-700">{error}</p>}
+      <AdminReasonDialog
+        open={deleteReasonOpen}
+        title="Reason required"
+        description={`Soft-deleting ${workspace.name} requires a documented reason before the request is sent.`}
+        confirmLabel="Submit deletion request"
+        loadingLabel="Submitting..."
+        reason={deleteReason}
+        error={deleteReasonError}
+        loading={saving}
+        onReasonChange={setDeleteReason}
+        onConfirm={confirmDeleteReason}
+        onOpenChange={(open) => {
+          if (!saving) {
+            setDeleteReasonOpen(open);
+            if (!open) {
+              setDeleteReason("");
+              setDeleteReasonError(null);
+            }
+          }
+        }}
+      />
     </section>
   );
 };

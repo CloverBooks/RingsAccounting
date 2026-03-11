@@ -1,5 +1,8 @@
 import React, { useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { TrendingUp, TrendingDown } from "lucide-react";
+import AppLink from "../routing/AppLink";
+import { navigateToCustomerHref } from "../routing/customerNavigation";
 
 interface PLMonthOption {
     value: string;
@@ -44,6 +47,7 @@ export const PLSnapshotCard: React.FC<PLSnapshotCardProps> = ({
     showNoActivity = false,
     noActivityMessage,
 }) => {
+    const navigate = useNavigate();
     const formatter = useMemo(() => {
         try {
             return new Intl.NumberFormat(undefined, { style: "currency", currency, maximumFractionDigits: 0 });
@@ -94,12 +98,12 @@ export const PLSnapshotCard: React.FC<PLSnapshotCardProps> = ({
                         <p className="text-xs font-medium text-slate-500">Profit & Loss</p>
                         <p className="text-sm text-slate-400">{periodLabel}</p>
                     </div>
-                    <a
+                    <AppLink
                         href={profitAndLossUrl}
                         className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-white"
                     >
                         Open P&L →
-                    </a>
+                    </AppLink>
                 </div>
                 <div className="rounded-2xl bg-slate-50 border border-slate-100 px-4 py-6 text-center">
                     <p className="text-sm text-slate-500">
@@ -120,12 +124,12 @@ export const PLSnapshotCard: React.FC<PLSnapshotCardProps> = ({
                 <div>
                     <p className="text-xs font-medium text-slate-500">Profit & Loss</p>
                 </div>
-                <a
+                <AppLink
                     href={profitAndLossUrl}
                     className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-white transition-colors"
                 >
                     Open P&L →
-                </a>
+                </AppLink>
             </div>
 
             {/* Period Selector */}
@@ -138,7 +142,7 @@ export const PLSnapshotCard: React.FC<PLSnapshotCardProps> = ({
                             // Validate against allowed options to prevent XSS/open redirect
                             const isValid = monthOptions.some(opt => opt.value === value);
                             if (isValid) {
-                                window.location.href = `/dashboard/?pl_month=${encodeURIComponent(value)}`;
+                                navigateToCustomerHref(navigate, `/dashboard/?pl_month=${encodeURIComponent(value)}`);
                             }
                         }}
                         className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 transition-colors hover:bg-white"

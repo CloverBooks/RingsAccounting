@@ -36,4 +36,30 @@ describe("FeatureFlagsSection", () => {
       expect(api.updateFeatureFlag).toHaveBeenCalled();
     });
   });
+
+  it("collects a reason in-app when the backend requires one", async () => {
+    const updateFeatureFlag = api.updateFeatureFlag as unknown as vi.Mock;
+    updateFeatureFlag
+      .mockRejectedValueOnce({ message: "Reason is required for this change." })
+      .mockResolvedValueOnce({
+        ...createMockFlags()[0],
+        is_enabled: true,
+      });
+
+    render(<FeatureFlagsSection role="superadmin" />);
+    await waitFor(() => expect(screen.getByText(/new-ui/i)).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.change(await screen.findByLabelText(/reason/i), {
+      target: { value: "Controlled rollout for operations." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /apply change/i }));
+
+    await waitFor(() =>
+      expect(updateFeatureFlag).toHaveBeenLastCalledWith(1, {
+        is_enabled: true,
+        reason: "Controlled rollout for operations.",
+      }),
+    );
+  });
 });

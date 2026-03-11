@@ -13,6 +13,8 @@ use sqlx::SqlitePool;
 
 use crate::AppState;
 use crate::routes::auth::extract_claims_from_header;
+use crate::routes::onboarding::DashboardOnboardingReadinessSummary;
+use crate::routes::tax::DashboardTaxGuardianCard;
 
 // ============================================================================
 // Authentication Helper
@@ -35,6 +37,12 @@ fn get_business_id_from_auth(headers: &HeaderMap, query_business_id: Option<i64>
             (query_business_id, false)
         }
     }
+}
+
+fn get_user_id_from_auth(headers: &HeaderMap) -> Option<i64> {
+    extract_claims_from_header(headers)
+        .ok()
+        .and_then(|claims| claims.sub.parse::<i64>().ok())
 }
 
 /// Get business_id from query param with security warning.
@@ -66,6 +74,8 @@ pub struct DashboardResponse {
     pub recent_invoices: Vec<InvoiceSummary>,
     pub recent_expenses: Vec<ExpenseSummary>,
     pub bank_accounts: Vec<BankAccountSummary>,
+    pub tax_guardian_card: Option<DashboardTaxGuardianCard>,
+    pub onboarding_readiness: Option<DashboardOnboardingReadinessSummary>,
 }
 
 #[derive(Debug, Serialize)]
@@ -127,9 +137,9 @@ pub async fn dashboard(
     headers: HeaderMap,
     Query(params): Query<DashboardQuery>,
 ) -> impl IntoResponse {
-    // Get business_id from JWT claims
     let (business_id_opt, is_authenticated) = get_business_id_from_auth(&headers, params.business_id);
-    
+    let user_id = get_user_id_from_auth(&headers);
+
     if !is_authenticated {
         return (
             StatusCode::UNAUTHORIZED,
@@ -152,32 +162,44 @@ pub async fn dashboard(
             ).into_response();
         }
     };
-    
+
     tracing::info!("Fetching dashboard for business_id={}", business_id);
-    
-    // Get business info
-    let business = sqlx::query_as::<_, (i64, String, String)>(
-        "SELECT id, name, currency FROM core_business WHERE id = ? AND is_deleted = 0"
-    )
-    .bind(business_id)
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten()
-    .map(|(id, name, currency)| BusinessSummary { id, name, currency });
-    
-    // Get metrics
-    let metrics = get_dashboard_metrics(&state.db, business_id).await;
-    
-    // Get recent invoices (last 5)
-    let recent_invoices = get_recent_invoices(&state.db, business_id, 5).await;
-    
-    // Get recent expenses (last 5)
-    let recent_expenses = get_recent_expenses(&state.db, business_id, 5).await;
-    
-    // Get bank accounts with balances
-    let bank_accounts = get_bank_accounts(&state.db, business_id).await;
-    
+
+    let business_future = async {
+        sqlx::query_as::<_, (i64, String, String)>(
+            "SELECT id, name, currency FROM core_business WHERE id = ? AND is_deleted = 0",
+        )
+        .bind(business_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .map(|(id, name, currency)| BusinessSummary { id, name, currency })
+    };
+    let onboarding_future = async {
+        match user_id {
+            Some(current_user_id) => Some(
+                crate::routes::onboarding::fetch_dashboard_readiness_summary(
+                    &state.db,
+                    business_id,
+                    current_user_id,
+                )
+                .await,
+            ),
+            None => None,
+        }
+    };
+    let (business, metrics, recent_invoices, recent_expenses, bank_accounts, tax_guardian_card, onboarding_readiness) =
+        tokio::join!(
+            business_future,
+            get_dashboard_metrics(&state.db, business_id),
+            get_recent_invoices(&state.db, business_id, 5),
+            get_recent_expenses(&state.db, business_id, 5),
+            get_bank_accounts(&state.db, business_id),
+            crate::routes::tax::fetch_dashboard_tax_guardian_card(&state.db, business_id),
+            onboarding_future,
+        );
+
     (
         StatusCode::OK,
         Json(DashboardResponse {
@@ -187,6 +209,8 @@ pub async fn dashboard(
             recent_invoices,
             recent_expenses,
             bank_accounts,
+            tax_guardian_card,
+            onboarding_readiness,
         }),
     ).into_response()
 }
@@ -196,47 +220,59 @@ pub struct DashboardQuery {
     pub business_id: Option<i64>,
 }
 
+fn clamp_limit(limit: Option<i64>, default_value: i64, max_value: i64) -> i64 {
+    limit.unwrap_or(default_value).clamp(1, max_value)
+}
+
+fn clamp_offset(offset: Option<i64>) -> i64 {
+    offset.unwrap_or(0).max(0)
+}
+
+fn like_filter(value: Option<&str>) -> String {
+    let trimmed = value.unwrap_or("").trim().to_lowercase();
+    if trimmed.is_empty() {
+        String::new()
+    } else {
+        format!("%{}%", trimmed)
+    }
+}
+
 async fn get_dashboard_metrics(pool: &SqlitePool, business_id: i64) -> DashboardMetrics {
-    // Total revenue (paid invoices)
-    let total_revenue: f64 = sqlx::query_scalar(
-        "SELECT COALESCE(SUM(grand_total), 0) FROM core_invoice 
-         WHERE business_id = ? AND status = 'PAID'"
+    let total_revenue_future = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(grand_total), 0) FROM core_invoice
+         WHERE business_id = ? AND status = 'PAID'",
     )
     .bind(business_id)
-    .fetch_one(pool)
-    .await
-    .unwrap_or(0.0);
-    
-    // Total expenses (paid)
-    let total_expenses: f64 = sqlx::query_scalar(
-        "SELECT COALESCE(SUM(grand_total), 0) FROM core_expense 
-         WHERE business_id = ? AND status = 'PAID'"
+    .fetch_one(pool);
+    let total_expenses_future = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(grand_total), 0) FROM core_expense
+         WHERE business_id = ? AND status = 'PAID'",
     )
     .bind(business_id)
-    .fetch_one(pool)
-    .await
-    .unwrap_or(0.0);
-    
-    // Outstanding invoices (not paid)
-    let outstanding_invoices: f64 = sqlx::query_scalar(
-        "SELECT COALESCE(SUM(balance), 0) FROM core_invoice 
-         WHERE business_id = ? AND status IN ('SENT', 'PARTIAL')"
+    .fetch_one(pool);
+    let outstanding_invoices_future = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(balance), 0) FROM core_invoice
+         WHERE business_id = ? AND status IN ('SENT', 'PARTIAL')",
     )
     .bind(business_id)
-    .fetch_one(pool)
-    .await
-    .unwrap_or(0.0);
-    
-    // Outstanding bills (unpaid expenses)
-    let outstanding_bills: f64 = sqlx::query_scalar(
-        "SELECT COALESCE(SUM(balance), 0) FROM core_expense 
-         WHERE business_id = ? AND status IN ('UNPAID', 'PARTIAL')"
+    .fetch_one(pool);
+    let outstanding_bills_future = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(balance), 0) FROM core_expense
+         WHERE business_id = ? AND status IN ('UNPAID', 'PARTIAL')",
     )
     .bind(business_id)
-    .fetch_one(pool)
-    .await
-    .unwrap_or(0.0);
-    
+    .fetch_one(pool);
+    let (total_revenue, total_expenses, outstanding_invoices, outstanding_bills) = tokio::join!(
+        total_revenue_future,
+        total_expenses_future,
+        outstanding_invoices_future,
+        outstanding_bills_future,
+    );
+    let total_revenue = total_revenue.unwrap_or(0.0);
+    let total_expenses = total_expenses.unwrap_or(0.0);
+    let outstanding_invoices = outstanding_invoices.unwrap_or(0.0);
+    let outstanding_bills = outstanding_bills.unwrap_or(0.0);
+
     DashboardMetrics {
         total_revenue,
         total_expenses,
@@ -304,23 +340,29 @@ async fn get_recent_expenses(pool: &SqlitePool, business_id: i64, limit: i64) ->
 }
 
 async fn get_bank_accounts(pool: &SqlitePool, business_id: i64) -> Vec<BankAccountSummary> {
-    sqlx::query_as::<_, (i64, String, String)>(
-        "SELECT id, name, bank_name FROM core_bankaccount 
-         WHERE business_id = ? AND is_active = 1
-         ORDER BY name"
+    sqlx::query_as::<_, (i64, String, String, i64)>(
+        "SELECT a.id,
+                a.name,
+                a.bank_name,
+                COALESCE(SUM(CASE WHEN COALESCE(t.is_reconciled, 0) = 0 THEN 1 ELSE 0 END), 0) AS unreconciled_count
+         FROM core_bankaccount a
+         LEFT JOIN core_banktransaction t ON t.bank_account_id = a.id
+         WHERE a.business_id = ? AND a.is_active = 1
+         GROUP BY a.id, a.name, a.bank_name
+         ORDER BY a.name"
     )
     .bind(business_id)
     .fetch_all(pool)
     .await
     .unwrap_or_default()
     .into_iter()
-    .map(|(id, name, bank_name)| {
+    .map(|(id, name, bank_name, unreconciled_count)| {
         BankAccountSummary {
             id,
             name,
             bank_name,
             balance: 0.0, // Would need balance calculation
-            unreconciled_count: 0, // Would need count query
+            unreconciled_count,
         }
     })
     .collect()
@@ -336,10 +378,13 @@ pub async fn list_invoices(
     Query(params): Query<InvoiceListQuery>,
 ) -> impl IntoResponse {
     let business_id = get_business_id_with_warning(params.business_id, "list_invoices");
-    let limit = params.limit.unwrap_or(50);
-    let offset = params.offset.unwrap_or(0);
-    let status_filter = params.status.as_deref().unwrap_or("all");
-    
+    let limit = clamp_limit(params.limit, 50, 200);
+    let offset = clamp_offset(params.offset);
+    let status_filter = match params.status.as_deref().unwrap_or("all") {
+        "all" => "all".to_string(),
+        other => other.to_uppercase(),
+    };
+
     tracing::info!(
         "Listing invoices for business_id={} status={}",
         business_id,
@@ -351,10 +396,13 @@ pub async fn list_invoices(
          FROM core_invoice i
          JOIN core_customer c ON i.customer_id = c.id
          WHERE i.business_id = ?
+           AND (? = 'all' OR i.status = ?)
          ORDER BY i.issue_date DESC
          LIMIT ? OFFSET ?"
     )
     .bind(business_id)
+    .bind(&status_filter)
+    .bind(&status_filter)
     .bind(limit)
     .bind(offset)
     .fetch_all(&state.db)
@@ -362,9 +410,13 @@ pub async fn list_invoices(
     .unwrap_or_default();
     
     let total: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM core_invoice WHERE business_id = ?"
+        "SELECT COUNT(*) FROM core_invoice
+         WHERE business_id = ?
+           AND (? = 'all' OR status = ?)"
     )
     .bind(business_id)
+    .bind(&status_filter)
+    .bind(&status_filter)
     .fetch_one(&state.db)
     .await
     .unwrap_or(0);
@@ -410,11 +462,14 @@ pub async fn list_expenses(
     State(state): State<AppState>,
     Query(params): Query<ExpenseListQuery>,
 ) -> impl IntoResponse {
-    let business_id = get_business_id_with_warning(params.business_id, "list_invoices");
-    let limit = params.limit.unwrap_or(50);
-    let offset = params.offset.unwrap_or(0);
-    let status_filter = params.status.as_deref().unwrap_or("all");
-    
+    let business_id = get_business_id_with_warning(params.business_id, "list_expenses");
+    let limit = clamp_limit(params.limit, 50, 200);
+    let offset = clamp_offset(params.offset);
+    let status_filter = match params.status.as_deref().unwrap_or("all") {
+        "all" => "all".to_string(),
+        other => other.to_uppercase(),
+    };
+
     tracing::info!(
         "Listing expenses for business_id={} status={}",
         business_id,
@@ -426,10 +481,13 @@ pub async fn list_expenses(
          FROM core_expense e
          LEFT JOIN core_supplier s ON e.supplier_id = s.id
          WHERE e.business_id = ?
+           AND (? = 'all' OR e.status = ?)
          ORDER BY e.date DESC
          LIMIT ? OFFSET ?"
     )
     .bind(business_id)
+    .bind(&status_filter)
+    .bind(&status_filter)
     .bind(limit)
     .bind(offset)
     .fetch_all(&state.db)
@@ -437,9 +495,13 @@ pub async fn list_expenses(
     .unwrap_or_default();
     
     let total: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM core_expense WHERE business_id = ?"
+        "SELECT COUNT(*) FROM core_expense
+         WHERE business_id = ?
+           AND (? = 'all' OR status = ?)"
     )
     .bind(business_id)
+    .bind(&status_filter)
+    .bind(&status_filter)
     .fetch_one(&state.db)
     .await
     .unwrap_or(0);
@@ -479,6 +541,9 @@ pub struct ExpenseListQuery {
 pub struct CustomerListQuery {
     pub business_id: Option<i64>,
     pub limit: Option<i64>,
+    pub offset: Option<i64>,
+    pub q: Option<String>,
+    pub status: Option<String>,
 }
 
 // ============================================================================
@@ -490,21 +555,39 @@ pub async fn list_suppliers(
     State(state): State<AppState>,
     Query(params): Query<SupplierListQuery>,
 ) -> impl IntoResponse {
-    let business_id = get_business_id_with_warning(params.business_id, "list_invoices");
-    let limit = params.limit.unwrap_or(100);
-    
-    let suppliers = sqlx::query_as::<_, (i64, String, Option<String>, String)>(
-        "SELECT id, name, email, phone FROM core_supplier 
+    let business_id = get_business_id_with_warning(params.business_id, "list_suppliers");
+    let limit = clamp_limit(params.limit, 100, 200);
+    let offset = clamp_offset(params.offset);
+    let status_filter = params.status.as_deref().unwrap_or("all");
+    let query_filter = like_filter(params.q.as_deref());
+
+    let suppliers = sqlx::query_as::<_, (i64, String, Option<String>, Option<String>)>(
+        "SELECT id, name, email, phone
+         FROM core_supplier
          WHERE business_id = ?
+           AND (? = '' OR lower(name) LIKE ? OR lower(COALESCE(email, '')) LIKE ? OR lower(COALESCE(company_name, '')) LIKE ?)
+           AND (
+             ? = 'all'
+             OR (? = 'active' AND is_active = 1)
+             OR (? = 'inactive' AND is_active = 0)
+           )
          ORDER BY name
-         LIMIT ?"
+         LIMIT ? OFFSET ?"
     )
     .bind(business_id)
+    .bind(&query_filter)
+    .bind(&query_filter)
+    .bind(&query_filter)
+    .bind(&query_filter)
+    .bind(status_filter)
+    .bind(status_filter)
+    .bind(status_filter)
     .bind(limit)
+    .bind(offset)
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
-    
+
     let items: Vec<serde_json::Value> = suppliers
         .into_iter()
         .map(|(id, name, email, phone)| {
@@ -527,6 +610,9 @@ pub async fn list_suppliers(
 pub struct SupplierListQuery {
     pub business_id: Option<i64>,
     pub limit: Option<i64>,
+    pub offset: Option<i64>,
+    pub q: Option<String>,
+    pub status: Option<String>,
 }
 
 // ============================================================================
@@ -582,10 +668,13 @@ pub async fn list_bank_transactions(
     Path(account_id): Path<i64>,
     Query(params): Query<BankTransactionQuery>,
 ) -> impl IntoResponse {
-    let limit = params.limit.unwrap_or(50);
-    let offset = params.offset.unwrap_or(0);
-    let status_filter = params.status.as_deref().unwrap_or("all");
-    
+    let limit = clamp_limit(params.limit, 50, 200);
+    let offset = clamp_offset(params.offset);
+    let status_filter = match params.status.as_deref().unwrap_or("all") {
+        "all" => "all".to_string(),
+        other => other.to_uppercase(),
+    };
+
     tracing::info!(
         "Listing transactions for bank_account_id={} status={}",
         account_id,
@@ -597,10 +686,13 @@ pub async fn list_bank_transactions(
                 COALESCE(suggestion_confidence, 0), is_reconciled
          FROM core_banktransaction 
          WHERE bank_account_id = ?
+           AND (? = 'all' OR status = ?)
          ORDER BY date DESC, id DESC
          LIMIT ? OFFSET ?"
     )
     .bind(account_id)
+    .bind(&status_filter)
+    .bind(&status_filter)
     .bind(limit)
     .bind(offset)
     .fetch_all(&state.db)
@@ -608,9 +700,13 @@ pub async fn list_bank_transactions(
     .unwrap_or_default();
     
     let total: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM core_banktransaction WHERE bank_account_id = ?"
+        "SELECT COUNT(*) FROM core_banktransaction
+         WHERE bank_account_id = ?
+           AND (? = 'all' OR status = ?)"
     )
     .bind(account_id)
+    .bind(&status_filter)
+    .bind(&status_filter)
     .fetch_one(&state.db)
     .await
     .unwrap_or(0);
@@ -656,30 +752,46 @@ pub async fn list_customers_full(
     State(state): State<AppState>,
     Query(params): Query<CustomerListQuery>,
 ) -> impl IntoResponse {
-    let business_id = get_business_id_with_warning(params.business_id, "list_invoices");
-    let limit = params.limit.unwrap_or(200);
-    
-    // Get business currency
+    let business_id = get_business_id_with_warning(params.business_id, "list_customers_full");
+    let limit = clamp_limit(params.limit, 200, 500);
+    let offset = clamp_offset(params.offset);
+    let status_filter = params.status.as_deref().unwrap_or("all");
+    let query_filter = like_filter(params.q.as_deref());
+
     let currency: String = sqlx::query_scalar(
-        "SELECT currency FROM core_business WHERE id = ?"
+        "SELECT currency FROM core_business WHERE id = ?",
     )
     .bind(business_id)
     .fetch_one(&state.db)
     .await
     .unwrap_or_else(|_| "CAD".to_string());
-    
+
     let customers = sqlx::query_as::<_, (i64, String, Option<String>, Option<String>, Option<String>, bool)>(
         "SELECT id, name, email, phone, company, is_active FROM core_customer
          WHERE business_id = ?
+           AND (? = '' OR lower(name) LIKE ? OR lower(COALESCE(email, '')) LIKE ? OR lower(COALESCE(company, '')) LIKE ?)
+           AND (
+             ? = 'all'
+             OR (? = 'active' AND is_active = 1)
+             OR (? = 'inactive' AND is_active = 0)
+           )
          ORDER BY name
-         LIMIT ?"
+         LIMIT ? OFFSET ?"
     )
     .bind(business_id)
+    .bind(&query_filter)
+    .bind(&query_filter)
+    .bind(&query_filter)
+    .bind(&query_filter)
+    .bind(status_filter)
+    .bind(status_filter)
+    .bind(status_filter)
     .bind(limit)
+    .bind(offset)
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
-    
+
     let customer_list: Vec<serde_json::Value> = customers
         .into_iter()
         .map(|(id, name, email, phone, company, is_active)| {
@@ -698,9 +810,29 @@ pub async fn list_customers_full(
             })
         })
         .collect();
-    
-    let total = customer_list.len();
-    
+
+    let total: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM core_customer
+         WHERE business_id = ?
+           AND (? = '' OR lower(name) LIKE ? OR lower(COALESCE(email, '')) LIKE ? OR lower(COALESCE(company, '')) LIKE ?)
+           AND (
+             ? = 'all'
+             OR (? = 'active' AND is_active = 1)
+             OR (? = 'inactive' AND is_active = 0)
+           )"
+    )
+    .bind(business_id)
+    .bind(&query_filter)
+    .bind(&query_filter)
+    .bind(&query_filter)
+    .bind(&query_filter)
+    .bind(status_filter)
+    .bind(status_filter)
+    .bind(status_filter)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+
     (StatusCode::OK, Json(serde_json::json!({
         "customers": customer_list,
         "stats": {
@@ -722,31 +854,51 @@ pub async fn list_products(
     State(state): State<AppState>,
     Query(params): Query<ProductListQuery>,
 ) -> impl IntoResponse {
-    let business_id = get_business_id_with_warning(params.business_id, "list_invoices");
+    let business_id = get_business_id_with_warning(params.business_id, "list_products");
     let kind_filter = params.kind.as_deref().unwrap_or("all");
     let status_filter = params.status.as_deref().unwrap_or("all");
-    let query_filter = params.q.as_deref().unwrap_or("").to_lowercase();
-    
-    // Get business currency
+    let query_filter = like_filter(params.q.as_deref());
+    let limit = clamp_limit(params.limit, 200, 500);
+    let offset = clamp_offset(params.offset);
+
     let currency: String = sqlx::query_scalar(
-        "SELECT currency FROM core_business WHERE id = ?"
+        "SELECT currency FROM core_business WHERE id = ?",
     )
     .bind(business_id)
     .fetch_one(&state.db)
     .await
     .unwrap_or_else(|_| "CAD".to_string());
-    
-    // Try to get products from core_item table
+
     let items = sqlx::query_as::<_, (i64, String, Option<String>, Option<String>, Option<f64>, bool)>(
-        "SELECT id, name, sku, description, price, is_active FROM core_item
+        "SELECT id, name, sku, description, price, is_active
+         FROM core_item
          WHERE business_id = ?
-         ORDER BY name"
+           AND (? = '' OR lower(name) LIKE ? OR lower(COALESCE(sku, '')) LIKE ? OR lower(COALESCE(description, '')) LIKE ?)
+           AND (
+             ? = 'all'
+             OR (? = 'active' AND is_active = 1)
+             OR (? = 'archived' AND is_active = 0)
+           )
+           AND (? = 'all' OR ? = 'product')
+         ORDER BY name
+         LIMIT ? OFFSET ?"
     )
     .bind(business_id)
+    .bind(&query_filter)
+    .bind(&query_filter)
+    .bind(&query_filter)
+    .bind(&query_filter)
+    .bind(status_filter)
+    .bind(status_filter)
+    .bind(status_filter)
+    .bind(kind_filter)
+    .bind(kind_filter)
+    .bind(limit)
+    .bind(offset)
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
-    
+
     let product_list: Vec<serde_json::Value> = items
         .into_iter()
         .map(|(id, name, sku, description, price, is_active)| {
@@ -763,32 +915,34 @@ pub async fn list_products(
                 "usage_count": 0
             })
         })
-        .filter(|item| {
-            let status_matches = match status_filter {
-                "active" => item["status"] == "active",
-                "archived" => item["status"] == "archived",
-                _ => true,
-            };
-            let kind_matches = match kind_filter {
-                "product" | "service" => item["kind"] == kind_filter,
-                _ => true,
-            };
-            let text_matches = if query_filter.is_empty() {
-                true
-            } else {
-                item["name"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_lowercase()
-                    .contains(&query_filter)
-            };
-            status_matches && kind_matches && text_matches
-        })
         .collect();
-    
+
     let active_count = product_list.iter().filter(|p| p["status"] == "active").count();
-    let product_count = product_list.len();
-    
+    let product_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM core_item
+         WHERE business_id = ?
+           AND (? = '' OR lower(name) LIKE ? OR lower(COALESCE(sku, '')) LIKE ? OR lower(COALESCE(description, '')) LIKE ?)
+           AND (
+             ? = 'all'
+             OR (? = 'active' AND is_active = 1)
+             OR (? = 'archived' AND is_active = 0)
+           )
+           AND (? = 'all' OR ? = 'product')"
+    )
+    .bind(business_id)
+    .bind(&query_filter)
+    .bind(&query_filter)
+    .bind(&query_filter)
+    .bind(&query_filter)
+    .bind(status_filter)
+    .bind(status_filter)
+    .bind(status_filter)
+    .bind(kind_filter)
+    .bind(kind_filter)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+
     (StatusCode::OK, Json(serde_json::json!({
         "items": product_list,
         "stats": {
@@ -807,6 +961,8 @@ pub struct ProductListQuery {
     pub kind: Option<String>,
     pub status: Option<String>,
     pub q: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
 }
 
 // ============================================================================
@@ -929,27 +1085,46 @@ pub async fn list_suppliers_full(
     State(state): State<AppState>,
     Query(params): Query<SupplierListQuery>,
 ) -> impl IntoResponse {
-    let business_id = get_business_id_with_warning(params.business_id, "list_invoices");
-    
-    // Get business currency
+    let business_id = get_business_id_with_warning(params.business_id, "list_suppliers_full");
+    let limit = clamp_limit(params.limit, 200, 500);
+    let offset = clamp_offset(params.offset);
+    let status_filter = params.status.as_deref().unwrap_or("all");
+    let query_filter = like_filter(params.q.as_deref());
+
     let currency: String = sqlx::query_scalar(
-        "SELECT currency FROM core_business WHERE id = ?"
+        "SELECT currency FROM core_business WHERE id = ?",
     )
     .bind(business_id)
     .fetch_one(&state.db)
     .await
     .unwrap_or_else(|_| "CAD".to_string());
-    
+
     let suppliers = sqlx::query_as::<_, (i64, String, Option<String>, Option<String>, Option<String>, bool)>(
         "SELECT id, name, email, phone, company_name, is_active FROM core_supplier 
          WHERE business_id = ?
-         ORDER BY name"
+           AND (? = '' OR lower(name) LIKE ? OR lower(COALESCE(email, '')) LIKE ? OR lower(COALESCE(company_name, '')) LIKE ?)
+           AND (
+             ? = 'all'
+             OR (? = 'active' AND is_active = 1)
+             OR (? = 'inactive' AND is_active = 0)
+           )
+         ORDER BY name
+         LIMIT ? OFFSET ?"
     )
     .bind(business_id)
+    .bind(&query_filter)
+    .bind(&query_filter)
+    .bind(&query_filter)
+    .bind(&query_filter)
+    .bind(status_filter)
+    .bind(status_filter)
+    .bind(status_filter)
+    .bind(limit)
+    .bind(offset)
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
-    
+
     let supplier_list: Vec<serde_json::Value> = suppliers
         .into_iter()
         .map(|(id, name, email, phone, company, is_active)| {
@@ -966,9 +1141,29 @@ pub async fn list_suppliers_full(
             })
         })
         .collect();
-    
-    let total = supplier_list.len();
-    
+
+    let total: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM core_supplier
+         WHERE business_id = ?
+           AND (? = '' OR lower(name) LIKE ? OR lower(COALESCE(email, '')) LIKE ? OR lower(COALESCE(company_name, '')) LIKE ?)
+           AND (
+             ? = 'all'
+             OR (? = 'active' AND is_active = 1)
+             OR (? = 'inactive' AND is_active = 0)
+           )"
+    )
+    .bind(business_id)
+    .bind(&query_filter)
+    .bind(&query_filter)
+    .bind(&query_filter)
+    .bind(&query_filter)
+    .bind(status_filter)
+    .bind(status_filter)
+    .bind(status_filter)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+
     (StatusCode::OK, Json(serde_json::json!({
         "suppliers": supplier_list,
         "stats": {
@@ -1236,5 +1431,362 @@ pub async fn categorize_feed_transaction(
                 "error": "Transaction not found"
             })))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{routing::get, Router};
+    use axum_test::TestServer;
+    use chrono::{Duration as ChronoDuration, Utc};
+    use jsonwebtoken::{EncodingKey, Header};
+    use serde_json::{json, Value};
+    use crate::routes::auth::Claims;
+
+    async fn setup() -> (TestServer, SqlitePool) {
+        std::env::set_var("JWT_SECRET", "test-secret");
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+
+        sqlx::query(
+            "CREATE TABLE core_business (
+                id INTEGER PRIMARY KEY,
+                owner_user_id INTEGER NULL,
+                name TEXT NOT NULL,
+                currency TEXT NOT NULL,
+                is_deleted INTEGER NOT NULL DEFAULT 0
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE TABLE core_customer (
+                id INTEGER PRIMARY KEY,
+                business_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                email TEXT NULL,
+                phone TEXT NULL,
+                company TEXT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE TABLE core_supplier (
+                id INTEGER PRIMARY KEY,
+                business_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                email TEXT NULL,
+                phone TEXT NULL,
+                company_name TEXT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE TABLE core_invoice (
+                id INTEGER PRIMARY KEY,
+                business_id INTEGER NOT NULL,
+                customer_id INTEGER NOT NULL,
+                invoice_number TEXT NOT NULL,
+                grand_total REAL NOT NULL,
+                balance REAL NOT NULL DEFAULT 0,
+                status TEXT NOT NULL,
+                issue_date TEXT NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE TABLE core_expense (
+                id INTEGER PRIMARY KEY,
+                business_id INTEGER NOT NULL,
+                supplier_id INTEGER NULL,
+                description TEXT NOT NULL,
+                grand_total REAL NOT NULL,
+                balance REAL NOT NULL DEFAULT 0,
+                status TEXT NOT NULL,
+                date TEXT NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE TABLE core_bankaccount (
+                id INTEGER PRIMARY KEY,
+                business_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                bank_name TEXT NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE TABLE core_banktransaction (
+                id INTEGER PRIMARY KEY,
+                bank_account_id INTEGER NOT NULL,
+                date TEXT NOT NULL,
+                description TEXT NOT NULL,
+                amount REAL NOT NULL,
+                status TEXT NOT NULL,
+                suggestion_confidence INTEGER NULL,
+                is_reconciled INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE TABLE business_profiles (
+                id INTEGER PRIMARY KEY,
+                business_id INTEGER NOT NULL UNIQUE,
+                profile_json TEXT NOT NULL DEFAULT '{}',
+                onboarding_status TEXT NOT NULL DEFAULT 'not_started'
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE TABLE consents (
+                id INTEGER PRIMARY KEY,
+                business_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                consent_key TEXT NOT NULL,
+                status TEXT NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE TABLE ai_rules (
+                id INTEGER PRIMARY KEY,
+                business_id INTEGER NOT NULL,
+                source TEXT NOT NULL DEFAULT 'user_confirmed',
+                is_active INTEGER NOT NULL DEFAULT 1
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE TABLE core_item (
+                id INTEGER PRIMARY KEY,
+                business_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                sku TEXT NULL,
+                description TEXT NULL,
+                price REAL NULL,
+                is_active INTEGER NOT NULL DEFAULT 1
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let state = AppState { db: pool.clone() };
+        let app = Router::new()
+            .route("/api/dashboard", get(dashboard))
+            .route("/api/products/list/", get(list_products))
+            .route("/api/customers/list/", get(list_customers_full))
+            .route("/api/suppliers/list/", get(list_suppliers_full))
+            .with_state(state);
+
+        (TestServer::new(app).unwrap(), pool)
+    }
+
+    async fn seed_data(pool: &SqlitePool) {
+        sqlx::query(
+            "INSERT INTO core_business (id, owner_user_id, name, currency, is_deleted)
+             VALUES (1, 42, 'Acme Books', 'CAD', 0)",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO core_customer (id, business_id, name, email, phone, company, is_active) VALUES
+             (1, 1, 'Alpha Retail', 'alpha@example.com', '111', 'Alpha Co', 1),
+             (2, 1, 'Beta LLC', 'beta@example.com', '222', 'Beta Co', 0),
+             (3, 1, 'Gamma Studio', 'gamma@example.com', '333', 'Gamma Co', 1)",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO core_supplier (id, business_id, name, email, phone, company_name, is_active) VALUES
+             (1, 1, 'North Supply', 'north@example.com', '444', 'North Supply', 0),
+             (2, 1, 'South Goods', 'south@example.com', '555', 'South Goods', 1)",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO core_invoice (id, business_id, customer_id, invoice_number, grand_total, balance, status, issue_date) VALUES
+             (1, 1, 1, 'INV-100', 120.0, 0.0, 'PAID', '2026-03-01'),
+             (2, 1, 1, 'INV-101', 80.0, 20.0, 'SENT', '2026-03-02')",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO core_expense (id, business_id, supplier_id, description, grand_total, balance, status, date) VALUES
+             (1, 1, 2, 'Cloud hosting', 45.0, 10.0, 'UNPAID', '2026-03-03'),
+             (2, 1, 2, 'Office rent', 25.0, 0.0, 'PAID', '2026-03-02')",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO core_bankaccount (id, business_id, name, bank_name, is_active) VALUES
+             (1, 1, 'Operating', 'Clover Bank', 1)",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO core_banktransaction (id, bank_account_id, date, description, amount, status, suggestion_confidence, is_reconciled) VALUES
+             (1, 1, '2026-03-03', 'Stripe payout', 120.0, 'NEW', 80, 0),
+             (2, 1, '2026-03-02', 'Rent payment', -25.0, 'MATCHED', 90, 1)",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO business_profiles (id, business_id, profile_json, onboarding_status)
+             VALUES (1, 1, ?, 'in_progress')",
+        )
+        .bind(json!({
+            "business_name": "Acme Books",
+            "entity_type": "corporation",
+            "industry": "software",
+            "monthly_transactions": "1-50",
+        }).to_string())
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO consents (id, business_id, user_id, consent_key, status) VALUES
+             (1, 1, 42, 'ai_data_processing', 'granted'),
+             (2, 1, 42, 'ai_recommendations', 'granted')",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO ai_rules (id, business_id, source, is_active)
+             VALUES (1, 1, 'user_confirmed', 1)",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO core_item (id, business_id, name, sku, description, price, is_active) VALUES
+             (1, 1, 'Alpha Basic', 'ALPHA-1', 'Alpha product basic', 10.0, 1),
+             (2, 1, 'Alpha Premium', 'ALPHA-2', 'Alpha product premium', 20.0, 1),
+             (3, 1, 'Archived Alpha', 'ALPHA-3', 'Old alpha item', 30.0, 0),
+             (4, 1, 'Service Zenith', 'SRV-1', 'Service item', 40.0, 1)",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    fn make_token(user_id: i64, business_id: i64) -> String {
+        let claims = Claims {
+            sub: user_id.to_string(),
+            email: format!("user{}@example.com", user_id),
+            business_id: Some(business_id),
+            exp: (Utc::now() + ChronoDuration::hours(1)).timestamp() as usize,
+        };
+        jsonwebtoken::encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(b"test-secret"),
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn dashboard_route_includes_bootstrap_summary_fields() {
+        let (server, pool) = setup().await;
+        seed_data(&pool).await;
+        let token = make_token(42, 1);
+
+        let response = server
+            .get("/api/dashboard")
+            .add_header("authorization", format!("Bearer {}", token))
+            .await;
+
+        response.assert_status_ok();
+        let body: Value = response.json();
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["business"]["name"], "Acme Books");
+        assert_eq!(body["tax_guardian_card"]["status"], "all_clear");
+        assert!(body["tax_guardian_card"]["period_key"].as_str().unwrap().starts_with("20"));
+        assert_eq!(body["onboarding_readiness"]["has_profile"], true);
+        assert!(body["onboarding_readiness"]["unknowns"].is_array());
+        assert_eq!(body["bank_accounts"][0]["unreconciled_count"], 1);
+    }
+
+    #[tokio::test]
+    async fn products_route_filters_before_pagination() {
+        let (server, pool) = setup().await;
+        seed_data(&pool).await;
+
+        let response = server
+            .get("/api/products/list/?status=active&q=alpha&limit=1&offset=0")
+            .await;
+
+        response.assert_status_ok();
+        let body: Value = response.json();
+        let items = body["items"].as_array().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["name"], "Alpha Basic");
+        assert_eq!(body["stats"]["product_count"], 2);
+    }
+
+    #[tokio::test]
+    async fn customers_route_filters_by_status_and_search() {
+        let (server, pool) = setup().await;
+        seed_data(&pool).await;
+
+        let response = server
+            .get("/api/customers/list/?status=inactive&q=beta")
+            .await;
+
+        response.assert_status_ok();
+        let body: Value = response.json();
+        let customers = body["customers"].as_array().unwrap();
+        assert_eq!(customers.len(), 1);
+        assert_eq!(customers[0]["name"], "Beta LLC");
+        assert_eq!(body["stats"]["total_customers"], 1);
+    }
+
+    #[tokio::test]
+    async fn suppliers_route_filters_by_status_and_search() {
+        let (server, pool) = setup().await;
+        seed_data(&pool).await;
+
+        let response = server
+            .get("/api/suppliers/list/?status=inactive&q=north")
+            .await;
+
+        response.assert_status_ok();
+        let body: Value = response.json();
+        let suppliers = body["suppliers"].as_array().unwrap();
+        assert_eq!(suppliers.len(), 1);
+        assert_eq!(suppliers[0]["name"], "North Supply");
+        assert_eq!(body["stats"]["total_suppliers"], 1);
     }
 }

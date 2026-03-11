@@ -723,16 +723,16 @@ export default function ReconciliationPage({ bankAccountId }: { bankAccountId?: 
           : null;
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50 text-slate-900">
+    <div className="flex min-h-screen w-full flex-col bg-[#09090B] text-white">
       <PageHeader session={state.session} />
-      <div className="px-4 md:px-8 mt-2 text-xs text-slate-500">
-        <span className="font-semibold text-slate-700">Bank account:</span> {activeBank?.name || "—"} ·{" "}
-        <span className="font-semibold text-slate-700">Statement period:</span>{" "}
+      <div className="px-4 md:px-8 mt-2 text-xs text-gray-500">
+        <span className="font-semibold text-gray-300">Bank account:</span> {activeBank?.name || "—"} ·{" "}
+        <span className="font-semibold text-gray-300">Statement period:</span>{" "}
         {activePeriod
           ? `${new Date(activePeriod.startDate).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })} – ${new Date(activePeriod.endDate).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })}`
           : "—"}
         {state.session && (
-          <span className="ml-3 inline-flex items-center rounded-full bg-slate-100 px-2 py-[2px] text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+          <span className="ml-3 inline-flex items-center rounded-full bg-[#27272A] px-2 py-[2px] text-[11px] font-semibold uppercase tracking-wide text-gray-400">
             {state.session.status}
           </span>
         )}
@@ -740,7 +740,7 @@ export default function ReconciliationPage({ bankAccountId }: { bankAccountId?: 
 
       <main className="flex-1 px-4 py-6 md:px-8">
         {state.error && (
-          <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 flex items-center gap-3 justify-between">
+          <div className="mb-6 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-400 flex items-center gap-3 justify-between">
             <div className="flex items-center gap-2">
               <AlertTriangle className="h-4 w-4" />
               <span>{state.error}</span>
@@ -751,14 +751,14 @@ export default function ReconciliationPage({ bankAccountId }: { bankAccountId?: 
           </div>
         )}
         {state.actionError && !state.error && (
-          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 flex items-center gap-3">
+          <div className="mb-4 rounded-2xl border border-amber-400/20 bg-amber-400/10 p-3 text-sm text-amber-400 flex items-center gap-3">
             <div className="flex items-center gap-2">
               <AlertTriangle className="h-4 w-4" />
               <span>{state.actionError}</span>
             </div>
             <button
               type="button"
-              className="ml-auto text-[11px] font-semibold text-amber-700 hover:text-amber-900"
+              className="ml-auto text-[11px] font-semibold text-amber-400 hover:text-amber-300"
               onClick={() => setActionError(null)}
             >
               Dismiss
@@ -771,7 +771,7 @@ export default function ReconciliationPage({ bankAccountId }: { bankAccountId?: 
         )}
 
         {!state.loading && !state.error && state.bankAccounts.length > 0 && state.periods.length === 0 && (
-          <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
+          <div className="mb-4 rounded-2xl border border-white/5 bg-[#131316] p-4 text-sm text-gray-400">
             No statement periods found for this bank account yet. Import a statement to start reconciling.
           </div>
         )}
@@ -801,13 +801,13 @@ export default function ReconciliationPage({ bankAccountId }: { bankAccountId?: 
               <div className="col-span-12 xl:col-span-8 flex flex-col gap-6">
                 <ProgressSummary session={state.session} />
 
-                <section className="rounded-3xl border border-slate-200 bg-white shadow-sm flex flex-col">
-                  <div className="border-b border-slate-100 p-4 md:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <section className="rounded-3xl border border-white/5 bg-[#131316] shadow-sm flex flex-col">
+                  <div className="border-b border-white/5 p-4 md:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div>
-                      <h2 className="text-sm font-semibold tracking-wide text-slate-900">
+                      <h2 className="text-sm font-semibold tracking-wide text-white">
                         Feed
                       </h2>
-                      <p className="text-xs text-slate-500 mt-0.5">
+                      <p className="text-xs text-gray-500 mt-0.5">
                         {state.transactions.length === 0
                           ? "Loading transactions..."
                           : `${state.transactions.length} transactions in this period`}
@@ -828,7 +828,7 @@ export default function ReconciliationPage({ bankAccountId }: { bankAccountId?: 
                       />
 
                       <div className="relative w-full sm:w-64">
-                        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
                         <input
                           type="search"
                           placeholder="Search..."
@@ -836,7 +836,7 @@ export default function ReconciliationPage({ bankAccountId }: { bankAccountId?: 
                           onChange={(e) =>
                             setState((prev) => ({ ...prev, search: e.target.value }))
                           }
-                          className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/5 focus:border-slate-300 transition-all"
+                          className="w-full rounded-xl border border-white/10 bg-[#09090B] pl-9 pr-4 py-2 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-[#8B5CF6] transition-all"
                         />
                       </div>
                     </div>
@@ -844,15 +844,15 @@ export default function ReconciliationPage({ bankAccountId }: { bankAccountId?: 
 
                   <ScrollArea className="max-h-[600px]">
                     {state.loading ? (
-                      <div className="p-8 text-center text-slate-500">
+                      <div className="p-8 text-center text-gray-500">
                         <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />
                         Loading transactions...
                       </div>
                     ) : filteredTransactions.length === 0 ? (
                       <div className="p-8 text-center">
-                        <Check className="h-8 w-8 text-emerald-500 mx-auto mb-2" />
-                        <p className="text-emerald-700 font-medium">All caught up!</p>
-                        <p className="text-xs text-slate-500 mt-1">No transactions match your current filter.</p>
+                        <Check className="h-8 w-8 text-[#A3E635] mx-auto mb-2" />
+                        <p className="text-[#A3E635] font-medium">All caught up!</p>
+                        <p className="text-xs text-gray-500 mt-1">No transactions match your current filter.</p>
                       </div>
                     ) : (
                       <TransactionFeed
@@ -880,13 +880,13 @@ export default function ReconciliationPage({ bankAccountId }: { bankAccountId?: 
 
           {/* Show placeholder when session not started */}
           {!state.sessionStarted && (
-            <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50/50 p-12 text-center">
+            <div className="rounded-3xl border border-dashed border-white/10 bg-[#131316]/50 p-12 text-center">
               <div className="mx-auto max-w-md">
-                <div className="inline-flex items-center justify-center rounded-2xl bg-slate-100 p-4 mb-4">
-                  <Check className="h-8 w-8 text-slate-400" />
+                <div className="inline-flex items-center justify-center rounded-2xl bg-[#27272A] p-4 mb-4">
+                  <Check className="h-8 w-8 text-gray-500" />
                 </div>
-                <h3 className="text-lg font-semibold text-slate-700 mb-2">Ready to reconcile</h3>
-                <p className="text-sm text-slate-500 mb-4">
+                <h3 className="text-lg font-semibold text-gray-300 mb-2">Ready to reconcile</h3>
+                <p className="text-sm text-gray-500 mb-4">
                   Select a bank account and statement period above, then click "Start Reconciliation" to begin matching transactions.
                 </p>
               </div>
@@ -902,18 +902,18 @@ function PageHeader({ session }: { session: RecoSession | null }) {
   const reportUrl = session ? `/reconciliation/${session.id}/report/` : undefined;
 
   return (
-    <header className="sticky top-0 z-20 border-b bg-white/80 backdrop-blur-sm px-4 py-4 md:px-8">
+    <header className="sticky top-0 z-20 border-b border-white/5 bg-[#09090B]/80 backdrop-blur-sm px-4 py-4 md:px-8">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="inline-flex items-center justify-center rounded-xl bg-emerald-100 p-2 text-emerald-700">
+          <div className="inline-flex items-center justify-center rounded-xl bg-[#A3E635]/10 p-2 text-[#A3E635]">
             <Check className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold text-slate-900">Reconciliation</h1>
-            <p className="text-xs text-slate-500">Month-end check for your bank account</p>
+            <h1 className="text-lg font-semibold text-white">Reconciliation</h1>
+            <p className="text-xs text-gray-500">Month-end check for your bank account</p>
           </div>
           {session && (
-            <Badge variant="outline" className="rounded-full text-[10px] font-semibold uppercase tracking-wider">
+            <Badge variant="outline" className="rounded-full text-[10px] font-semibold uppercase tracking-wider border-white/20 text-gray-400">
               {session.status === "COMPLETED" ? "Completed" : session.status?.replace("_", " ")}
             </Badge>
           )}
@@ -965,12 +965,12 @@ function SessionSetupBar({
   const { bankAccounts, activeBankId, periods, activePeriodId, session } = state;
 
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white shadow-sm p-5 flex flex-col gap-5">
+    <section className="rounded-3xl border border-white/5 bg-[#131316] shadow-sm p-5 flex flex-col gap-5">
       <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6">
         <div className="flex flex-col gap-5 flex-1">
           <div className="flex flex-col md:flex-row gap-4 md:items-center">
             <div className="flex flex-col gap-1.5 flex-1 min-w-[200px]">
-              <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              <label className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
                 Bank account
               </label>
               <Select
@@ -978,7 +978,7 @@ function SessionSetupBar({
                 onValueChange={onSelectBank}
                 disabled={bankAccounts.length === 0}
               >
-                <SelectTrigger className="h-10 rounded-xl border-slate-200 bg-slate-50 text-sm font-medium">
+                <SelectTrigger className="h-10 rounded-xl border-white/10 bg-[#09090B] text-sm font-medium text-white">
                   <SelectValue placeholder="Select account" />
                 </SelectTrigger>
                 <SelectContent>
@@ -992,7 +992,7 @@ function SessionSetupBar({
             </div>
 
             <div className="flex flex-col gap-1.5 flex-1 min-w-[200px]">
-              <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              <label className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
                 Statement period
               </label>
               <Select
@@ -1000,7 +1000,7 @@ function SessionSetupBar({
                 onValueChange={onSelectPeriod}
                 disabled={!activeBankId || periods.length === 0}
               >
-                <SelectTrigger className="h-10 rounded-xl border-slate-200 bg-slate-50 text-sm font-medium">
+                <SelectTrigger className="h-10 rounded-xl border-white/10 bg-[#09090B] text-sm font-medium text-white">
                   <SelectValue placeholder="Select period" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1008,7 +1008,7 @@ function SessionSetupBar({
                     <SelectItem key={p.id} value={p.id}>
                       <span className="flex items-center gap-2">
                         {p.label}
-                        {p.isLocked && <Lock className="h-3 w-3 text-slate-400" />}
+                        {p.isLocked && <Lock className="h-3 w-3 text-gray-400" />}
                       </span>
                     </SelectItem>
                   ))}
@@ -1019,7 +1019,7 @@ function SessionSetupBar({
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="flex flex-col gap-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
                 Opening balance
               </span>
               <div className="relative">
@@ -1028,17 +1028,17 @@ function SessionSetupBar({
                   value={session?.beginningBalance ?? ""}
                   onChange={(e) => onChangeSessionField("beginningBalance", parseFloat(e.target.value))}
                   disabled={isLocked}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-medium outline-none focus:border-slate-400 focus:ring-0 disabled:opacity-70"
+                  className="w-full rounded-xl border border-white/10 bg-[#09090B] px-3 py-2.5 text-sm font-medium text-white outline-none focus:border-[#8B5CF6] disabled:opacity-70"
                   placeholder="0.00"
                 />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 font-medium">
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500 font-medium">
                   {activeBank?.currency}
                 </span>
               </div>
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
                 Statement ending balance
               </span>
               <div className="relative">
@@ -1047,29 +1047,29 @@ function SessionSetupBar({
                   value={session?.endingBalance ?? ""}
                   onChange={(e) => onChangeSessionField("endingBalance", parseFloat(e.target.value))}
                   disabled={isLocked}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-medium outline-none focus:border-slate-400 focus:ring-0 disabled:opacity-70"
+                  className="w-full rounded-xl border border-white/10 bg-[#09090B] px-3 py-2.5 text-sm font-medium text-white outline-none focus:border-[#8B5CF6] disabled:opacity-70"
                   placeholder="0.00"
                 />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 font-medium">
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500 font-medium">
                   {activeBank?.currency}
                 </span>
               </div>
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
                 Difference
               </span>
               <div className={`relative flex items-center justify-between rounded-xl border px-3 py-2.5 ${!session || session.difference === 0
-                ? "border-emerald-200 bg-emerald-50/50 text-emerald-700"
-                : "border-amber-200 bg-amber-50/50 text-amber-700"
+                ? "border-[#A3E635]/20 bg-[#A3E635]/10 text-[#A3E635]"
+                : "border-amber-400/20 bg-amber-400/10 text-amber-400"
                 }`}>
-                <span className="text-sm font-bold font-mono-soft">
+                <span className="text-sm font-bold font-mono">
                   {session ? session.difference.toFixed(2) : "—"}
                 </span>
                 <span className="text-xs font-medium opacity-70">{activeBank?.currency}</span>
               </div>
-              <span className="text-[11px] text-slate-500">
+              <span className="text-[11px] text-gray-500">
                 Difference = Statement ending – Cleared balance.
               </span>
             </div>
@@ -1083,11 +1083,11 @@ function SessionSetupBar({
               <Button
                 onClick={onStart}
                 disabled={!activeBankId || !activePeriodId}
-                className="w-full rounded-xl h-11 font-semibold shadow-sm transition-all bg-emerald-600 text-white hover:bg-emerald-700 hover:shadow-md disabled:opacity-60 disabled:bg-slate-100 disabled:text-slate-400"
+                className="w-full rounded-xl h-11 font-bold shadow-sm transition-all bg-[#A3E635] text-black hover:bg-[#bef264] hover:shadow-md disabled:opacity-60 disabled:bg-[#27272A] disabled:text-gray-500"
               >
                 Start Reconciliation
               </Button>
-              <p className="text-[11px] text-slate-500 leading-snug">
+              <p className="text-[11px] text-gray-500 leading-snug">
                 Select an account and period, then click Start to begin reconciling.
               </p>
             </>
@@ -1098,8 +1098,8 @@ function SessionSetupBar({
                 disabled={disableComplete}
                 title={completeDisabledReason || undefined}
                 className={`w-full rounded-xl h-11 font-semibold shadow-sm transition-all ${disableComplete
-                  ? "bg-slate-100 text-slate-400 hover:bg-slate-100"
-                  : "bg-slate-900 text-white hover:bg-slate-800 hover:shadow-md"
+                  ? "bg-[#27272A] text-gray-500 hover:bg-[#27272A]"
+                  : "bg-[#A3E635] text-black hover:bg-[#bef264] hover:shadow-md"
                   }`}
               >
                 {session?.status === "COMPLETED" ? "Period Completed" : "Complete period"}
@@ -1108,7 +1108,7 @@ function SessionSetupBar({
                 <Button
                   variant="outline"
                   onClick={onReopen}
-                  className="w-full rounded-xl border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-60"
+                  className="w-full rounded-xl border-white/10 text-gray-400 hover:bg-[#18181B] hover:text-white disabled:opacity-60"
                 >
                   Reopen period
                 </Button>
@@ -1116,7 +1116,7 @@ function SessionSetupBar({
               <Button
                 variant="outline"
                 disabled={isLocked}
-                className="w-full rounded-xl border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-60"
+                className="w-full rounded-xl border-white/10 text-gray-400 hover:bg-[#18181B] hover:text-white disabled:opacity-60"
               >
                 Save draft
               </Button>
@@ -1124,19 +1124,19 @@ function SessionSetupBar({
                 <Button
                   variant="outline"
                   onClick={onDelete}
-                  className="w-full rounded-xl border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 disabled:opacity-60"
+                  className="w-full rounded-xl border-red-500/20 text-red-400 hover:bg-red-500/10 hover:text-red-300 disabled:opacity-60"
                 >
                   Start over
                 </Button>
               )}
               {session?.status === "COMPLETED" && (
-                <p className="text-[11px] text-slate-500 leading-snug">This period is locked. Reopen the period to make changes.</p>
+                <p className="text-[11px] text-gray-500 leading-snug">This period is locked. Reopen the period to make changes.</p>
               )}
               {completionError && (
-                <p className="text-xs text-red-600 leading-snug">{completionError}</p>
+                <p className="text-xs text-red-400 leading-snug">{completionError}</p>
               )}
               {!completionError && completeDisabledReason && disableComplete && (
-                <p className="text-[11px] text-slate-500 leading-snug">{completeDisabledReason}</p>
+                <p className="text-[11px] text-gray-500 leading-snug">{completeDisabledReason}</p>
               )}
             </>
           )}
@@ -1162,25 +1162,25 @@ function ProgressSummary({ session }: ProgressSummaryProps) {
     : "You still have unreconciled transactions in this period.";
 
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white shadow-sm p-5">
+    <section className="rounded-3xl border border-white/5 bg-[#131316] shadow-sm p-5">
       {/* Header with progress percentage */}
       <div className="flex items-baseline gap-2 mb-4">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
           Reconciliation Progress
         </span>
-        <span className="text-2xl font-bold text-slate-900 ml-auto font-mono-soft">
+        <span className="text-2xl font-bold text-white ml-auto font-mono">
           {session.reconciledPercent.toFixed(0)}%
         </span>
       </div>
 
       {/* Progress bar */}
       <div className="mb-6">
-        <div className="h-3 w-full rounded-full bg-slate-100 overflow-hidden">
+        <div className="h-3 w-full rounded-full bg-[#27272A] overflow-hidden">
           <motion.div
             initial={{ width: 0 }}
             animate={{ width: `${session.reconciledPercent}%` }}
             transition={{ duration: 0.5, ease: "easeOut" }}
-            className="h-full bg-emerald-500"
+            className="h-full bg-[#A3E635]"
           />
         </div>
       </div>
@@ -1189,26 +1189,26 @@ function ProgressSummary({ session }: ProgressSummaryProps) {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Left: Financial Summary */}
         <div className="flex flex-col gap-3">
-          <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          <h3 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
             Financial Summary
           </h3>
 
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-600">Cleared balance</span>
-              <span className="font-mono font-semibold text-slate-900">
+              <span className="text-gray-400">Cleared balance</span>
+              <span className="font-mono font-semibold text-white">
                 {formatAmount(session.clearedBalance, session.bankAccount.currency)}
               </span>
             </div>
 
             <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-600">Statement ending</span>
-              <span className="font-mono font-semibold text-slate-900">
+              <span className="text-gray-400">Statement ending</span>
+              <span className="font-mono font-semibold text-white">
                 {formatAmount(session.endingBalance, session.bankAccount.currency)}
               </span>
             </div>
 
-            <Separator />
+            <Separator className="bg-white/5" />
 
             <div className={`flex items-center justify-between rounded-xl border px-3 py-2.5 ${differenceToneClass}`}>
               <span className="text-sm font-medium">Difference</span>
@@ -1218,50 +1218,50 @@ function ProgressSummary({ session }: ProgressSummaryProps) {
             </div>
           </div>
 
-          <p className="text-[11px] text-slate-500 leading-relaxed">
+          <p className="text-[11px] text-gray-500 leading-relaxed">
             {differenceHelper}
           </p>
         </div>
 
         {/* Right: Transaction Summary */}
         <div className="flex flex-col gap-3">
-          <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          <h3 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
             Transaction Summary
           </h3>
 
           <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 px-3 py-3">
-              <div className="text-[11px] font-medium text-emerald-700 uppercase tracking-wide mb-1">
+            <div className="rounded-xl border border-[#A3E635]/20 bg-[#A3E635]/10 px-3 py-3">
+              <div className="text-[11px] font-medium text-[#A3E635] uppercase tracking-wide mb-1">
                 Reconciled
               </div>
-              <div className="text-2xl font-bold text-emerald-900">
+              <div className="text-2xl font-bold text-[#A3E635]">
                 {session.reconciledCount ?? 0}
               </div>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-              <div className="text-[11px] font-medium text-slate-600 uppercase tracking-wide mb-1">
+            <div className="rounded-xl border border-white/5 bg-[#09090B] px-3 py-3">
+              <div className="text-[11px] font-medium text-gray-500 uppercase tracking-wide mb-1">
                 Excluded
               </div>
-              <div className="text-2xl font-bold text-slate-900">
+              <div className="text-2xl font-bold text-white">
                 {session.excludedCount ?? 0}
               </div>
             </div>
 
-            <div className="rounded-xl border border-amber-100 bg-amber-50/50 px-3 py-3">
-              <div className="text-[11px] font-medium text-amber-700 uppercase tracking-wide mb-1">
+            <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 px-3 py-3">
+              <div className="text-[11px] font-medium text-amber-400 uppercase tracking-wide mb-1">
                 Unreconciled
               </div>
-              <div className="text-2xl font-bold text-amber-900">
+              <div className="text-2xl font-bold text-amber-400">
                 {session.unreconciledCount}
               </div>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-              <div className="text-[11px] font-medium text-slate-600 uppercase tracking-wide mb-1">
+            <div className="rounded-xl border border-white/5 bg-[#09090B] px-3 py-3">
+              <div className="text-[11px] font-medium text-gray-500 uppercase tracking-wide mb-1">
                 Total
               </div>
-              <div className="text-2xl font-bold text-slate-900">
+              <div className="text-2xl font-bold text-white">
                 {session.totalTransactions}
               </div>
             </div>
@@ -1289,20 +1289,20 @@ const STATUS_LABELS: Record<RecoStatus | "all", string> = {
 function StatusFilter({ active, onChange, counts }: StatusFilterProps) {
   const keys: Array<RecoStatus | "all"> = ["all", "new", "matched", "partial", "excluded"];
   return (
-    <div className="inline-flex items-center rounded-xl border border-slate-200 bg-slate-50/50 p-1">
+    <div className="inline-flex items-center rounded-xl border border-white/5 bg-[#09090B] p-1">
       {keys.map((key) => (
         <button
           key={key}
           type="button"
           onClick={() => onChange(key)}
           className={`rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-all whitespace-nowrap ${active === key
-            ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200"
-            : "text-slate-500 hover:text-slate-700 hover:bg-slate-100/50"
+            ? "bg-[#27272A] text-white shadow-sm"
+            : "text-gray-500 hover:text-gray-300 hover:bg-[#18181B]"
             }`}
         >
           {STATUS_LABELS[key]}
           {counts && counts[key] > 0 && (
-            <span className={`ml-1 ${active === key ? "text-slate-500" : "text-slate-400"}`}>
+            <span className={`ml-1 ${active === key ? "text-gray-400" : "text-gray-600"}`}>
               ({counts[key]})
             </span>
           )}
@@ -1413,20 +1413,19 @@ function TransactionRow({ tx, onToggleInclude, onMatch, onAddAsNew, onUnmatch, i
         ? "bg-rose-50 text-rose-700 border-rose-200"
         : "bg-amber-50 text-amber-700 border-amber-200";
 
-  // Status colors for left border
   const statusBorderColor = isMatched
-    ? "border-l-emerald-500"
+    ? "border-l-[#A3E635]"
     : isPartial
-      ? "border-l-amber-500"
+      ? "border-l-amber-400"
       : isExcluded
-        ? "border-l-slate-300"
-        : "border-l-slate-200";
+        ? "border-l-gray-700"
+        : "border-l-white/5";
 
   return (
     <article
       className={`
         group flex items-center gap-4 px-4 py-3 border-l-4 ${statusBorderColor}
-        transition-colors hover:bg-slate-50/80
+        transition-colors hover:bg-[#18181B]
         ${!tx.includedInSession ? "opacity-50" : ""}
       `}
     >

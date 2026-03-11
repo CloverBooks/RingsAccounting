@@ -1,6 +1,7 @@
 import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach, type Mock } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 
 import CompanionPanel from "./CompanionPanel";
 import { applyCompanionAction, dismissCompanionAction, fetchCompanionOverview } from "./api";
@@ -33,6 +34,13 @@ vi.mock("./api", () => ({
 }));
 
 describe("CompanionPanel", () => {
+  const renderPanel = () =>
+    render(
+      <MemoryRouter>
+        <CompanionPanel />
+      </MemoryRouter>,
+    );
+
   afterEach(() => {
     vi.resetAllMocks();
   });
@@ -101,7 +109,7 @@ describe("CompanionPanel", () => {
     const mockedFetch = fetchCompanionOverview as unknown as Mock;
     mockedFetch.mockResolvedValue(mockResponse);
 
-    render(<CompanionPanel />);
+    renderPanel();
 
     // Wait for loading to complete by checking for content that appears after
     await waitFor(() => expect(screen.getByText("Tighten reconciliation")).toBeInTheDocument());
@@ -140,7 +148,7 @@ describe("CompanionPanel", () => {
       context_severity: "INFO",
     });
 
-    render(<CompanionPanel />);
+    renderPanel();
 
     await waitFor(() => expect(screen.getByText(/everything looks fine/i)).toBeInTheDocument());
 
@@ -186,7 +194,7 @@ describe("CompanionPanel", () => {
     (applyCompanionAction as unknown as Mock).mockResolvedValue({});
     (dismissCompanionAction as unknown as Mock).mockResolvedValue({});
 
-    render(<CompanionPanel />);
+    renderPanel();
 
     // Wait for and verify the Match button appears (bank_match_review action)
     await waitFor(() => expect(screen.getByText("Match")).toBeInTheDocument());
@@ -204,7 +212,7 @@ describe("CompanionPanel", () => {
     const mockedFetch = fetchCompanionOverview as unknown as Mock;
     mockedFetch.mockRejectedValue(new Error("Request failed"));
 
-    render(<CompanionPanel />);
+    renderPanel();
 
     await waitFor(() => expect(screen.getByText(/Companion temporarily unavailable/i)).toBeInTheDocument());
     const glowElement = screen.getByTestId("companion-glow");

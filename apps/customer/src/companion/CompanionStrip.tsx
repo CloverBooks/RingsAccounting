@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import type { CompanionContext } from "./api";
 import { useCompanionContext } from "./useCompanionContext";
 import { useCompanionSummary, type CompanionSummary } from "./useCompanionSummary";
 import { CompanionSuggestionBanner, type RiskLevel, type CompanionSuggestion, type FocusMode } from "./CompanionSuggestionBanner";
+import { navigateToCustomerHref } from "../routing/customerNavigation";
 
 type CompanionStripProps = {
   context: CompanionContext;
@@ -192,6 +194,7 @@ function focusModeToRiskLevel(focusMode: FocusMode): RiskLevel {
 }
 
 const CompanionStrip: React.FC<CompanionStripProps> = ({ context, className, userName }) => {
+  const navigate = useNavigate();
   const {
     isLoading: contextLoading,
     error: contextError,
@@ -283,7 +286,7 @@ const CompanionStrip: React.FC<CompanionStripProps> = ({ context, className, use
         toneSubtitle={viewModel.subtitle}
         isLlmSubtitle={viewModel.isLlmSubtitle}
         suggestions={viewModel.focusMode === "all_clear" ? [] : suggestions}
-        onViewMore={() => (window.location.href = "/dashboard/")}
+        onViewMore={() => navigateToCustomerHref(navigate, "/dashboard/")}
         isLoading={isLoading}
         greeting={viewModel.greeting}
         focusMode={viewModel.focusMode}

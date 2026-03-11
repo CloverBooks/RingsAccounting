@@ -17,11 +17,31 @@ export default defineConfig({
     dedupe: ["react", "react-dom", "framer-motion", "lucide-react"],
   },
   optimizeDeps: {
-    include: ["framer-motion", "lucide-react"],
+    include: ["react", "react-dom", "react-router-dom", "framer-motion", "lucide-react"],
   },
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) {
+            return undefined;
+          }
+          if (
+            id.includes("/react/") ||
+            id.includes("/react-dom/") ||
+            id.includes("/react-router-dom/")
+          ) {
+            return "react-vendor";
+          }
+          if (id.includes("/framer-motion/") || id.includes("/lucide-react/")) {
+            return "motion-icons";
+          }
+          return undefined;
+        },
+      },
+    },
   },
   server: {
     port: 5174,
